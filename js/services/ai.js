@@ -1,44 +1,115 @@
-/* Jet Market — Firebase AI Logic (Gemini 3.6 Flash)
-   Reutiliza o mesmo padrão do Jet League.
-   Usa o projeto Jet League para AI (já configurado) ou Market se disponível.
+/* Jet Market — Firebase AI Logic (Gemini)
+   Alinhado ao padrão do Jet League.
+   Tenta Jet League (AI costuma já estar ativa) e, se falhar, o projeto Market.
 */
 
 (function () {
-  // Carrega o SDK modular apenas quando necessário
-  let aiReady = false;
-  let generateFn = null;
+  let cachedGenerate = null;
+  let lastError = null;
 
-  async function ensureAI() {
-    if (generateFn) return generateFn;
+  const MODEL_CANDIDATES = [
+    "gemini-3.6-flash",
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-lite"
+  ];
 
-    try {
-      const { initializeApp } = await import("https://www.gstatic.com/firebasejs/12.16.0/firebase-app.js");
-      const { getAI, getGenerativeModel, GoogleAIBackend } = await import("https://www.gstatic.com/firebasejs/12.16.0/firebase-ai.js");
+  async function loadSDK() {
+    const { initializeApp, getApps } = await import("https://www.gstatic.com/firebasejs/12.16.0/firebase-app.js");
+    const { getAI, getGenerativeModel, GoogleAIBackend } = await import("https://www.gstatic.com/firebasejs/12.16.0/firebase-ai.js");
+    return { initializeApp, getApps, getAI, getGenerativeModel, GoogleAIBackend };
+  }
 
-      // Preferimos o projeto Jet League (já tem AI Logic ativo na maioria dos casos)
-      const config = window.JET_FIREBASE_CONFIG || window.MARKET_FIREBASE_CONFIG;
-      const aiApp = initializeApp(config, "jetMarketAI");
-      const ai = getAI(aiApp, { backend: new GoogleAIBackend() });
+  function getOrInitApp(initializeApp, getApps, config, name) {
+    if (!config || !config.apiKey) throw new Error("Config Firebase ausente para " + name);
+    const existing = (getApps && getApps()) || [];
+    const found = existing.find(a => a.name === name);
+    if (found) return found;
+    return initializeApp(config, name);
+  }
 
-      generateFn = async (prompt, modelName = "gemini-3.6-flash") => {
-        const model = getGenerativeModel(ai, { model: modelName });
+  async function tryGenerateWithConfig(sdk, config, appName, prompt, preferredModel) {
+    const app = getOrInitApp(sdk.initializeApp, sdk.getApps, config, appName);
+    const ai = sdk.getAI(app, { backend: new sdk.GoogleAIBackend() });
+
+    const models = preferredModel
+      ? [preferredModel, ...MODEL_CANDIDATES.filter(m => m !== preferredModel)]
+      : MODEL_CANDIDATES;
+
+    let lastErr = null;
+    for (const modelName of models) {
+      try {
+        const model = sdk.getGenerativeModel(ai, { model: modelName });
         const result = await model.generateContent(prompt);
-        return result.response.text();
-      };
-
-      aiReady = true;
-      console.log("[Jet Market] AI Logic pronto (Gemini)");
-      return generateFn;
-    } catch (err) {
-      console.warn("[Jet Market] AI Logic indisponível:", err);
-      throw err;
+        const text = result?.response?.text?.() ?? result?.response?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (text && String(text).trim()) {
+          console.log("[Jet Market] AI OK com modelo:", modelName, "app:", appName);
+          return String(text).trim();
+        }
+        lastErr = new Error("Resposta vazia do modelo " + modelName);
+      } catch (err) {
+        lastErr = err;
+        console.warn("[Jet Market] Modelo falhou:", modelName, appName, err?.message || err);
+      }
     }
+    throw lastErr || new Error("Nenhum modelo respondeu");
+  }
+
+  async function ensureGenerate() {
+    if (cachedGenerate) return cachedGenerate;
+
+    const sdk = await loadSDK();
+
+    cachedGenerate = async (prompt, modelName = "gemini-3.6-flash") => {
+      const attempts = [];
+
+      // 1) Jet League (mesmo padrão do site principal)
+      if (window.JET_FIREBASE_CONFIG) {
+        try {
+          return await tryGenerateWithConfig(
+            sdk,
+            window.JET_FIREBASE_CONFIG,
+            "jetMarketAI_jet",
+            prompt,
+            modelName
+          );
+        } catch (err) {
+          attempts.push("JetLeague: " + (err?.message || err));
+          lastError = err;
+        }
+      }
+
+      // 2) Projeto Market
+      if (window.MARKET_FIREBASE_CONFIG) {
+        try {
+          return await tryGenerateWithConfig(
+            sdk,
+            window.MARKET_FIREBASE_CONFIG,
+            "jetMarketAI_market",
+            prompt,
+            modelName
+          );
+        } catch (err) {
+          attempts.push("Market: " + (err?.message || err));
+          lastError = err;
+        }
+      }
+
+      const detail = attempts.join(" | ") || (lastError && lastError.message) || "desconhecido";
+      throw new Error("IA indisponível. " + detail);
+    };
+
+    return cachedGenerate;
   }
 
   window.marketGenerateWithAI = async (prompt, modelName = "gemini-3.6-flash") => {
-    const fn = await ensureAI();
-    return fn(prompt, modelName);
+    if (!prompt || !String(prompt).trim()) {
+      throw new Error("Prompt vazio");
+    }
+    const fn = await ensureGenerate();
+    return fn(String(prompt).trim(), modelName || "gemini-3.6-flash");
   };
 
-  window.isAIReady = () => aiReady;
+  window.isAIReady = () => !!cachedGenerate;
+  window.getLastAIError = () => lastError;
 })();

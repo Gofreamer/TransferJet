@@ -808,13 +808,18 @@ async function runAIGeneration() {
     openAIReviewModal(action, result);
     status.textContent = "Gerado! Revise no modal.";
   } catch (err) {
-    console.error(err);
-    status.textContent = "Erro na IA: " + (err.message || "tente novamente");
-    // Fallback local
+    console.error("[AI]", err);
+    const msg = err?.message || String(err);
+    status.textContent = "Erro na IA: " + msg;
+    // Fallback local só para rumor simples
     if (action === "rumor") {
-      const fallback = localRumorFallback();
-      openAIReviewModal(action, fallback);
-      status.textContent = "IA indisponível — usado fallback local. Revise antes de publicar.";
+      try {
+        const fallback = localRumorFallback();
+        openAIReviewModal(action, fallback);
+        status.textContent = "IA falhou (" + msg.slice(0, 80) + ") — fallback local. Revise antes de publicar.";
+      } catch (_) {}
+    } else {
+      alert("IA indisponível:\n" + msg + "\n\nConfira se o Firebase AI Logic está ativo no projeto Jet League (teste-jet) ou no Market.");
     }
   } finally {
     btn.disabled = false;

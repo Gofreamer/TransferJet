@@ -895,8 +895,8 @@ Não invente estatísticas. Tom profissional de mercado esportivo.`;
     overlay.classList.add("open");
     if (text) text.textContent = "Revise no modal antes de publicar no perfil.";
   } catch (err) {
-    if (text) text.textContent = "IA indisponível. Tente novamente mais tarde.";
-    console.error(err);
+    console.error("[AI análise]", err);
+    if (text) text.textContent = "IA indisponível: " + (err?.message || "tente novamente");
   }
 }
 
