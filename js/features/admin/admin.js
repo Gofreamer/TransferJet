@@ -125,6 +125,7 @@ function renderAdminImport() {
     <p class="admin-sub">
       Formato esperado:<br>
       <code>Equipe | Agente | Rank | Função | Troféu | P | V | D</code><br>
+      <span style="font-size:0.8rem;color:var(--text-muted)">Match por <strong>nome</strong> (migra time automaticamente). Célula Troféu vazia <strong>não apaga</strong> títulos do perfil. Títulos detalhados (🥇🥈🏆🏅) se editam em Admin → Valores.</span><br>
       Hierarquia de rank: <strong>Especial &gt; S &gt; A &gt; B &gt; C &gt; D &gt; E</strong> · Reserva &gt; Emergência
     </p>
     <div class="admin-form-grid">
@@ -234,11 +235,22 @@ function processImportFile() {
 function calculateValuesFromRows(rows) {
   const results = [];
   const unmatched = [];
-  const knownKeys = new Set(getAllPlayersFlat().map(p => p.key));
-  const knownNames = {};
-  getAllPlayersFlat().forEach(p => {
-    knownNames[(p.club + "|" + p.name).toLowerCase()] = p;
-    knownNames[p.name.toLowerCase()] = knownNames[p.name.toLowerCase()] || p;
+  const migrations = [];
+  const allPlayers = getAllPlayersFlat();
+  const marketPlayers = window.AppState.market.players || {};
+
+  // Índice por nome (primeiro match) e por key
+  const byName = {};
+  allPlayers.forEach(p => {
+    const n = p.name.toLowerCase();
+    if (!byName[n]) byName[n] = p;
+  });
+  // Também varre market keys que possam não estar no elenco Jet
+  Object.entries(marketPlayers).forEach(([key, m]) => {
+    const name = (m.name || key.split("_").slice(1).join("_") || "").toLowerCase();
+    if (name && !byName[name]) {
+      byName[name] = { key, name: m.name || name, club: key.split("_")[0], ...m };
+    }
   });
 
   for (const row of rows) {
@@ -249,39 +261,103 @@ function calculateValuesFromRows(rows) {
     const rank = String(row["Rank"] || row["rank"] || "").trim();
     const func = String(row["Função"] || row["Funcao"] || row["função"] || row["Function"] || "").trim();
     const trophyRaw = String(row["Troféu"] || row["Trofeu"] || row["troféu"] || "").trim();
-    const trophy = trophyRaw ? 1 : 0;
     const P = Number(row["P"] || row["Partidas"] || 0) || 0;
     const V = Number(row["V"] || row["Vitórias"] || row["Vitorias"] || 0) || 0;
     const D = Number(row["D"] || row["Derrotas"] || 0) || 0;
 
-    const key = team + "_" + name;
-    const existing = window.AppState.market.players[key] || {};
-    const matched = knownKeys.has(key) || knownNames[(team + "|" + name).toLowerCase()];
+    const newKey = team + "_" + name;
+    const nameKey = name.toLowerCase();
+    const found = byName[nameKey];
+
+    let existing = marketPlayers[newKey] || {};
+    let oldKey = null;
+    let migrated = false;
+
+    // Match por nome: se time mudou, migra o registro antigo
+    if (found) {
+      const foundKey = found.key;
+      if (foundKey !== newKey && marketPlayers[foundKey]) {
+        existing = { ...marketPlayers[foundKey] };
+        oldKey = foundKey;
+        migrated = true;
+        migrations.push({ name, from: found.club || foundKey.split("_")[0], to: team });
+      } else if (marketPlayers[foundKey]) {
+        existing = { ...marketPlayers[foundKey] };
+      }
+    }
+
+    // Títulos: célula vazia NÃO apaga o que já está salvo
+    const prevTitles = normalizeTitlesAdmin(existing);
+    let titles = { ...prevTitles };
+    let trophyNum = window.VALUATION.totalTitles(titles);
+
+    if (trophyRaw !== "") {
+      // Planilha trouxe número → atualiza total legado (não zera tipos específicos do Admin)
+      const n = parseInt(trophyRaw, 10);
+      if (!isNaN(n) && n >= 0) {
+        trophyNum = n;
+        // Se não havia titles estruturados, assume Nacional
+        if (!existing.titles) {
+          titles = { nacional: n, lji: 0, mundial: 0, eventoEspecial: 0 };
+        }
+      } else if (trophyRaw) {
+        // Qualquer texto não-vazio conta como pelo menos 1 (compat)
+        trophyNum = Math.max(trophyNum, 1);
+        if (!existing.titles) titles.nacional = Math.max(titles.nacional, 1);
+      }
+    }
 
     const calc = window.VALUATION.calculate({
-      rank, func, role: /emerg/i.test(func) ? "emergencia" : (/reserva/i.test(func) ? "reserva" : "titular"),
-      trophy, P, V, D, team
+      rank, func,
+      role: /emerg/i.test(func) ? "emergencia" : (/reserva/i.test(func) ? "reserva" : "titular"),
+      trophy: trophyNum,
+      titles,
+      P, V, D, team
     });
 
+    const matched = !!(found || marketPlayers[newKey]);
     if (!matched) {
       unmatched.push({ team, name, rank, P, V, D });
     }
 
     results.push({
-      key, name, team, rank, func, trophy, P, V, D, wr: calc.wr,
+      key: newKey,
+      oldKey,
+      migrated,
+      name, team, rank, func,
+      trophy: trophyNum,
+      titles,
+      P, V, D, wr: calc.wr,
       oldValue: existing.marketValue || null,
       newValue: calc.value,
       peak: calc.peak,
-      matched: !!matched,
+      matched,
       nationality: existing.nationality || "Brasil",
       age: existing.age || 24,
       photo: existing.photo || "",
       salary: existing.salary ?? null,
-      releaseClause: existing.releaseClause ?? null
+      releaseClause: existing.releaseClause ?? null,
+      // dados a preservar na migração
+      _existing: existing
     });
   }
   results._unmatched = unmatched;
+  results._migrations = migrations;
   return results.sort((a, b) => b.newValue - a.newValue);
+}
+
+function normalizeTitlesAdmin(m) {
+  const t = (m && m.titles) || {};
+  const titles = {
+    nacional: Number(t.nacional) || 0,
+    lji: Number(t.lji) || 0,
+    mundial: Number(t.mundial) || 0,
+    eventoEspecial: Number(t.eventoEspecial) || 0
+  };
+  if (!m?.titles && (m?.trophy > 0)) {
+    titles.nacional = Number(m.trophy) || 0;
+  }
+  return titles;
 }
 
 function showImportReviewModal(calculated, mode) {
@@ -289,6 +365,7 @@ function showImportReviewModal(calculated, mode) {
   const body = document.getElementById("aiReviewBody");
   const title = document.getElementById("aiReviewTitle");
   const unmatched = calculated._unmatched || [];
+  const migrations = calculated._migrations || [];
   const statsOnly = mode === "statsOnly";
 
   let up = 0, down = 0, same = 0;
@@ -310,6 +387,16 @@ function showImportReviewModal(calculated, mode) {
       <div class="kpi"><div class="kpi-label">Não achados</div><div class="kpi-value" style="color:var(--orange)">${unmatched.length}</div></div>
     </div>
     ${statsOnly ? `<p style="font-size:0.85rem;color:var(--cyan);margin-bottom:10px">Modo: <strong>somente stats</strong> — valores de mercado não serão alterados.</p>` : ""}
+    ${migrations.length ? `
+      <div class="rumor-card" style="border-color:var(--cyan);margin-bottom:12px">
+        <strong style="color:var(--cyan)">🔄 Trocas de time detectadas (${migrations.length})</strong>
+        <div style="font-size:0.8rem;margin-top:6px;color:var(--text-muted)">
+          ${migrations.slice(0, 10).map(m => `${m.name}: ${m.from} → ${m.to}`).join(" · ")}
+          ${migrations.length > 10 ? "…" : ""}
+        </div>
+        <p style="font-size:0.75rem;margin-top:6px;color:var(--text-dim)">Histórico, valor e títulos serão migrados para o novo clube.</p>
+      </div>
+    ` : ""}
     ${unmatched.length ? `
       <div class="rumor-card" style="border-color:var(--orange);margin-bottom:12px">
         <strong style="color:var(--orange)">⚠ Nomes não encontrados no elenco Jet League (${unmatched.length})</strong>
@@ -359,6 +446,9 @@ function renderAdminValues() {
         ${[...new Set(players.map(p => p.club))].sort().map(c => `<option value="${c}">${c}</option>`).join("")}
       </select>
     </div>
+    <p style="font-size:0.8rem;color:var(--text-muted);margin:0 0 10px">
+      Títulos: 🥇 Nacional · 🥈 L.J.I · 🏆 Mundial · 🏅 Evento — edite e clique Salvar. Célula vazia no Excel <strong>não apaga</strong> títulos.
+    </p>
     <div class="admin-table-wrap">
       <table class="admin-table" id="adminValuesTable">
         <thead>
@@ -367,29 +457,38 @@ function renderAdminValues() {
             <th>Equipe</th>
             <th>Valor</th>
             <th>Pico</th>
+            <th>Títulos</th>
             <th>Salário</th>
             <th>Cláusula</th>
             <th>Idade</th>
             <th>Nac.</th>
-            <th>Foto</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
-          ${players.map(p => `
+          ${players.map(p => {
+            const t = p.titles || {};
+            return `
             <tr data-key="${p.key}" data-name="${p.name.toLowerCase()}" data-club="${p.club}">
               <td><strong>${p.name}</strong></td>
               <td>${p.club}</td>
               <td><input type="number" class="admin-input" data-field="marketValue" value="${p.marketValue || ""}" placeholder="0"></td>
               <td><input type="number" class="admin-input" data-field="peakValue" value="${p.peakValue || ""}" placeholder="0"></td>
+              <td>
+                <div class="admin-titles-cell">
+                  <label title="Nacional">🥇<input type="number" class="admin-input admin-title" data-title="nacional" min="0" value="${t.nacional || 0}"></label>
+                  <label title="L.J.I">🥈<input type="number" class="admin-input admin-title" data-title="lji" min="0" value="${t.lji || 0}"></label>
+                  <label title="Mundial">🏆<input type="number" class="admin-input admin-title" data-title="mundial" min="0" value="${t.mundial || 0}"></label>
+                  <label title="Evento Especial">🏅<input type="number" class="admin-input admin-title" data-title="eventoEspecial" min="0" value="${t.eventoEspecial || 0}"></label>
+                </div>
+              </td>
               <td><input type="number" class="admin-input" data-field="salary" value="${p.salary || ""}" placeholder="—"></td>
               <td><input type="number" class="admin-input" data-field="releaseClause" value="${p.releaseClause || ""}" placeholder="—"></td>
               <td><input type="number" class="admin-input admin-input-sm" data-field="age" value="${p.age || ""}" placeholder="—"></td>
               <td><input type="text" class="admin-input admin-input-sm" data-field="nationality" value="${p.nationality || ""}" placeholder="—"></td>
-              <td><input type="text" class="admin-input" data-field="photo" value="${p.photo || ""}" placeholder="url"></td>
               <td><button class="btn-primary btn-sm" onclick="savePlayerRow(this)">Salvar</button></td>
-            </tr>
-          `).join("")}
+            </tr>`;
+          }).join("")}
         </tbody>
       </table>
     </div>
@@ -410,14 +509,24 @@ function savePlayerRow(btn) {
   const tr = btn.closest("tr");
   const key = tr.dataset.key;
   const data = {};
-  tr.querySelectorAll(".admin-input").forEach(input => {
+  tr.querySelectorAll(".admin-input:not(.admin-title)").forEach(input => {
     const field = input.dataset.field;
+    if (!field) return;
     let val = input.value.trim();
     if (["marketValue", "peakValue", "age", "salary", "releaseClause"].includes(field)) {
       val = val === "" ? null : Number(val);
     }
     if (val !== null && val !== "") data[field] = val;
   });
+
+  // Títulos por tipo
+  const titles = { nacional: 0, lji: 0, mundial: 0, eventoEspecial: 0 };
+  tr.querySelectorAll(".admin-title").forEach(input => {
+    const type = input.dataset.title;
+    if (type) titles[type] = Math.max(0, Number(input.value) || 0);
+  });
+  data.titles = titles;
+  data.trophy = (titles.nacional || 0) + (titles.lji || 0) + (titles.mundial || 0) + (titles.eventoEspecial || 0);
 
   // Mantém valueHistory se existir
   const existing = window.AppState.market.players[key] || {};
@@ -581,6 +690,10 @@ function saveTransfer() {
 
   window.marketDb.ref("transfers/" + id).set(payload)
     .then(() => {
+      // Migra registro do Market (valor, títulos, histórico) para a nova key
+      if (status === "oficial") {
+        migrateMarketPlayerOnTransfer(opt.value, opt.dataset.name, from, to);
+      }
       alert("Transferência registrada!");
       if (status === "oficial" && confirm("Aplicar também no elenco da Jet League?\n(Requer permissão de escrita no Firebase da liga)")) {
         syncTransferToJetLeague(payload);
@@ -588,6 +701,32 @@ function saveTransfer() {
       renderAdminTransfers();
     })
     .catch(err => alert("Erro: " + err.message));
+}
+
+/** Move o registro do Market quando o agente troca de time (preserva valor, títulos, histórico). */
+function migrateMarketPlayerOnTransfer(oldKey, playerName, fromClub, toClub) {
+  const newKey = toClub + "_" + playerName;
+  if (oldKey === newKey) return Promise.resolve();
+
+  const existing = window.AppState.market.players[oldKey];
+  if (!existing) {
+    // Tenta achar por nome em qualquer key
+    const found = Object.entries(window.AppState.market.players || {}).find(([k, m]) => {
+      const n = (m.name || k.split("_").slice(1).join("_") || "").toLowerCase();
+      return n === playerName.toLowerCase();
+    });
+    if (!found) return Promise.resolve();
+    const [foundKey, foundData] = found;
+    if (foundKey === newKey) return Promise.resolve();
+    const payload = { ...foundData, name: playerName, team: toClub };
+    return window.marketDb.ref("players/" + newKey).set(payload)
+      .then(() => window.marketDb.ref("players/" + foundKey).remove());
+  }
+
+  const payload = { ...existing, name: playerName, team: toClub };
+  return window.marketDb.ref("players/" + newKey).set(payload)
+    .then(() => window.marketDb.ref("players/" + oldKey).remove())
+    .catch(err => console.warn("Migração Market falhou:", err));
 }
 
 function syncTransferToJetLeague(t) {
@@ -1156,6 +1295,7 @@ function confirmAIReview() {
     const mode = window._aiReviewData.mode || "full";
     const statsOnly = mode === "statsOnly";
     const updates = {};
+    const deletes = [];
     const season = window.AppState.jet.currentSeason || "Temporada 1";
     const inputs = document.querySelectorAll(".imp-val");
     const valueByIdx = {};
@@ -1164,7 +1304,8 @@ function confirmAIReview() {
     });
 
     data.forEach((r, i) => {
-      const existing = window.AppState.market.players[r.key] || {};
+      // Fonte: registro migrado (oldKey) ou o da nova key
+      const existing = r._existing || window.AppState.market.players[r.oldKey] || window.AppState.market.players[r.key] || {};
       const value = statsOnly
         ? (existing.marketValue ?? r.oldValue ?? r.newValue)
         : (valueByIdx[i] != null ? valueByIdx[i] : r.newValue);
@@ -1177,15 +1318,21 @@ function confirmAIReview() {
         else history.push({ season, value });
       }
 
+      const titles = r.titles || normalizeTitlesAdmin(existing);
+      const trophyTotal = window.VALUATION.totalTitles(titles, r.trophy);
+
       updates[r.key] = {
         ...existing,
+        name: r.name,
+        team: r.team,
         marketValue: value,
         peakValue: statsOnly
           ? (existing.peakValue || value)
           : Math.max(existing.peakValue || 0, r.peak || value),
         rank: r.rank,
         functionRole: r.func,
-        trophy: r.trophy,
+        trophy: trophyTotal,
+        titles,
         stats: { P: r.P, V: r.V, D: r.D, winRate: r.wr },
         statsRound: "Import " + new Date().toISOString().slice(0, 10),
         nationality: r.nationality || existing.nationality || "Brasil",
@@ -1197,11 +1344,18 @@ function confirmAIReview() {
         status: existing.status || "ativo",
         valueHistory: history
       };
+
+      // Remove key antiga se houve migração de time
+      if (r.oldKey && r.oldKey !== r.key) {
+        deletes.push(r.oldKey);
+        updates[r.oldKey] = null; // Firebase update com null = remove
+      }
     });
 
     window.marketDb.ref("players").update(updates)
       .then(() => {
-        alert(`${Object.keys(updates).length} agentes atualizados!`);
+        const migMsg = deletes.length ? ` (${deletes.length} migrados de time)` : "";
+        alert(`${Object.keys(updates).filter(k => updates[k] != null).length} agentes atualizados!${migMsg}`);
         closeAIReviewModal();
         if (isLogged) renderAdminImport();
       })

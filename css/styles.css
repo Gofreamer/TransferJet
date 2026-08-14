@@ -1334,3 +1334,80 @@ table { min-width: 520px; }
 #view-home, #view-players, #view-transfers, #view-rankings, #view-rumors {
   overflow-x: clip;
 }
+
+/* ========== TÍTULOS ========== */
+.titles-row {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.title-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.08);
+  line-height: 1.3;
+}
+.title-badge.nacional { background: rgba(251, 191, 36, 0.12); border-color: rgba(251, 191, 36, 0.25); color: #fbbf24; }
+.title-badge.lji      { background: rgba(148, 163, 184, 0.12); border-color: rgba(148, 163, 184, 0.25); color: #94a3b8; }
+.title-badge.mundial  { background: rgba(0, 229, 255, 0.12); border-color: rgba(0, 229, 255, 0.3); color: #22d3ee; }
+.title-badge.evento   { background: rgba(167, 139, 250, 0.12); border-color: rgba(167, 139, 250, 0.25); color: #a78bfa; }
+
+.titles-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+@media (max-width: 700px) {
+  .titles-grid { grid-template-columns: repeat(2, 1fr); }
+}
+.title-card {
+  background: var(--card, rgba(255,255,255,0.03));
+  border: 1px solid var(--border, rgba(255,255,255,0.08));
+  border-radius: 14px;
+  padding: 16px 12px;
+  text-align: center;
+  transition: border-color 0.2s, transform 0.15s;
+  opacity: 0.45;
+}
+.title-card.has {
+  opacity: 1;
+}
+.title-card.has.nacional { border-color: rgba(251, 191, 36, 0.4); box-shadow: 0 0 20px rgba(251, 191, 36, 0.08); }
+.title-card.has.lji      { border-color: rgba(148, 163, 184, 0.35); }
+.title-card.has.mundial  { border-color: rgba(0, 229, 255, 0.45); box-shadow: 0 0 24px rgba(0, 229, 255, 0.1); }
+.title-card.has.evento   { border-color: rgba(167, 139, 250, 0.4); box-shadow: 0 0 20px rgba(167, 139, 250, 0.08); }
+.title-icon { font-size: 1.6rem; margin-bottom: 6px; }
+.title-name { font-size: 0.78rem; color: var(--text-muted); margin-bottom: 4px; letter-spacing: 0.02em; }
+.title-count { font-size: 1.35rem; font-weight: 700; color: var(--text); }
+
+/* Admin titles inputs */
+.admin-titles-cell {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 160px;
+}
+.admin-titles-cell label {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  background: rgba(255,255,255,0.04);
+  border-radius: 6px;
+  padding: 2px 5px;
+}
+.admin-titles-cell input {
+  width: 36px !important;
+  min-width: 36px !important;
+  text-align: center;
+  padding: 2px 4px !important;
+  font-size: 0.78rem !important;
+}

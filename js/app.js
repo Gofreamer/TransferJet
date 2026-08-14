@@ -25,6 +25,37 @@ function showView(viewName, el) {
 }
 
 /* ========== HELPERS DE DADOS ========== */
+function normalizeTitles(m) {
+  const t = (m && m.titles) || {};
+  const titles = {
+    nacional: Number(t.nacional) || 0,
+    lji: Number(t.lji) || 0,
+    mundial: Number(t.mundial) || 0,
+    eventoEspecial: Number(t.eventoEspecial) || 0
+  };
+  // Compat: se não tem titles mas tem trophy numérico, assume Nacional
+  if (!m?.titles && (m?.trophy > 0)) {
+    titles.nacional = Number(m.trophy) || 0;
+  }
+  return titles;
+}
+
+function titlesTotal(titles) {
+  if (!titles) return 0;
+  return (titles.nacional || 0) + (titles.lji || 0) + (titles.mundial || 0) + (titles.eventoEspecial || 0);
+}
+
+function renderTitlesBadges(titles, opts = {}) {
+  if (!titles) return "";
+  const items = [];
+  if (titles.nacional > 0) items.push(`<span class="title-badge nacional" title="Nacional">🥇${titles.nacional > 1 ? "×" + titles.nacional : ""}</span>`);
+  if (titles.lji > 0) items.push(`<span class="title-badge lji" title="L.J.I">🥈${titles.lji > 1 ? "×" + titles.lji : ""}</span>`);
+  if (titles.mundial > 0) items.push(`<span class="title-badge mundial" title="Mundial">🏆${titles.mundial > 1 ? "×" + titles.mundial : ""}</span>`);
+  if (titles.eventoEspecial > 0) items.push(`<span class="title-badge evento" title="Evento Especial">🏅${titles.eventoEspecial > 1 ? "×" + titles.eventoEspecial : ""}</span>`);
+  if (!items.length) return opts.empty || "";
+  return `<span class="titles-row">${items.join("")}</span>`;
+}
+
 function getAllPlayersFlat() {
   const rosters = window.AppState.jet.rosters || {};
   const marketPlayers = window.AppState.market.players || {};
@@ -35,6 +66,7 @@ function getAllPlayersFlat() {
       const key = playerKey(club, p.n);
       const m = marketPlayers[key] || {};
       const stats = m.stats || {};
+      const titles = normalizeTitles(m);
       list.push({
         key,
         name: p.n,
@@ -50,7 +82,8 @@ function getAllPlayersFlat() {
         valueHistory: m.valueHistory || [],
         rank: m.rank || "—",
         functionRole: m.functionRole || "",
-        trophy: m.trophy || 0,
+        trophy: titlesTotal(titles),
+        titles,
         salary: m.salary ?? null,
         releaseClause: m.releaseClause ?? null,
         freeAgent: !!m.freeAgent,
@@ -70,6 +103,7 @@ function getAllPlayersFlat() {
     if (!m || !m.freeAgent) return;
     if (list.some(p => p.key === key)) return;
     const st = m.stats || {};
+    const titles = normalizeTitles(m);
     list.push({
       key,
       name: m.name || key.split("_").slice(1).join("_") || key,
@@ -85,7 +119,8 @@ function getAllPlayersFlat() {
       valueHistory: m.valueHistory || [],
       rank: m.rank || "—",
       functionRole: "Agente livre",
-      trophy: m.trophy || 0,
+      trophy: titlesTotal(titles),
+      titles,
       salary: m.salary ?? null,
       releaseClause: m.releaseClause ?? null,
       freeAgent: true,
@@ -380,7 +415,7 @@ function renderPlayers() {
           <div class="card-value">${p.marketValue ? formatUSD(p.marketValue, true) : '<span style="color:var(--text-muted);font-size:0.85rem">Sem valor</span>'}</div>
           <div class="card-meta">
             <span class="tag ${p.role}">${roleLabel(p.role)}</span>
-            ${p.trophy ? `<span class="tag">🏆 ${p.trophy}</span>` : ""}
+            ${renderTitlesBadges(p.titles)}
             ${p.functionRole && p.functionRole.includes("Capitão") ? `<span class="tag" style="background:rgba(0,229,255,0.15);color:var(--cyan)">Capitão</span>` : ""}
           </div>
         </div>
@@ -552,7 +587,7 @@ function renderCompare() {
     { label: "Win Rate", fn: p => p.stats?.P ? Math.round(p.stats.winRate * 100) + "%" : "—", best: (a,b) => (a.stats?.winRate||0) >= (b.stats?.winRate||0) },
     { label: "Idade", fn: p => p.age || "—" },
     { label: "Nacionalidade", fn: p => p.nationality },
-    { label: "Troféus", fn: p => p.trophy ? "🏆 " + p.trophy : "—" },
+    { label: "Títulos", fn: p => { const t = p.titles || {}; const parts = []; if (t.nacional) parts.push("🥇"+t.nacional); if (t.lji) parts.push("🥈"+t.lji); if (t.mundial) parts.push("🏆"+t.mundial); if (t.eventoEspecial) parts.push("🏅"+t.eventoEspecial); return parts.length ? parts.join(" ") : "—"; } },
     { label: "Contrato até", fn: p => p.contractUntil },
   ];
 
@@ -758,6 +793,7 @@ function openPlayerProfile(key) {
           <span class="tag">${p.nationality}</span>
           ${p.age ? `<span class="tag">${p.age} anos</span>` : ""}
           <span class="tag">Contrato até ${p.contractUntil}</span>
+          ${renderTitlesBadges(p.titles)}
         </div>
       </div>
     </div>
@@ -785,6 +821,32 @@ function openPlayerProfile(key) {
       <h2 class="section-h">Evolução do Valor</h2>
       <div class="chart-container">
         <canvas id="valueChart"></canvas>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2 class="section-h">Títulos</h2>
+      <div class="titles-grid">
+        <div class="title-card nacional ${(p.titles?.nacional||0) ? "has" : ""}">
+          <div class="title-icon">🥇</div>
+          <div class="title-name">Nacional</div>
+          <div class="title-count">${p.titles?.nacional || 0}</div>
+        </div>
+        <div class="title-card lji ${(p.titles?.lji||0) ? "has" : ""}">
+          <div class="title-icon">🥈</div>
+          <div class="title-name">L.J.I</div>
+          <div class="title-count">${p.titles?.lji || 0}</div>
+        </div>
+        <div class="title-card mundial ${(p.titles?.mundial||0) ? "has" : ""}">
+          <div class="title-icon">🏆</div>
+          <div class="title-name">Mundial</div>
+          <div class="title-count">${p.titles?.mundial || 0}</div>
+        </div>
+        <div class="title-card evento ${(p.titles?.eventoEspecial||0) ? "has" : ""}">
+          <div class="title-icon">🏅</div>
+          <div class="title-name">Evento Especial</div>
+          <div class="title-count">${p.titles?.eventoEspecial || 0}</div>
+        </div>
       </div>
     </div>
 
