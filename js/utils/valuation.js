@@ -1,28 +1,28 @@
 /* Jet Market — Fórmula de valorização
-   Hierarquia: Especial > Rank S > A > B > C > D > E > Clandestino
+   Hierarquia: Especial > Rank S > A > B > C > D > E
    Função: Titular > Reserva > Emergência
 */
 
 window.VALUATION = {
   rankBase: {
-    "Especial": 40000000,
-    "Rank S": 32000000,
-    "S": 32000000,
-    "Rank A": 22000000,
-    "A": 22000000,
-    "Rank B": 15000000,
-    "B": 15000000,
-    "Rank C": 10000000,
-    "C": 10000000,
-    "Rank D": 6500000,
-    "D": 6500000,
-    "Rank E": 3500000,
-    "E": 3500000,
-    "Clandestino": 8000000,
-    "Clandestina": 8000000,
-    "Rank ?": 9000000,
-    "-": 7000000,
-    "": 7000000
+    "Especial": 5000000,
+    "Rank S": 3000000,
+    "S": 3000000,
+    "Rank A": 2000000,
+    "A": 2000000,
+    "Rank B": 1500000,
+    "B": 1500000,
+    "Rank C": 1000000,
+    "C": 1000000,
+    "Rank D": 500000,
+    "D": 500000,
+    "Rank E": 0,
+    "E": 0,
+    "Clandestino": 2000000,
+    "Clandestina": 2000000,
+    "Rank ?": 1500000,
+    "-": 1000000,
+    "": 1000000
   },
 
   teamFactor: {
@@ -41,15 +41,15 @@ window.VALUATION = {
   resolveRankBase(rank) {
     if (this.rankBase[rank] != null) return this.rankBase[rank];
     const r = String(rank || "").toLowerCase();
-    if (r.includes("especial")) return 40000000;
-    if (r.includes("s") && !r.includes("especial")) return 32000000;
-    if (r.includes("a")) return 22000000;
-    if (r.includes("b")) return 15000000;
-    if (r.includes("c")) return 10000000;
-    if (r.includes("d")) return 6500000;
-    if (r.includes("e")) return 3500000;
-    if (r.includes("clandest")) return 8000000;
-    return 8000000;
+    if (r.includes("especial")) return 5000000;
+    if (r.includes("s") && !r.includes("especial")) return 3000000;
+    if (r.includes("a")) return 2000000;
+    if (r.includes("b")) return 1500000;
+    if (r.includes("c")) return 1000000;
+    if (r.includes("d")) return 500000;
+    if (r.includes("e")) return 0;
+    if (r.includes("clandest")) return 2000000;
+    return 1000000;
   },
 
   roleMultiplier(func, role) {
@@ -58,7 +58,7 @@ window.VALUATION = {
     if (/capit[aã]o/.test(f)) return 1.12;
     if (/emerg/.test(f) || r === "emergencia") return 0.75;
     if (/reserva/.test(f) || r === "reserva") return 0.90;
-    return 1.0; // titular / membro
+    return 1.0;
   },
 
   calculate({ rank, func, role, trophy, P, V, D, team }) {
@@ -70,9 +70,14 @@ window.VALUATION = {
     const roleM = this.roleMultiplier(func, role);
     const tf = this.teamFactor[team] || 1.0;
 
-    let value = Math.round(base * perf * vol * roleM * trop * tf / 100000) * 100000;
-    value = Math.max(1500000, Math.min(value, 55000000));
-    const peak = Math.round(value * (1.05 + 0.1 * wr) / 100000) * 100000;
+    let value = base <= 0
+      ? 0
+      : Math.round(base * perf * vol * roleM * trop * tf / 50000) * 50000;
+
+    value = Math.max(0, Math.min(value, 12000000));
+    const peak = value <= 0
+      ? 0
+      : Math.round(value * (1.05 + 0.1 * wr) / 50000) * 50000;
     return { value, peak, wr };
   }
 };

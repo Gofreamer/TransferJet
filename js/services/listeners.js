@@ -108,14 +108,17 @@ function updateConnectionStatus() {
   const marketOk = window.AppState.ui.marketConnected;
 
   if (jetOk && marketOk) {
-    el.innerHTML = `<span class="status-dot online"></span> Jet League + Market online`;
+    el.innerHTML = `<span class="status-dot online"></span> Online`;
     el.className = "connection-status online";
+    el.title = "Jet League + Market conectados";
   } else if (jetOk) {
-    el.innerHTML = `<span class="status-dot partial"></span> Jet League online · Market conectando...`;
+    el.innerHTML = `<span class="status-dot partial"></span> Parcial`;
     el.className = "connection-status partial";
+    el.title = "Jet League online · Market conectando";
   } else {
-    el.innerHTML = `<span class="status-dot offline"></span> Conectando...`;
+    el.innerHTML = `<span class="status-dot offline"></span> Offline`;
     el.className = "connection-status offline";
+    el.title = "Conectando aos bancos...";
   }
 }
 
