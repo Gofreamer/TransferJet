@@ -101,6 +101,7 @@ function renderAdminPanel(tab = "values") {
     </div>
     <div class="admin-tabs">
       <button class="admin-tab ${tab==='values'?'active':''}" onclick="renderAdminPanel('values')">Valores</button>
+      <button class="admin-tab ${tab==='import'?'active':''}" onclick="renderAdminPanel('import')">Importar Excel</button>
       <button class="admin-tab ${tab==='transfers'?'active':''}" onclick="renderAdminPanel('transfers')">Transferências</button>
       <button class="admin-tab ${tab==='rumors'?'active':''}" onclick="renderAdminPanel('rumors')">Rumores</button>
       <button class="admin-tab ${tab==='ai'?'active':''}" onclick="renderAdminPanel('ai')">IA</button>
@@ -109,9 +110,190 @@ function renderAdminPanel(tab = "values") {
   `;
 
   if (tab === "values") renderAdminValues();
+  if (tab === "import") renderAdminImport();
   if (tab === "transfers") renderAdminTransfers();
   if (tab === "rumors") renderAdminRumors();
   if (tab === "ai") renderAdminAI();
+}
+
+/* ========== IMPORT EXCEL ========== */
+function renderAdminImport() {
+  const el = document.getElementById("adminTabContent");
+  el.innerHTML = `
+    <h3 class="admin-section-title">Importar performance (Excel / CSV)</h3>
+    <p class="admin-sub">
+      Formato esperado (mesmas colunas da sua planilha):<br>
+      <code>Equipe | Agente | Rank | Função | Troféu | P | V | D</code>
+    </p>
+    <div class="admin-form-grid">
+      <div class="full">
+        <label>Arquivo .xlsx ou .csv</label>
+        <input type="file" id="importFile" accept=".xlsx,.xls,.csv">
+      </div>
+    </div>
+    <div class="admin-actions" style="margin-top:14px;gap:10px;display:flex;flex-wrap:wrap">
+      <button class="btn-primary" onclick="processImportFile()">Importar e calcular valores</button>
+      <button class="btn-ai" onclick="forceReseedFromCode()">Reaplicar seed (Rodada 12)</button>
+    </div>
+    <p id="importStatus" style="margin-top:12px;font-size:0.85rem;color:var(--text-muted)"></p>
+    <div id="importPreview" style="margin-top:16px"></div>
+  `;
+}
+
+function forceReseedFromCode() {
+  if (!confirm("Isso vai sobrescrever players/transfers/rumors com o seed da Rodada 12. Continuar?")) return;
+  const status = document.getElementById("importStatus");
+  status.textContent = "Aplicando seed...";
+  window.marketDb.ref().update({
+    players: window.SEED_MARKET_PLAYERS,
+    transfers: window.SEED_TRANSFERS,
+    rumors: window.SEED_RUMORS,
+    settings: { currency: "USD", currencySymbol: "US$", seededAt: Date.now(), statsRound: "Rodada 12" }
+  }).then(() => {
+    status.textContent = "Seed da Rodada 12 aplicado com sucesso!";
+  }).catch(err => {
+    status.textContent = "Erro: " + err.message;
+  });
+}
+
+function processImportFile() {
+  const fileInput = document.getElementById("importFile");
+  const status = document.getElementById("importStatus");
+  const preview = document.getElementById("importPreview");
+  if (!fileInput?.files?.length) {
+    status.textContent = "Selecione um arquivo primeiro.";
+    return;
+  }
+  if (typeof XLSX === "undefined") {
+    status.textContent = "Biblioteca XLSX não carregou. Recarregue a página.";
+    return;
+  }
+
+  const file = fileInput.files[0];
+  status.textContent = "Lendo arquivo...";
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const data = new Uint8Array(e.target.result);
+      const workbook = XLSX.read(data, { type: "array" });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+      const calculated = calculateValuesFromRows(rows);
+      window._importPreviewData = calculated;
+      status.textContent = `${calculated.length} agentes processados. Revise e confirme.`;
+      showImportReviewModal(calculated);
+    } catch (err) {
+      console.error(err);
+      status.textContent = "Erro ao ler arquivo: " + err.message;
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function calculateValuesFromRows(rows) {
+  const teamFactor = {
+    "Salvatore": 1.12, "KOF 12": 1.10, "Rainbow Six": 1.08, "Weigon": 1.06,
+    "Ghost's": 1.04, "Morning Star": 1.00, "Asgard": 0.98, "Platinum": 0.96,
+    "La Pantera": 0.94, "Bastard Gran Tubarões XYZ": 0.90
+  };
+  const rankBase = {
+    "Rank S": 32000000, "S": 32000000,
+    "Rank A": 22000000, "A": 22000000,
+    "Rank B": 15000000, "B": 15000000,
+    "Rank C": 10000000, "C": 10000000,
+    "Rank D": 6500000, "D": 6500000,
+    "Rank E": 3500000, "E": 3500000,
+    "Clandestino": 8000000, "Clandestina": 8000000,
+    "Especial": 6000000, "Rank ?": 9000000, "-": 7000000, "": 7000000
+  };
+
+  const results = [];
+  for (const row of rows) {
+    const team = String(row["Equipe"] || row["equipe"] || row["Team"] || "").trim();
+    const name = String(row["Agente"] || row["agente"] || row["Nome"] || row["name"] || "").trim();
+    if (!team || !name) continue;
+
+    const rank = String(row["Rank"] || row["rank"] || "").trim();
+    const func = String(row["Função"] || row["Funcao"] || row["função"] || row["Function"] || "").trim();
+    const trophyRaw = String(row["Troféu"] || row["Trofeu"] || row["troféu"] || "").trim();
+    const trophy = trophyRaw ? 1 : 0;
+    const P = Number(row["P"] || row["Partidas"] || 0) || 0;
+    const V = Number(row["V"] || row["Vitórias"] || row["Vitorias"] || 0) || 0;
+    const D = Number(row["D"] || row["Derrotas"] || 0) || 0;
+    const wr = P > 0 ? V / P : 0.5;
+
+    let base = rankBase[rank];
+    if (base == null) {
+      const rk = rank.toLowerCase();
+      if (rk.includes("s")) base = 32000000;
+      else if (rk.includes("a")) base = 22000000;
+      else if (rk.includes("b")) base = 15000000;
+      else if (rk.includes("c")) base = 10000000;
+      else if (rk.includes("d")) base = 6500000;
+      else if (rk.includes("e")) base = 3500000;
+      else if (rk.includes("clandest")) base = 8000000;
+      else if (rk.includes("especial")) base = 6000000;
+      else base = 8000000;
+    }
+
+    const perf = 0.65 + 0.35 * wr;
+    const vol = P > 0 ? 0.80 + 0.20 * Math.min(P / 8, 1) : 0.70;
+    const cap = /capit[aã]o/i.test(func) ? 1.12 : 1.0;
+    const trop = 1 + 0.10 * trophy;
+    const emerg = /emerg/i.test(func) ? 0.75 : 1.0;
+    const tf = teamFactor[team] || 1.0;
+
+    let value = Math.round(base * perf * vol * cap * trop * emerg * tf / 100000) * 100000;
+    value = Math.max(1500000, Math.min(value, 45000000));
+    const peak = Math.round(value * (1.05 + 0.1 * wr) / 100000) * 100000;
+
+    const key = `${team}_${name}`;
+    const existing = window.AppState.market.players[key] || {};
+
+    results.push({
+      key, name, team, rank, func, trophy, P, V, D, wr,
+      oldValue: existing.marketValue || null,
+      newValue: value,
+      peak,
+      nationality: existing.nationality || "Brasil",
+      age: existing.age || 24,
+      photo: existing.photo || ""
+    });
+  }
+  return results.sort((a, b) => b.newValue - a.newValue);
+}
+
+function showImportReviewModal(calculated) {
+  const overlay = document.getElementById("aiReviewOverlay");
+  const body = document.getElementById("aiReviewBody");
+  const title = document.getElementById("aiReviewTitle");
+
+  window._aiReviewData = { action: "import-values", data: calculated };
+  title.textContent = `Revisar importação · ${calculated.length} agentes`;
+
+  body.innerHTML = `
+    <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:12px">
+      Confira os novos valores. Você pode editar qualquer valor antes de confirmar.
+    </p>
+    <div class="admin-table-wrap" style="max-height:400px;overflow:auto">
+      <table class="admin-table">
+        <thead><tr><th>Agente</th><th>Time</th><th>Rank</th><th>P-V-D</th><th>Valor antigo</th><th>Valor novo</th></tr></thead>
+        <tbody>
+          ${calculated.map((r, i) => `
+            <tr>
+              <td>${r.name}</td>
+              <td>${r.team}</td>
+              <td>${r.rank}</td>
+              <td>${r.P}-${r.V}-${r.D}</td>
+              <td style="color:var(--text-muted)">${r.oldValue ? formatUSD(r.oldValue, true) : "—"}</td>
+              <td><input type="number" class="admin-input imp-val" data-idx="${i}" value="${r.newValue}" style="width:120px"></td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+  overlay.classList.add("open");
 }
 
 /* ========== VALORES ========== */
@@ -839,6 +1021,50 @@ function confirmAIReview() {
       .then(() => { alert("Valor atualizado!"); closeAIReviewModal(); if (isLogged) renderAdminValues(); })
       .catch(err => alert("Erro: " + err.message));
   }
+
+  if (action === "import-values") {
+    const inputs = document.querySelectorAll(".imp-val");
+    const updates = {};
+    const season = window.AppState.jet.currentSeason || "Temporada 1";
+
+    inputs.forEach(input => {
+      const idx = Number(input.dataset.idx);
+      const r = data[idx];
+      if (!r) return;
+      const value = Number(input.value) || r.newValue;
+      const existing = window.AppState.market.players[r.key] || {};
+      let history = existing.valueHistory || r.valueHistory || [];
+      if (!Array.isArray(history)) history = [];
+      const hIdx = history.findIndex(h => h.season === season);
+      if (hIdx >= 0) history[hIdx].value = value;
+      else history.push({ season, value });
+
+      updates[r.key] = {
+        ...existing,
+        marketValue: value,
+        peakValue: Math.max(existing.peakValue || 0, r.peak || value),
+        rank: r.rank,
+        functionRole: r.func,
+        trophy: r.trophy,
+        stats: { P: r.P, V: r.V, D: r.D, winRate: r.wr },
+        statsRound: "Import " + new Date().toISOString().slice(0, 10),
+        nationality: r.nationality || existing.nationality || "Brasil",
+        age: r.age || existing.age || 24,
+        photo: r.photo || existing.photo || "",
+        contractUntil: existing.contractUntil || "Temporada 4",
+        status: existing.status || "ativo",
+        valueHistory: history
+      };
+    });
+
+    window.marketDb.ref("players").update(updates)
+      .then(() => {
+        alert(`${Object.keys(updates).length} agentes atualizados!`);
+        closeAIReviewModal();
+        if (isLogged) renderAdminImport();
+      })
+      .catch(err => alert("Erro: " + err.message));
+  }
 }
 
 window.openAdmin = openAdmin;
@@ -854,6 +1080,9 @@ window.saveRumor = saveRumor;
 window.deleteRumor = deleteRumor;
 window.generateRumorWithAI = generateRumorWithAI;
 window.runAIGeneration = runAIGeneration;
+window.processImportFile = processImportFile;
+window.forceReseedFromCode = forceReseedFromCode;
+window.renderCompare = typeof renderCompare !== "undefined" ? renderCompare : function(){};
 window.closeAIReviewModal = closeAIReviewModal;
 window.confirmAIReview = confirmAIReview;
 window.initAuth = initAuth;

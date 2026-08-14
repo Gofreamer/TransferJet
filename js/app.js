@@ -18,6 +18,7 @@ function showView(viewName, el) {
   if (viewName === "home") renderHome();
   if (viewName === "players") renderPlayers();
   if (viewName === "clubs") renderClubs();
+  if (viewName === "compare") renderCompare();
   if (viewName === "transfers") renderTransfers();
   if (viewName === "rumors") renderRumors();
   if (viewName === "rankings") renderRankings();
@@ -33,6 +34,7 @@ function getAllPlayersFlat() {
     (agents || []).forEach((p, idx) => {
       const key = playerKey(club, p.n);
       const m = marketPlayers[key] || {};
+      const stats = m.stats || {};
       list.push({
         key,
         name: p.n,
@@ -45,7 +47,17 @@ function getAllPlayersFlat() {
         contractUntil: m.contractUntil || "—",
         status: m.status || "ativo",
         photo: m.photo || "",
-        valueHistory: m.valueHistory || []
+        valueHistory: m.valueHistory || [],
+        rank: m.rank || "—",
+        functionRole: m.functionRole || "",
+        trophy: m.trophy || 0,
+        stats: {
+          P: stats.P ?? 0,
+          V: stats.V ?? 0,
+          D: stats.D ?? 0,
+          winRate: stats.winRate ?? (stats.P ? stats.V / stats.P : 0)
+        },
+        statsRound: m.statsRound || ""
       });
     });
   }
@@ -86,6 +98,47 @@ function renderHome() {
     <div class="kpi"><div class="kpi-label">Transferências</div><div class="kpi-value">${transfers.length}</div></div>
     <div class="kpi"><div class="kpi-label">Rumores Ativos</div><div class="kpi-value">${rumors.filter(r => r.status !== "encerrada").length}</div></div>
   `;
+
+  // Feed do mercado (timeline misturada)
+  const feedEl = document.getElementById("marketFeed");
+  if (feedEl) {
+    const feedItems = [];
+    transfers.forEach(t => {
+      feedItems.push({
+        type: "transfer",
+        date: t.date || "",
+        html: `<strong>${t.playerName}</strong> transferido: ${t.from} → <strong>${t.to}</strong> por ${formatUSD(t.fee, true)}`
+      });
+    });
+    rumors.filter(r => r.status !== "encerrada").forEach(r => {
+      const st = statusLabel(r.status);
+      feedItems.push({
+        type: "rumor",
+        date: r.date || "",
+        html: `${st.icon} <strong>${r.interestedClub}</strong> interessado em <strong>${r.playerName}</strong> (${r.reliability}%)`
+      });
+    });
+    // Top valued as "destaque"
+    const top3 = [...players].filter(p => p.marketValue).sort((a,b)=>b.marketValue-a.marketValue).slice(0,3);
+    top3.forEach(p => {
+      feedItems.push({
+        type: "value",
+        date: "9999",
+        html: `💎 <strong>${p.name}</strong> (${p.club}) valorizado em ${formatUSD(p.marketValue, true)}`
+      });
+    });
+    feedItems.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+    const shown = feedItems.slice(0, 8);
+    feedEl.innerHTML = shown.length ? `
+      <div class="table-wrap">
+        <table>
+          <tbody>
+            ${shown.map(item => `<tr><td style="padding:12px 14px">${item.html}</td><td style="color:var(--text-dim);font-size:0.8rem;white-space:nowrap">${item.date !== "9999" ? item.date : ""}</td></tr>`).join("")}
+          </tbody>
+        </table>
+      </div>
+    ` : `<p class="empty-state">Feed vazio por enquanto.</p>`;
+  }
 
   // Movimentações recentes
   const recent = [...transfers].sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 5);
@@ -208,47 +261,76 @@ function renderPlayers() {
   let players = getAllPlayersFlat();
   const search = (document.getElementById("playerSearch")?.value || "").toLowerCase().trim();
   const club = document.getElementById("playerClubFilter")?.value || "";
+  const rankF = document.getElementById("playerRankFilter")?.value || "";
+  const roleF = document.getElementById("playerRoleFilter")?.value || "";
+  const valueF = document.getElementById("playerValueFilter")?.value || "";
   const sort = document.getElementById("playerSort")?.value || "value-desc";
 
-  // Preenche filtro de times
   const clubs = [...new Set(players.map(p => p.club))].sort();
   const clubFilter = document.getElementById("playerClubFilter");
-  const current = clubFilter.value;
-  clubFilter.innerHTML = `<option value="">Todos os times</option>` +
-    clubs.map(c => `<option value="${c}" ${c === current ? "selected" : ""}>${c}</option>`).join("");
+  if (clubFilter) {
+    const current = clubFilter.value;
+    clubFilter.innerHTML = `<option value="">Todos os times</option>` +
+      clubs.map(c => `<option value="${c}" ${c === current ? "selected" : ""}>${c}</option>`).join("");
+  }
 
-  // Filtros
   if (search) players = players.filter(p => p.name.toLowerCase().includes(search));
   if (club) players = players.filter(p => p.club === club);
+  if (rankF) {
+    players = players.filter(p => {
+      const r = (p.rank || "").toLowerCase();
+      if (rankF === "Clandestino") return r.includes("clandestin");
+      if (rankF === "Especial") return r.includes("especial");
+      return r === rankF.toLowerCase() || r.includes(rankF.replace("Rank ", "").toLowerCase());
+    });
+  }
+  if (roleF) players = players.filter(p => p.role === roleF);
+  if (valueF) {
+    players = players.filter(p => {
+      const v = p.marketValue || 0;
+      if (valueF === "30+") return v >= 30000000;
+      if (valueF === "20-30") return v >= 20000000 && v < 30000000;
+      if (valueF === "10-20") return v >= 10000000 && v < 20000000;
+      if (valueF === "5-10") return v >= 5000000 && v < 10000000;
+      if (valueF === "0-5") return v < 5000000;
+      return true;
+    });
+  }
 
-  // Ordenação
   if (sort === "value-desc") players.sort((a, b) => (b.marketValue || 0) - (a.marketValue || 0));
   else if (sort === "value-asc") players.sort((a, b) => (a.marketValue || 0) - (b.marketValue || 0));
+  else if (sort === "wr-desc") players.sort((a, b) => (b.stats?.winRate || 0) - (a.stats?.winRate || 0));
   else players.sort((a, b) => a.name.localeCompare(b.name));
 
-  document.getElementById("playersCount").textContent = players.length;
+  const countEl = document.getElementById("playersCount");
+  if (countEl) countEl.textContent = players.length;
 
   const listEl = document.getElementById("playersList");
+  if (!listEl) return;
   if (!players.length) {
     listEl.innerHTML = `<p class="empty-state">Nenhum agente encontrado.</p>`;
     return;
   }
 
-  listEl.innerHTML = players.map(p => `
+  listEl.innerHTML = players.map(p => {
+    const wr = p.stats?.P ? Math.round(p.stats.winRate * 100) + "%" : "—";
+    return `
     <div class="card" onclick="openPlayerProfile('${p.key}')">
       <div class="card-with-photo">
         ${photoHTML(p, 52)}
         <div class="card-body">
           <div class="card-title">${p.name}</div>
-          <div class="card-sub">${p.club} · ${p.nationality}${p.age ? ` · ${p.age} anos` : ""}</div>
+          <div class="card-sub">${p.club} · ${p.rank || "—"}${p.stats?.P ? ` · ${p.stats.V}V-${p.stats.D}D (${wr})` : ""}</div>
           <div class="card-value">${p.marketValue ? formatUSD(p.marketValue, true) : '<span style="color:var(--text-muted);font-size:0.85rem">Sem valor</span>'}</div>
           <div class="card-meta">
             <span class="tag ${p.role}">${roleLabel(p.role)}</span>
+            ${p.trophy ? `<span class="tag">🏆 ${p.trophy}</span>` : ""}
+            ${p.functionRole && p.functionRole.includes("Capitão") ? `<span class="tag" style="background:rgba(0,229,255,0.15);color:var(--cyan)">Capitão</span>` : ""}
           </div>
         </div>
       </div>
-    </div>
-  `).join("");
+    </div>`;
+  }).join("");
 }
 
 /* ========== RENDER: CLUBS ========== */
@@ -375,27 +457,170 @@ function renderRumors() {
   }).join("");
 }
 
+/* ========== RENDER: COMPARE ========== */
+function renderCompare() {
+  const players = getAllPlayersFlat().sort((a, b) => a.name.localeCompare(b.name));
+  const opts = players.map(p => `<option value="${p.key}">${p.name} (${p.club})</option>`).join("");
+
+  ["compareA", "compareB", "compareC"].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const cur = el.value;
+    const placeholder = id === "compareC" ? "Agente 3 (opcional)" : (id === "compareA" ? "Agente 1..." : "Agente 2...");
+    el.innerHTML = `<option value="">${placeholder}</option>` + opts;
+    if (cur) el.value = cur;
+  });
+
+  const keys = ["compareA", "compareB", "compareC"]
+    .map(id => document.getElementById(id)?.value)
+    .filter(Boolean);
+
+  const result = document.getElementById("compareResult");
+  if (!result) return;
+
+  if (keys.length < 2) {
+    result.innerHTML = `<p class="empty-state">Selecione pelo menos 2 agentes para comparar.</p>`;
+    return;
+  }
+
+  const selected = keys.map(k => players.find(p => p.key === k)).filter(Boolean);
+  const fields = [
+    { label: "Valor de Mercado", fn: p => p.marketValue ? formatUSD(p.marketValue) : "—", best: (a,b) => (a.marketValue||0) >= (b.marketValue||0) },
+    { label: "Pico de carreira", fn: p => p.peakValue ? formatUSD(p.peakValue, true) : "—", best: (a,b) => (a.peakValue||0) >= (b.peakValue||0) },
+    { label: "Rank", fn: p => p.rank || "—" },
+    { label: "Equipe", fn: p => p.club },
+    { label: "Função", fn: p => p.functionRole || roleLabel(p.role) },
+    { label: "Partidas (P)", fn: p => p.stats?.P ?? "—" },
+    { label: "Vitórias (V)", fn: p => p.stats?.V ?? "—" },
+    { label: "Derrotas (D)", fn: p => p.stats?.D ?? "—" },
+    { label: "Win Rate", fn: p => p.stats?.P ? Math.round(p.stats.winRate * 100) + "%" : "—", best: (a,b) => (a.stats?.winRate||0) >= (b.stats?.winRate||0) },
+    { label: "Idade", fn: p => p.age || "—" },
+    { label: "Nacionalidade", fn: p => p.nationality },
+    { label: "Troféus", fn: p => p.trophy ? "🏆 " + p.trophy : "—" },
+    { label: "Contrato até", fn: p => p.contractUntil },
+  ];
+
+  result.innerHTML = `
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Atributo</th>
+            ${selected.map(p => `<th style="text-align:center">
+              <div style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:8px 0">
+                ${photoHTML(p, 48)}
+                <span class="player-link" onclick="openPlayerProfile('${p.key}')">${p.name}</span>
+                <span style="font-size:0.75rem;color:var(--text-muted)">${p.club}</span>
+              </div>
+            </th>`).join("")}
+          </tr>
+        </thead>
+        <tbody>
+          ${fields.map(f => {
+            let bestIdx = 0;
+            if (f.best) {
+              selected.forEach((p, i) => { if (f.best(p, selected[bestIdx])) bestIdx = i; });
+            }
+            return `<tr>
+              <td style="color:var(--text-muted);font-weight:600">${f.label}</td>
+              ${selected.map((p, i) => `<td style="text-align:center;font-weight:${f.best && i===bestIdx ? 700 : 400};color:${f.best && i===bestIdx ? "var(--cyan)" : "inherit"}">${f.fn(p)}</td>`).join("")}
+            </tr>`;
+          }).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+/* ========== CAREER HISTORY ========== */
+function getCareerHistory(playerKey, playerName, currentClub) {
+  const transfers = Object.values(window.AppState.market.transfers || {})
+    .filter(t => t.playerKey === playerKey || t.playerName === playerName)
+    .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+
+  const timeline = [];
+  if (transfers.length === 0) {
+    timeline.push({ club: currentClub, from: "Temporada 1", to: "Atual", fee: null });
+    return timeline;
+  }
+
+  // First club = origin of first transfer
+  const first = transfers[0];
+  timeline.push({ club: first.from, from: "Início", to: first.season || first.date, fee: null });
+
+  transfers.forEach((t, i) => {
+    const next = transfers[i + 1];
+    timeline.push({
+      club: t.to,
+      from: t.season || t.date,
+      to: next ? (next.season || next.date) : "Atual",
+      fee: t.fee,
+      type: t.type
+    });
+  });
+
+  return timeline;
+}
+
 /* ========== RENDER: RANKINGS ========== */
 function renderRankings() {
   const type = document.getElementById("rankingType")?.value || "players-value";
   const listEl = document.getElementById("rankingsList");
+  if (!listEl) return;
 
   if (type === "players-value") {
     const players = getAllPlayersFlat().filter(p => p.marketValue).sort((a, b) => b.marketValue - a.marketValue);
     listEl.innerHTML = `
       <div class="table-wrap"><table>
-        <thead><tr><th>#</th><th>Agente</th><th>Equipe</th><th>Valor de Mercado</th><th>Pico</th></tr></thead>
+        <thead><tr><th>#</th><th>Agente</th><th>Equipe</th><th>Rank</th><th>Valor</th><th>WR</th></tr></thead>
         <tbody>
           ${players.map((p, i) => `<tr>
             <td style="color:var(--text-muted);font-weight:700">#${i + 1}</td>
             <td><span class="player-link" onclick="openPlayerProfile('${p.key}')">${p.name}</span></td>
             <td>${p.club}</td>
+            <td>${p.rank || "—"}</td>
             <td style="color:var(--cyan);font-weight:700">${formatUSD(p.marketValue)}</td>
-            <td style="color:var(--text-muted)">${formatUSD(p.peakValue, true)}</td>
+            <td>${p.stats?.P ? Math.round(p.stats.winRate*100)+"%" : "—"}</td>
           </tr>`).join("")}
         </tbody>
-      </table></div>
-    `;
+      </table></div>`;
+  } else if (type === "players-wr") {
+    const players = getAllPlayersFlat().filter(p => p.stats?.P >= 3).sort((a, b) => b.stats.winRate - a.stats.winRate);
+    listEl.innerHTML = `
+      <div class="table-wrap"><table>
+        <thead><tr><th>#</th><th>Agente</th><th>Equipe</th><th>P-V-D</th><th>Win Rate</th><th>Valor</th></tr></thead>
+        <tbody>
+          ${players.map((p, i) => `<tr>
+            <td style="color:var(--text-muted);font-weight:700">#${i + 1}</td>
+            <td><span class="player-link" onclick="openPlayerProfile('${p.key}')">${p.name}</span></td>
+            <td>${p.club}</td>
+            <td>${p.stats.P}-${p.stats.V}-${p.stats.D}</td>
+            <td style="color:var(--green);font-weight:700">${Math.round(p.stats.winRate*100)}%</td>
+            <td>${p.marketValue ? formatUSD(p.marketValue, true) : "—"}</td>
+          </tr>`).join("")}
+        </tbody>
+      </table></div>`;
+  } else if (type === "players-gain" || type === "players-drop") {
+    const players = getAllPlayersFlat()
+      .filter(p => p.marketValue && p.peakValue && p.peakValue > 0)
+      .map(p => ({ ...p, diff: p.marketValue - p.peakValue, pct: ((p.marketValue - p.peakValue) / p.peakValue) * 100 }));
+    const sorted = type === "players-gain"
+      ? players.filter(p => p.diff >= 0).sort((a, b) => b.pct - a.pct)
+      : players.filter(p => p.diff < 0).sort((a, b) => a.pct - b.pct);
+    listEl.innerHTML = `
+      <div class="table-wrap"><table>
+        <thead><tr><th>#</th><th>Agente</th><th>Equipe</th><th>Valor</th><th>Pico</th><th>Variação</th></tr></thead>
+        <tbody>
+          ${sorted.map((p, i) => `<tr>
+            <td style="color:var(--text-muted);font-weight:700">#${i + 1}</td>
+            <td><span class="player-link" onclick="openPlayerProfile('${p.key}')">${p.name}</span></td>
+            <td>${p.club}</td>
+            <td style="color:var(--cyan);font-weight:700">${formatUSD(p.marketValue, true)}</td>
+            <td>${formatUSD(p.peakValue, true)}</td>
+            <td class="variation ${p.diff >= 0 ? "up" : "down"}">${p.diff >= 0 ? "▲" : "▼"} ${Math.abs(p.pct).toFixed(1)}%</td>
+          </tr>`).join("")}
+        </tbody>
+      </table></div>`;
   } else if (type === "clubs-value") {
     const clubs = Object.keys(window.AppState.jet.rosters || {}).map(name => ({
       name,
@@ -493,12 +718,41 @@ function openPlayerProfile(key) {
     </div>
 
     <div class="section">
+      <h2 class="section-h">Performance ${p.statsRound ? `(${p.statsRound})` : ""}</h2>
+      <div class="kpi-row">
+        <div class="kpi"><div class="kpi-label">Rank</div><div class="kpi-value" style="font-size:1.1rem">${p.rank || "—"}</div></div>
+        <div class="kpi"><div class="kpi-label">Partidas</div><div class="kpi-value" style="font-size:1.1rem">${p.stats?.P ?? "—"}</div></div>
+        <div class="kpi"><div class="kpi-label">Vitórias</div><div class="kpi-value" style="font-size:1.1rem;color:var(--green)">${p.stats?.V ?? "—"}</div></div>
+        <div class="kpi"><div class="kpi-label">Derrotas</div><div class="kpi-value" style="font-size:1.1rem;color:var(--red)">${p.stats?.D ?? "—"}</div></div>
+        <div class="kpi"><div class="kpi-label">Win Rate</div><div class="kpi-value cyan" style="font-size:1.1rem">${p.stats?.P ? Math.round(p.stats.winRate*100)+"%" : "—"}</div></div>
+        <div class="kpi"><div class="kpi-label">Função</div><div class="kpi-value" style="font-size:1rem">${p.functionRole || roleLabel(p.role)}</div></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2 class="section-h">Histórico de Carreira</h2>
+      ${(() => {
+        const career = getCareerHistory(p.key, p.name, p.club);
+        return `<div class="table-wrap"><table>
+          <thead><tr><th>Clube</th><th>Período</th><th>Taxa</th></tr></thead>
+          <tbody>
+            ${career.map(c => `<tr>
+              <td><strong>${c.club}</strong></td>
+              <td>${c.from} → ${c.to}</td>
+              <td>${c.fee != null ? formatUSD(c.fee, true) : "—"}</td>
+            </tr>`).join("")}
+          </tbody>
+        </table></div>`;
+      })()}
+    </div>
+
+    <div class="section">
       <h2 class="section-h">Informações</h2>
       <div class="kpi-row">
         <div class="kpi"><div class="kpi-label">Equipe Atual</div><div class="kpi-value" style="font-size:1.1rem">${p.club}</div></div>
-        <div class="kpi"><div class="kpi-label">Função</div><div class="kpi-value" style="font-size:1.1rem">${roleLabel(p.role)}</div></div>
         <div class="kpi"><div class="kpi-label">Nacionalidade</div><div class="kpi-value" style="font-size:1.1rem">${p.nationality}</div></div>
         <div class="kpi"><div class="kpi-label">Idade</div><div class="kpi-value" style="font-size:1.1rem">${p.age || "—"}</div></div>
+        <div class="kpi"><div class="kpi-label">Contrato</div><div class="kpi-value" style="font-size:1.1rem">${p.contractUntil}</div></div>
       </div>
     </div>
   `;
@@ -644,6 +898,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (view === "home") renderHome();
     if (view === "players") renderPlayers();
     if (view === "clubs") renderClubs();
+    if (view === "compare") renderCompare();
     if (view === "transfers") renderTransfers();
     if (view === "rumors") renderRumors();
     if (view === "rankings") renderRankings();
@@ -651,3 +906,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   renderHome();
 });
+
+window.renderCompare = renderCompare;
+window.openPlayerProfile = openPlayerProfile;
+window.openClubProfile = openClubProfile;
+window.showView = showView;

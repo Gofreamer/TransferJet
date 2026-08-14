@@ -23,6 +23,7 @@
       <a class="active" data-view="home" onclick="showView('home', this)">Visão Geral</a>
       <a data-view="players" onclick="showView('players', this)">Agentes</a>
       <a data-view="clubs" onclick="showView('clubs', this)">Equipes</a>
+      <a data-view="compare" onclick="showView('compare', this)">Comparar</a>
       <a data-view="transfers" onclick="showView('transfers', this)">Transferências</a>
       <a data-view="rumors" onclick="showView('rumors', this)">Rumores</a>
       <a data-view="rankings" onclick="showView('rankings', this)">Rankings</a>
@@ -72,6 +73,11 @@
       <div class="kpi-row" id="kpiRow"></div>
 
       <div class="section">
+        <h2 class="section-h">Feed do Mercado</h2>
+        <div id="marketFeed"></div>
+      </div>
+
+      <div class="section">
         <h2 class="section-h">Movimentações Recentes</h2>
         <div id="recentTransfers"></div>
       </div>
@@ -107,13 +113,58 @@
           <select id="playerClubFilter" onchange="renderPlayers()">
             <option value="">Todos os times</option>
           </select>
+          <select id="playerRankFilter" onchange="renderPlayers()">
+            <option value="">Todos os ranks</option>
+            <option value="Rank S">Rank S</option>
+            <option value="Rank A">Rank A</option>
+            <option value="Rank B">Rank B</option>
+            <option value="Rank C">Rank C</option>
+            <option value="Rank D">Rank D</option>
+            <option value="Rank E">Rank E</option>
+            <option value="Clandestino">Clandestino</option>
+            <option value="Especial">Especial</option>
+          </select>
+          <select id="playerRoleFilter" onchange="renderPlayers()">
+            <option value="">Todas as funções</option>
+            <option value="titular">Titular</option>
+            <option value="reserva">Reserva</option>
+            <option value="emergencia">Emergência</option>
+          </select>
+          <select id="playerValueFilter" onchange="renderPlayers()">
+            <option value="">Qualquer valor</option>
+            <option value="30+">US$ 30 mi+</option>
+            <option value="20-30">US$ 20–30 mi</option>
+            <option value="10-20">US$ 10–20 mi</option>
+            <option value="5-10">US$ 5–10 mi</option>
+            <option value="0-5">Até US$ 5 mi</option>
+          </select>
           <select id="playerSort" onchange="renderPlayers()">
             <option value="value-desc">Maior valor</option>
             <option value="value-asc">Menor valor</option>
+            <option value="wr-desc">Melhor WR</option>
             <option value="name">Nome A-Z</option>
           </select>
         </div>
         <div id="playersList" class="cards-grid"></div>
+      </div>
+    </div>
+
+    <!-- ==================== COMPARAR ==================== -->
+    <div id="view-compare" class="hidden">
+      <div class="section">
+        <h2 class="section-h">Comparar Agentes</h2>
+        <div class="filters" style="margin-bottom:20px">
+          <select id="compareA" onchange="renderCompare()">
+            <option value="">Agente 1...</option>
+          </select>
+          <select id="compareB" onchange="renderCompare()">
+            <option value="">Agente 2...</option>
+          </select>
+          <select id="compareC" onchange="renderCompare()">
+            <option value="">Agente 3 (opcional)</option>
+          </select>
+        </div>
+        <div id="compareResult"></div>
       </div>
     </div>
 
@@ -156,6 +207,9 @@
         <div class="filters">
           <select id="rankingType" onchange="renderRankings()">
             <option value="players-value">Agentes mais valiosos</option>
+            <option value="players-wr">Melhor win rate</option>
+            <option value="players-gain">Maiores altas (vs pico)</option>
+            <option value="players-drop">Maiores quedas (vs pico)</option>
             <option value="clubs-value">Equipes mais valiosas</option>
             <option value="biggest-transfers">Maiores transferências</option>
           </select>
@@ -197,8 +251,9 @@
     </div>
   </div>
 
-  <!-- Chart.js -->
+  <!-- Chart.js + SheetJS (Excel) -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
   <!-- Scripts -->
   <script src="./js/config/firebase-config.js"></script>
