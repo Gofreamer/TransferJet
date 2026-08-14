@@ -1,31 +1,31 @@
-/* Jet Transfer — Estado global da aplicação */
+/* Jet Market — Estado global */
 
 window.AppState = {
-  // Dados vindos do Jet League (somente leitura)
   jet: {
-    rosters: {},          // { "Asgard": [ {n, role}, ... ], ... }
-    teams: [],            // lista de times
-    currentSeason: null,
+    rosters: {},
+    teams: [],
+    currentSeason: "Temporada 1",
     matches: [],
+    hallOfFame: {},
     lastUpdated: null
   },
 
-  // Dados próprios do Transfermarkt
-  transfer: {
-    players: {},          // dados enriquecidos (valor de mercado, etc.)
-    transfers: {},        // histórico de transferências
+  market: {
+    players: {},       // dados de mercado por playerKey
+    transfers: {},
     rumors: {},
     settings: {
-      currency: "JC",     // Jet Credits
-      currencySymbol: "JC"
+      currency: "USD",
+      currencySymbol: "US$"
     }
   },
 
-  // UI
   ui: {
     currentView: "home",
+    selectedPlayer: null,
+    selectedClub: null,
     loading: true,
     jetConnected: false,
-    transferConnected: false
+    marketConnected: false
   }
 };

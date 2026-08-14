@@ -1,52 +1,41 @@
-# Jet Transfer
+# Jet Market
 
-Mercado de agentes da **Jet League**.
+**Global Agent Database** da Jet League.
 
-Site separado que **só lê** os dados do Firebase do Jet League em tempo real e guarda seus próprios dados (valores de mercado, transferências, rumores) no projeto `transfermarkt-545f7`.
+Plataforma oficial de mercado, scouting e valorização de agentes.
 
 ## Stack
 
 - Cloudflare Pages + GitHub
-- Firebase Realtime Database (dois projetos)
-- HTML/CSS/JS vanilla (mesmo estilo do Jet League)
+- Firebase Realtime Database (dual)
+  - `transfermarkt-545f7` → dados de mercado (valores, transferências, rumores)
+  - `teste-jet` → elencos e dados da liga (somente leitura)
 
-## Estrutura
+## Moeda
 
-```
-jet-transfer/
-├── index.html
-├── css/styles.css
-├── js/
-│   ├── config/firebase-config.js   ← configs dos dois projetos
-│   ├── core/state.js
-│   ├── services/
-│   │   ├── firebase.js             ← inicializa os dois apps
-│   │   ├── jet-listeners.js        ← escuta o Jet League (read-only)
-│   │   └── transfer-listeners.js   ← escuta o próprio banco
-│   └── app.js
-├── database.rules.json
-└── README.md
-```
+Todos os valores em **US$**.
 
-## Conexão dual
+## Funcionalidades
 
-- **Transfermarkt** (`transfermarkt-545f7`) → leitura + escrita
-- **Jet League** (`teste-jet`) → **somente leitura**
-
-O site nunca escreve no banco da Jet League.
+- Visão Geral (Dashboard com KPIs, movimentações, rankings rápidos, rumores)
+- Agentes (lista + busca + filtros + ordenação)
+- Perfil completo do Agente
+- Equipes (valor do plantel + ranking)
+- Perfil da Equipe
+- Transferências (histórico + filtros)
+- Rumores (com status e % de confiabilidade)
+- Rankings (agentes, equipes, maiores transferências)
 
 ## Como publicar
 
-1. Crie um repositório no GitHub
-2. Suba esta pasta
-3. Conecte no Cloudflare Pages
-4. Build command: (deixe vazio)
+1. Suba a pasta no GitHub
+2. Conecte no Cloudflare Pages (projeto `transferjet`)
+3. Framework: None
+4. Build command: (vazio)
 5. Output directory: `/`
 
-## Próximos passos sugeridos
+## Regras do Firebase
 
-- [ ] Definir valores de mercado dos agentes
-- [ ] Sistema de registro de transferências (admin)
-- [ ] Ranking por valor de mercado
-- [ ] Página individual do agente
-- [ ] Rumores com IA (opcional)
+Cole o conteúdo de `database.rules.json` no Firebase Console do projeto `transfermarkt-545f7`.
+
+Na primeira carga o site aplica automaticamente os valores fictícios de seed (caso o banco esteja vazio).

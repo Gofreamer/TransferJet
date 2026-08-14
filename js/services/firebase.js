@@ -1,33 +1,25 @@
-/* Jet Transfer — Firebase Service
-   Inicializa os dois apps e expõe referências limpas.
-   O app do Jet League é SOMENTE LEITURA.
-*/
+/* Jet Market — Firebase Service */
 
 (function () {
-  // App principal (Transfermarkt)
-  const transferApp = firebase.initializeApp(window.TRANSFER_FIREBASE_CONFIG);
-  const transferDb = firebase.database(transferApp);
+  const marketApp = firebase.initializeApp(window.MARKET_FIREBASE_CONFIG);
+  const marketDb  = firebase.database(marketApp);
 
-  // App secundário (Jet League) — nomeado para não conflitar
   const jetApp = firebase.initializeApp(window.JET_FIREBASE_CONFIG, "jetLeague");
-  const jetDb = firebase.database(jetApp);
+  const jetDb  = firebase.database(jetApp);
 
-  // Referências úteis
-  window.db = transferDb;                 // atalho para o banco do Transfermarkt
-  window.transferDb = transferDb;
-  window.jetDb = jetDb;                   // banco do Jet League (só leitura)
+  window.db       = marketDb;   // atalho principal
+  window.marketDb = marketDb;
+  window.jetDb    = jetDb;
 
-  // Caminhos mais usados do Jet League
   window.JET_PATHS = {
     liga: "liga",
     rosters: "liga/rosters",
     teams: "liga/teams",
     matches: "liga/matches",
     currentSeason: "liga/currentSeason",
-    seasonsArchive: "liga/seasonsArchive"
+    seasonsArchive: "liga/seasonsArchive",
+    hallOfFame: "liga/hallOfFame"
   };
 
-  console.log("[Jet Transfer] Firebase inicializado");
-  console.log("→ Transfermarkt:", transferApp.name);
-  console.log("→ Jet League (read-only):", jetApp.name);
+  console.log("[Jet Market] Firebase dual inicializado");
 })();
