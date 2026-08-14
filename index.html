@@ -26,6 +26,7 @@
       <a data-view="transfers" onclick="showView('transfers', this)">Transferências</a>
       <a data-view="rumors" onclick="showView('rumors', this)">Rumores</a>
       <a data-view="rankings" onclick="showView('rankings', this)">Rankings</a>
+      <button id="adminBtn" onclick="openAdmin()">Admin</button>
     </nav>
   </header>
 
@@ -179,13 +180,36 @@
     <p class="footer-note">Dados de elencos sincronizados em tempo real · Valores de mercado em US$</p>
   </footer>
 
+  <!-- Admin Panel -->
+  <div id="adminPanel">
+    <div id="adminBox"></div>
+  </div>
+
+  <!-- AI Review Modal -->
+  <div id="aiReviewOverlay">
+    <div id="aiReviewModal">
+      <h3 id="aiReviewTitle">Revisar conteúdo da IA</h3>
+      <div id="aiReviewBody"></div>
+      <div class="review-actions">
+        <button class="btn-gray" onclick="closeAIReviewModal()">Cancelar</button>
+        <button class="btn-primary" onclick="confirmAIReview()">Confirmar e publicar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
   <!-- Scripts -->
   <script src="./js/config/firebase-config.js"></script>
   <script src="./js/core/state.js"></script>
   <script src="./js/utils/format.js"></script>
+  <script src="./js/utils/photos.js"></script>
   <script src="./js/data/seed-market.js"></script>
   <script src="./js/services/firebase.js"></script>
   <script src="./js/services/listeners.js"></script>
+  <script src="./js/services/ai.js"></script>
+  <script src="./js/features/admin/admin.js"></script>
   <script src="./js/app.js"></script>
 </body>
 </html>

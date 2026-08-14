@@ -44,6 +44,7 @@ function getAllPlayersFlat() {
         age: m.age || null,
         contractUntil: m.contractUntil || "—",
         status: m.status || "ativo",
+        photo: m.photo || "",
         valueHistory: m.valueHistory || []
       });
     });
@@ -235,11 +236,16 @@ function renderPlayers() {
 
   listEl.innerHTML = players.map(p => `
     <div class="card" onclick="openPlayerProfile('${p.key}')">
-      <div class="card-title">${p.name}</div>
-      <div class="card-sub">${p.club} · ${p.nationality}${p.age ? ` · ${p.age} anos` : ""}</div>
-      <div class="card-value">${p.marketValue ? formatUSD(p.marketValue, true) : '<span style="color:var(--text-muted);font-size:0.85rem">Sem valor</span>'}</div>
-      <div class="card-meta">
-        <span class="tag ${p.role}">${roleLabel(p.role)}</span>
+      <div class="card-with-photo">
+        ${photoHTML(p, 52)}
+        <div class="card-body">
+          <div class="card-title">${p.name}</div>
+          <div class="card-sub">${p.club} · ${p.nationality}${p.age ? ` · ${p.age} anos` : ""}</div>
+          <div class="card-value">${p.marketValue ? formatUSD(p.marketValue, true) : '<span style="color:var(--text-muted);font-size:0.85rem">Sem valor</span>'}</div>
+          <div class="card-meta">
+            <span class="tag ${p.role}">${roleLabel(p.role)}</span>
+          </div>
+        </div>
       </div>
     </div>
   `).join("");
@@ -443,13 +449,19 @@ function openPlayerProfile(key) {
   const content = document.getElementById("playerProfileContent");
   const variation = p.peakValue ? formatVariation(p.marketValue, p.peakValue) : null;
 
+  // Monta histórico de valor para o gráfico (seed gera histórico sintético se não existir)
+  let history = p.valueHistory && p.valueHistory.length ? [...p.valueHistory] : buildSyntheticHistory(p);
+
   content.innerHTML = `
     <button onclick="showView('players')" style="background:none;border:1px solid var(--border);color:var(--text-muted);padding:6px 12px;border-radius:8px;cursor:pointer;margin-bottom:20px;font-size:0.85rem">
       ← Voltar para Agentes
     </button>
 
     <div class="profile-header">
-      <div class="profile-photo">👤</div>
+      <div class="profile-photo" style="padding:0;overflow:hidden">
+        <img src="${getPlayerPhoto(p)}" alt="${p.name}" style="width:100%;height:100%;object-fit:cover"
+             onerror="this.parentElement.innerHTML='${getPlayerInitials(p.name)}'"/>
+      </div>
       <div class="profile-info">
         <h1>${p.name}</h1>
         <div class="profile-meta">
@@ -474,6 +486,13 @@ function openPlayerProfile(key) {
     </div>
 
     <div class="section">
+      <h2 class="section-h">Evolução do Valor</h2>
+      <div class="chart-container">
+        <canvas id="valueChart"></canvas>
+      </div>
+    </div>
+
+    <div class="section">
       <h2 class="section-h">Informações</h2>
       <div class="kpi-row">
         <div class="kpi"><div class="kpi-label">Equipe Atual</div><div class="kpi-value" style="font-size:1.1rem">${p.club}</div></div>
@@ -483,6 +502,75 @@ function openPlayerProfile(key) {
       </div>
     </div>
   `;
+
+  // Render chart
+  requestAnimationFrame(() => renderValueChart(history));
+}
+
+function buildSyntheticHistory(p) {
+  if (!p.marketValue) return [];
+  const current = p.marketValue;
+  const peak = p.peakValue || current;
+  // Simula 4 temporadas de evolução
+  return [
+    { season: "Temporada 1", value: Math.round(current * 0.35) },
+    { season: "Temporada 2", value: Math.round(current * 0.55) },
+    { season: "Temporada 3", value: Math.round(Math.min(peak, current * 0.8)) },
+    { season: "Temporada 4", value: current }
+  ];
+}
+
+function renderValueChart(history) {
+  const canvas = document.getElementById("valueChart");
+  if (!canvas || typeof Chart === "undefined" || !history.length) return;
+
+  if (window._valueChartInstance) {
+    window._valueChartInstance.destroy();
+  }
+
+  window._valueChartInstance = new Chart(canvas, {
+    type: "line",
+    data: {
+      labels: history.map(h => h.season),
+      datasets: [{
+        label: "Valor de Mercado",
+        data: history.map(h => h.value),
+        borderColor: "#00e5ff",
+        backgroundColor: "rgba(0, 229, 255, 0.1)",
+        fill: true,
+        tension: 0.3,
+        pointBackgroundColor: "#00e5ff",
+        pointRadius: 5,
+        pointHoverRadius: 7
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => formatUSD(ctx.raw, true)
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { color: "#8494a7", font: { size: 11 } },
+          grid: { color: "rgba(255,255,255,0.04)" }
+        },
+        y: {
+          ticks: {
+            color: "#8494a7",
+            font: { size: 11 },
+            callback: (v) => formatUSD(v, true)
+          },
+          grid: { color: "rgba(255,255,255,0.04)" }
+        }
+      }
+    }
+  });
 }
 
 /* ========== PERFIL DA EQUIPE ========== */
@@ -517,10 +605,11 @@ function openClubProfile(clubName) {
       <h2 class="section-h">Elenco</h2>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Agente</th><th>Função</th><th>Valor</th><th>Nacionalidade</th><th>Idade</th></tr></thead>
+          <thead><tr><th></th><th>Agente</th><th>Função</th><th>Valor</th><th>Nacionalidade</th><th>Idade</th></tr></thead>
           <tbody>
             ${agents.map(p => `
               <tr>
+                <td style="width:44px">${photoHTML(p, 36)}</td>
                 <td><span class="player-link" onclick="openPlayerProfile('${p.key}')">${p.name}</span></td>
                 <td><span class="tag ${p.role}">${roleLabel(p.role)}</span></td>
                 <td style="color:var(--cyan);font-weight:700">${p.marketValue ? formatUSD(p.marketValue, true) : "—"}</td>
@@ -541,6 +630,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   startJetListeners();
   startMarketListeners();
+  if (typeof initAuth === "function") initAuth();
 
   document.addEventListener("jet:updated", () => {
     const view = window.AppState.ui.currentView;
