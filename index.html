@@ -28,6 +28,7 @@
       <a data-view="rumors" onclick="showView('rumors', this)">Rumores</a>
       <a data-view="rankings" onclick="showView('rankings', this)">Rankings</a>
       <button id="adminBtn" onclick="openAdmin()">Admin</button>
+      <button id="themeToggle" onclick="toggleTheme()" title="Alternar tema">☀</button>
     </nav>
   </header>
 
@@ -39,6 +40,7 @@
           <span class="badge cyan">JET LEAGUE</span>
           <span class="badge" id="seasonBadge">—</span>
           <span class="badge live">AO VIVO</span>
+          <span class="window-badge closed" id="transferWindowBadge">JANELA FECHADA</span>
         </div>
         <p class="hero-desc">Plataforma oficial de mercado, scouting e valorização de agentes da Jet League.</p>
       </div>
@@ -129,6 +131,7 @@
             <option value="titular">Titular</option>
             <option value="reserva">Reserva</option>
             <option value="emergencia">Emergência</option>
+            <option value="livre">Agentes livres</option>
           </select>
           <select id="playerValueFilter" onchange="renderPlayers()">
             <option value="">Qualquer valor</option>
@@ -260,6 +263,8 @@
   <script src="./js/core/state.js"></script>
   <script src="./js/utils/format.js"></script>
   <script src="./js/utils/photos.js"></script>
+  <script src="./js/utils/valuation.js"></script>
+  <script src="./js/utils/theme.js"></script>
   <script src="./js/data/seed-market.js"></script>
   <script src="./js/services/firebase.js"></script>
   <script src="./js/services/listeners.js"></script>

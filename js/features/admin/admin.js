@@ -119,11 +119,13 @@ function renderAdminPanel(tab = "values") {
 /* ========== IMPORT EXCEL ========== */
 function renderAdminImport() {
   const el = document.getElementById("adminTabContent");
+  const winOpen = !!(window.AppState.market.settings && window.AppState.market.settings.transferWindowOpen);
   el.innerHTML = `
     <h3 class="admin-section-title">Importar performance (Excel / CSV)</h3>
     <p class="admin-sub">
-      Formato esperado (mesmas colunas da sua planilha):<br>
-      <code>Equipe | Agente | Rank | Função | Troféu | P | V | D</code>
+      Formato esperado:<br>
+      <code>Equipe | Agente | Rank | Função | Troféu | P | V | D</code><br>
+      Hierarquia de rank: <strong>Especial &gt; S &gt; A &gt; B &gt; C &gt; D &gt; E</strong> · Reserva &gt; Emergência
     </p>
     <div class="admin-form-grid">
       <div class="full">
@@ -131,13 +133,51 @@ function renderAdminImport() {
         <input type="file" id="importFile" accept=".xlsx,.xls,.csv">
       </div>
     </div>
+    <div class="import-options">
+      <label><input type="radio" name="importMode" value="full" checked> Atualizar stats + recalcular valor</label>
+      <label><input type="radio" name="importMode" value="statsOnly"> Só atualizar stats (manter valores)</label>
+    </div>
     <div class="admin-actions" style="margin-top:14px;gap:10px;display:flex;flex-wrap:wrap">
-      <button class="btn-primary" onclick="processImportFile()">Importar e calcular valores</button>
+      <button class="btn-primary" onclick="processImportFile()">Importar e revisar</button>
       <button class="btn-ai" onclick="forceReseedFromCode()">Reaplicar seed (Rodada 12)</button>
     </div>
     <p id="importStatus" style="margin-top:12px;font-size:0.85rem;color:var(--text-muted)"></p>
-    <div id="importPreview" style="margin-top:16px"></div>
+
+    <h3 class="admin-section-title" style="margin-top:28px">Janela de transferências</h3>
+    <p class="admin-sub">Quando fechada, não é possível registrar transferências com status OFICIAL.</p>
+    <div class="admin-actions">
+      <button class="btn-primary" onclick="setTransferWindow(true)">Abrir janela</button>
+      <button class="btn-gray" onclick="setTransferWindow(false)">Fechar janela</button>
+      <span class="window-badge ${winOpen ? "open" : "closed"}">${winOpen ? "ABERTA" : "FECHADA"}</span>
+    </div>
+
+    <h3 class="admin-section-title" style="margin-top:28px">Link Jet League</h3>
+    <div class="admin-form-grid">
+      <div class="full">
+        <label>URL do site Jet League</label>
+        <input type="text" id="jetLeagueUrlInput" value="${(window.AppState.market.settings && window.AppState.market.settings.jetLeagueUrl) || "https://teste-jet.pages.dev"}">
+      </div>
+    </div>
+    <div class="admin-actions" style="margin-top:10px">
+      <button class="btn-primary btn-sm" onclick="saveJetLeagueUrl()">Salvar URL</button>
+    </div>
   `;
+}
+
+function setTransferWindow(open) {
+  window.marketDb.ref("settings/transferWindowOpen").set(!!open)
+    .then(() => {
+      alert(open ? "Janela de transferências ABERTA" : "Janela FECHADA");
+      renderAdminImport();
+    })
+    .catch(err => alert("Erro: " + err.message));
+}
+
+function saveJetLeagueUrl() {
+  const url = document.getElementById("jetLeagueUrlInput").value.trim();
+  window.marketDb.ref("settings/jetLeagueUrl").set(url || "https://teste-jet.pages.dev")
+    .then(() => alert("URL salva!"))
+    .catch(err => alert("Erro: " + err.message));
 }
 
 function forceReseedFromCode() {
@@ -179,9 +219,10 @@ function processImportFile() {
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
       const calculated = calculateValuesFromRows(rows);
+      const mode = document.querySelector('input[name="importMode"]:checked')?.value || "full";
       window._importPreviewData = calculated;
       status.textContent = `${calculated.length} agentes processados. Revise e confirme.`;
-      showImportReviewModal(calculated);
+      showImportReviewModal(calculated, mode);
     } catch (err) {
       console.error(err);
       status.textContent = "Erro ao ler arquivo: " + err.message;
@@ -191,23 +232,15 @@ function processImportFile() {
 }
 
 function calculateValuesFromRows(rows) {
-  const teamFactor = {
-    "Salvatore": 1.12, "KOF 12": 1.10, "Rainbow Six": 1.08, "Weigon": 1.06,
-    "Ghost's": 1.04, "Morning Star": 1.00, "Asgard": 0.98, "Platinum": 0.96,
-    "La Pantera": 0.94, "Bastard Gran Tubarões XYZ": 0.90
-  };
-  const rankBase = {
-    "Rank S": 32000000, "S": 32000000,
-    "Rank A": 22000000, "A": 22000000,
-    "Rank B": 15000000, "B": 15000000,
-    "Rank C": 10000000, "C": 10000000,
-    "Rank D": 6500000, "D": 6500000,
-    "Rank E": 3500000, "E": 3500000,
-    "Clandestino": 8000000, "Clandestina": 8000000,
-    "Especial": 6000000, "Rank ?": 9000000, "-": 7000000, "": 7000000
-  };
-
   const results = [];
+  const unmatched = [];
+  const knownKeys = new Set(getAllPlayersFlat().map(p => p.key));
+  const knownNames = {};
+  getAllPlayersFlat().forEach(p => {
+    knownNames[(p.club + "|" + p.name).toLowerCase()] = p;
+    knownNames[p.name.toLowerCase()] = knownNames[p.name.toLowerCase()] || p;
+  });
+
   for (const row of rows) {
     const team = String(row["Equipe"] || row["equipe"] || row["Team"] || "").trim();
     const name = String(row["Agente"] || row["agente"] || row["Nome"] || row["name"] || "").trim();
@@ -220,75 +253,92 @@ function calculateValuesFromRows(rows) {
     const P = Number(row["P"] || row["Partidas"] || 0) || 0;
     const V = Number(row["V"] || row["Vitórias"] || row["Vitorias"] || 0) || 0;
     const D = Number(row["D"] || row["Derrotas"] || 0) || 0;
-    const wr = P > 0 ? V / P : 0.5;
 
-    let base = rankBase[rank];
-    if (base == null) {
-      const rk = rank.toLowerCase();
-      if (rk.includes("s")) base = 32000000;
-      else if (rk.includes("a")) base = 22000000;
-      else if (rk.includes("b")) base = 15000000;
-      else if (rk.includes("c")) base = 10000000;
-      else if (rk.includes("d")) base = 6500000;
-      else if (rk.includes("e")) base = 3500000;
-      else if (rk.includes("clandest")) base = 8000000;
-      else if (rk.includes("especial")) base = 6000000;
-      else base = 8000000;
+    const key = team + "_" + name;
+    const existing = window.AppState.market.players[key] || {};
+    const matched = knownKeys.has(key) || knownNames[(team + "|" + name).toLowerCase()];
+
+    const calc = window.VALUATION.calculate({
+      rank, func, role: /emerg/i.test(func) ? "emergencia" : (/reserva/i.test(func) ? "reserva" : "titular"),
+      trophy, P, V, D, team
+    });
+
+    if (!matched) {
+      unmatched.push({ team, name, rank, P, V, D });
     }
 
-    const perf = 0.65 + 0.35 * wr;
-    const vol = P > 0 ? 0.80 + 0.20 * Math.min(P / 8, 1) : 0.70;
-    const cap = /capit[aã]o/i.test(func) ? 1.12 : 1.0;
-    const trop = 1 + 0.10 * trophy;
-    const emerg = /emerg/i.test(func) ? 0.75 : 1.0;
-    const tf = teamFactor[team] || 1.0;
-
-    let value = Math.round(base * perf * vol * cap * trop * emerg * tf / 100000) * 100000;
-    value = Math.max(1500000, Math.min(value, 45000000));
-    const peak = Math.round(value * (1.05 + 0.1 * wr) / 100000) * 100000;
-
-    const key = `${team}_${name}`;
-    const existing = window.AppState.market.players[key] || {};
-
     results.push({
-      key, name, team, rank, func, trophy, P, V, D, wr,
+      key, name, team, rank, func, trophy, P, V, D, wr: calc.wr,
       oldValue: existing.marketValue || null,
-      newValue: value,
-      peak,
+      newValue: calc.value,
+      peak: calc.peak,
+      matched: !!matched,
       nationality: existing.nationality || "Brasil",
       age: existing.age || 24,
-      photo: existing.photo || ""
+      photo: existing.photo || "",
+      salary: existing.salary ?? null,
+      releaseClause: existing.releaseClause ?? null
     });
   }
+  results._unmatched = unmatched;
   return results.sort((a, b) => b.newValue - a.newValue);
 }
 
-function showImportReviewModal(calculated) {
+function showImportReviewModal(calculated, mode) {
   const overlay = document.getElementById("aiReviewOverlay");
   const body = document.getElementById("aiReviewBody");
   const title = document.getElementById("aiReviewTitle");
+  const unmatched = calculated._unmatched || [];
+  const statsOnly = mode === "statsOnly";
 
-  window._aiReviewData = { action: "import-values", data: calculated };
+  let up = 0, down = 0, same = 0;
+  calculated.forEach(r => {
+    if (r.oldValue == null) return;
+    if (r.newValue > r.oldValue) up++;
+    else if (r.newValue < r.oldValue) down++;
+    else same++;
+  });
+
+  window._aiReviewData = { action: "import-values", data: calculated, mode: mode || "full" };
   title.textContent = `Revisar importação · ${calculated.length} agentes`;
 
   body.innerHTML = `
-    <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:12px">
-      Confira os novos valores. Você pode editar qualquer valor antes de confirmar.
-    </p>
-    <div class="admin-table-wrap" style="max-height:400px;overflow:auto">
+    <div class="import-summary">
+      <div class="kpi"><div class="kpi-label">Processados</div><div class="kpi-value">${calculated.length}</div></div>
+      <div class="kpi"><div class="kpi-label">Subiram</div><div class="kpi-value" style="color:var(--green)">${up}</div></div>
+      <div class="kpi"><div class="kpi-label">Desceram</div><div class="kpi-value" style="color:var(--red)">${down}</div></div>
+      <div class="kpi"><div class="kpi-label">Não achados</div><div class="kpi-value" style="color:var(--orange)">${unmatched.length}</div></div>
+    </div>
+    ${statsOnly ? `<p style="font-size:0.85rem;color:var(--cyan);margin-bottom:10px">Modo: <strong>somente stats</strong> — valores de mercado não serão alterados.</p>` : ""}
+    ${unmatched.length ? `
+      <div class="rumor-card" style="border-color:var(--orange);margin-bottom:12px">
+        <strong style="color:var(--orange)">⚠ Nomes não encontrados no elenco Jet League (${unmatched.length})</strong>
+        <div style="font-size:0.8rem;margin-top:6px;color:var(--text-muted)">
+          ${unmatched.slice(0, 12).map(u => `${u.team} · ${u.name}`).join(" · ")}
+          ${unmatched.length > 12 ? "…" : ""}
+        </div>
+        <p style="font-size:0.75rem;margin-top:6px;color:var(--text-dim)">Serão salvos no Market mesmo assim (confira ortografia depois).</p>
+      </div>
+    ` : ""}
+    <div class="admin-table-wrap" style="max-height:360px;overflow:auto">
       <table class="admin-table">
-        <thead><tr><th>Agente</th><th>Time</th><th>Rank</th><th>P-V-D</th><th>Valor antigo</th><th>Valor novo</th></tr></thead>
+        <thead><tr><th></th><th>Agente</th><th>Time</th><th>Rank</th><th>P-V-D</th><th>Antigo</th><th>Novo</th></tr></thead>
         <tbody>
-          ${calculated.map((r, i) => `
-            <tr>
+          ${calculated.map((r, i) => {
+            const delta = r.oldValue != null ? r.newValue - r.oldValue : null;
+            const flag = !r.matched ? "⚠" : (delta > 0 ? "▲" : delta < 0 ? "▼" : "·");
+            return `<tr style="${!r.matched ? "opacity:0.75" : ""}">
+              <td>${flag}</td>
               <td>${r.name}</td>
               <td>${r.team}</td>
               <td>${r.rank}</td>
               <td>${r.P}-${r.V}-${r.D}</td>
               <td style="color:var(--text-muted)">${r.oldValue ? formatUSD(r.oldValue, true) : "—"}</td>
-              <td><input type="number" class="admin-input imp-val" data-idx="${i}" value="${r.newValue}" style="width:120px"></td>
-            </tr>
-          `).join("")}
+              <td>${statsOnly
+                ? (r.oldValue ? formatUSD(r.oldValue, true) : "—")
+                : `<input type="number" class="admin-input imp-val" data-idx="${i}" value="${r.newValue}" style="width:120px">`}</td>
+            </tr>`;
+          }).join("")}
         </tbody>
       </table>
     </div>
@@ -315,11 +365,13 @@ function renderAdminValues() {
           <tr>
             <th>Agente</th>
             <th>Equipe</th>
-            <th>Valor atual (US$)</th>
+            <th>Valor</th>
             <th>Pico</th>
+            <th>Salário</th>
+            <th>Cláusula</th>
             <th>Idade</th>
-            <th>Nacionalidade</th>
-            <th>Foto URL</th>
+            <th>Nac.</th>
+            <th>Foto</th>
             <th></th>
           </tr>
         </thead>
@@ -330,9 +382,11 @@ function renderAdminValues() {
               <td>${p.club}</td>
               <td><input type="number" class="admin-input" data-field="marketValue" value="${p.marketValue || ""}" placeholder="0"></td>
               <td><input type="number" class="admin-input" data-field="peakValue" value="${p.peakValue || ""}" placeholder="0"></td>
+              <td><input type="number" class="admin-input" data-field="salary" value="${p.salary || ""}" placeholder="—"></td>
+              <td><input type="number" class="admin-input" data-field="releaseClause" value="${p.releaseClause || ""}" placeholder="—"></td>
               <td><input type="number" class="admin-input admin-input-sm" data-field="age" value="${p.age || ""}" placeholder="—"></td>
-              <td><input type="text" class="admin-input" data-field="nationality" value="${p.nationality || ""}" placeholder="—"></td>
-              <td><input type="text" class="admin-input" data-field="photo" value="${p.photo || ""}" placeholder="https://..."></td>
+              <td><input type="text" class="admin-input admin-input-sm" data-field="nationality" value="${p.nationality || ""}" placeholder="—"></td>
+              <td><input type="text" class="admin-input" data-field="photo" value="${p.photo || ""}" placeholder="url"></td>
               <td><button class="btn-primary btn-sm" onclick="savePlayerRow(this)">Salvar</button></td>
             </tr>
           `).join("")}
@@ -359,7 +413,7 @@ function savePlayerRow(btn) {
   tr.querySelectorAll(".admin-input").forEach(input => {
     const field = input.dataset.field;
     let val = input.value.trim();
-    if (field === "marketValue" || field === "peakValue" || field === "age") {
+    if (["marketValue", "peakValue", "age", "salary", "releaseClause"].includes(field)) {
       val = val === "" ? null : Number(val);
     }
     if (val !== null && val !== "") data[field] = val;
@@ -509,6 +563,11 @@ function saveTransfer() {
   const fee = Number(document.getElementById("trFee").value) || 0;
   if (!from || !to) return alert("Preencha origem e destino");
 
+  const status = document.getElementById("trStatus").value;
+  if (status === "oficial" && !isTransferWindowOpen()) {
+    return alert("Janela de transferências está FECHADA.\nAbra a janela em Admin → Importar Excel antes de registrar oficiais.");
+  }
+
   const id = "t" + Date.now();
   const payload = {
     playerKey: opt.value,
@@ -517,15 +576,40 @@ function saveTransfer() {
     type: document.getElementById("trType").value,
     date: document.getElementById("trDate").value,
     season: document.getElementById("trSeason").value,
-    status: document.getElementById("trStatus").value
+    status
   };
 
   window.marketDb.ref("transfers/" + id).set(payload)
     .then(() => {
       alert("Transferência registrada!");
+      if (status === "oficial" && confirm("Aplicar também no elenco da Jet League?\n(Requer permissão de escrita no Firebase da liga)")) {
+        syncTransferToJetLeague(payload);
+      }
       renderAdminTransfers();
     })
     .catch(err => alert("Erro: " + err.message));
+}
+
+function syncTransferToJetLeague(t) {
+  // Move player between rosters on Jet League DB (write)
+  window.jetDb.ref("liga/rosters").once("value").then(snap => {
+    const rosters = snap.val() || {};
+    const fromList = rosters[t.from] || [];
+    const idx = fromList.findIndex(p => p.n === t.playerName);
+    if (idx < 0) {
+      alert("Agente não encontrado no elenco de origem na Jet League.");
+      return;
+    }
+    const player = fromList.splice(idx, 1)[0];
+    if (!rosters[t.to]) rosters[t.to] = [];
+    rosters[t.to].push(player);
+    return window.jetDb.ref("liga/rosters").set(rosters);
+  }).then(() => {
+    if (arguments.length) alert("Elenco da Jet League atualizado!");
+  }).catch(err => {
+    alert("Não foi possível escrever na Jet League (regras de segurança).\n" + (err.message || ""));
+    console.error(err);
+  });
 }
 
 function deleteTransfer(id) {
@@ -674,6 +758,7 @@ function renderAdminAI() {
           <option value="rumor">Rumor de mercado</option>
           <option value="batch-rumors">Lote de 3 rumores</option>
           <option value="value-suggest">Sugestão de valor de mercado</option>
+          <option value="team-targets">Sugestão de alvos por time</option>
         </select>
       </div>
       <div>
@@ -718,6 +803,7 @@ async function runAIGeneration() {
     if (action === "rumor") result = await aiGenerateSingleRumor();
     else if (action === "batch-rumors") result = await aiGenerateBatchRumors();
     else if (action === "value-suggest") result = await aiSuggestValue();
+    else if (action === "team-targets") result = await aiTeamTargets();
 
     openAIReviewModal(action, result);
     status.textContent = "Gerado! Revise no modal.";
@@ -897,6 +983,32 @@ JUSTIFICATIVA: 2 frases.`;
   };
 }
 
+
+async function aiTeamTargets() {
+  const club = document.getElementById("aiClub")?.value;
+  if (!club) throw new Error("Selecione a equipe interessada (time que vai buscar reforços)");
+  const players = getAllPlayersFlat().filter(p => !p.freeAgent && p.club !== club && p.marketValue);
+  const top = [...players].sort((a,b)=>(b.marketValue||0)-(a.marketValue||0)).slice(0, 25);
+  const list = top.map(p =>
+    `${p.name} | ${p.club} | ${p.rank} | ${formatUSD(p.marketValue,true)} | WR ${p.stats?.P ? Math.round(p.stats.winRate*100)+"%" : "—"} | ${p.stats?.P||0}P`
+  ).join("\n");
+  const extra = document.getElementById("aiExtra")?.value || "";
+  const prompt = `Você é scout da Jet League. O time ${club} precisa de reforços.
+Com base nesta lista de agentes de OUTROS times, sugira EXATAMENTE 3 alvos prioritários.
+
+LISTA:
+${list}
+
+INSTRUÇÃO EXTRA: ${extra || "Nenhuma"}
+
+Responda em português, formato:
+1. NOME (TIME) — motivo em 2 frases. Valor estimado e encaixe tático/rank.
+2. ...
+3. ...`;
+  const raw = await window.marketGenerateWithAI(prompt);
+  return { club, text: raw.trim() };
+}
+
 /* ========== REVIEW MODAL ========== */
 function openAIReviewModal(action, data) {
   const overlay = document.getElementById("aiReviewOverlay");
@@ -946,6 +1058,19 @@ function openAIReviewModal(action, data) {
       <div class="review-field full"><label>Justificativa da IA</label><textarea id="revJustification" rows="3">${data.justification}</textarea></div>
       <p style="font-size:0.85rem;color:var(--text-muted);margin-top:8px">Ao confirmar, o valor será atualizado no agente.</p>
     `;
+  } else if (action === "team-targets") {
+    title.textContent = "Alvos sugeridos · " + (data.club || "");
+    body.innerHTML = `
+      <div class="review-field full">
+        <label>Sugestões da IA</label>
+        <textarea id="revTeamTargets" rows="12"></textarea>
+      </div>
+      <p style="font-size:0.8rem;color:var(--text-muted)">Conteúdo narrativo para revisão. Nada é gravado automaticamente no banco.</p>
+    `;
+    setTimeout(() => {
+      const ta = document.getElementById("revTeamTargets");
+      if (ta) ta.value = data.text || "";
+    }, 0);
   }
 
   overlay.classList.add("open");
@@ -1023,26 +1148,36 @@ function confirmAIReview() {
   }
 
   if (action === "import-values") {
-    const inputs = document.querySelectorAll(".imp-val");
+    const mode = window._aiReviewData.mode || "full";
+    const statsOnly = mode === "statsOnly";
     const updates = {};
     const season = window.AppState.jet.currentSeason || "Temporada 1";
-
+    const inputs = document.querySelectorAll(".imp-val");
+    const valueByIdx = {};
     inputs.forEach(input => {
-      const idx = Number(input.dataset.idx);
-      const r = data[idx];
-      if (!r) return;
-      const value = Number(input.value) || r.newValue;
+      valueByIdx[Number(input.dataset.idx)] = Number(input.value);
+    });
+
+    data.forEach((r, i) => {
       const existing = window.AppState.market.players[r.key] || {};
-      let history = existing.valueHistory || r.valueHistory || [];
+      const value = statsOnly
+        ? (existing.marketValue ?? r.oldValue ?? r.newValue)
+        : (valueByIdx[i] != null ? valueByIdx[i] : r.newValue);
+
+      let history = existing.valueHistory || [];
       if (!Array.isArray(history)) history = [];
-      const hIdx = history.findIndex(h => h.season === season);
-      if (hIdx >= 0) history[hIdx].value = value;
-      else history.push({ season, value });
+      if (!statsOnly) {
+        const hIdx = history.findIndex(h => h.season === season);
+        if (hIdx >= 0) history[hIdx].value = value;
+        else history.push({ season, value });
+      }
 
       updates[r.key] = {
         ...existing,
         marketValue: value,
-        peakValue: Math.max(existing.peakValue || 0, r.peak || value),
+        peakValue: statsOnly
+          ? (existing.peakValue || value)
+          : Math.max(existing.peakValue || 0, r.peak || value),
         rank: r.rank,
         functionRole: r.func,
         trophy: r.trophy,
@@ -1051,6 +1186,8 @@ function confirmAIReview() {
         nationality: r.nationality || existing.nationality || "Brasil",
         age: r.age || existing.age || 24,
         photo: r.photo || existing.photo || "",
+        salary: existing.salary ?? r.salary ?? null,
+        releaseClause: existing.releaseClause ?? r.releaseClause ?? null,
         contractUntil: existing.contractUntil || "Temporada 4",
         status: existing.status || "ativo",
         valueHistory: history
@@ -1064,6 +1201,21 @@ function confirmAIReview() {
         if (isLogged) renderAdminImport();
       })
       .catch(err => alert("Erro: " + err.message));
+  }
+
+  if (action === "market-analysis") {
+    const text = document.getElementById("revAnalysisText")?.value?.trim() || data.text;
+    const box = document.getElementById("marketAnalysisBox");
+    const el = document.getElementById("marketAnalysisText");
+    if (box) box.style.display = "block";
+    if (el) el.textContent = text;
+    closeAIReviewModal();
+  }
+
+  if (action === "team-targets") {
+    // Apenas fecha após revisão (conteúdo informativo)
+    closeAIReviewModal();
+    alert("Sugestões revisadas. Use como referência narrativa — nada foi gravado automaticamente.");
   }
 }
 
@@ -1082,6 +1234,9 @@ window.generateRumorWithAI = generateRumorWithAI;
 window.runAIGeneration = runAIGeneration;
 window.processImportFile = processImportFile;
 window.forceReseedFromCode = forceReseedFromCode;
+window.setTransferWindow = setTransferWindow;
+window.saveJetLeagueUrl = saveJetLeagueUrl;
+window.syncTransferToJetLeague = syncTransferToJetLeague;
 window.renderCompare = typeof renderCompare !== "undefined" ? renderCompare : function(){};
 window.closeAIReviewModal = closeAIReviewModal;
 window.confirmAIReview = confirmAIReview;

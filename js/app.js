@@ -51,6 +51,9 @@ function getAllPlayersFlat() {
         rank: m.rank || "—",
         functionRole: m.functionRole || "",
         trophy: m.trophy || 0,
+        salary: m.salary ?? null,
+        releaseClause: m.releaseClause ?? null,
+        freeAgent: !!m.freeAgent,
         stats: {
           P: stats.P ?? 0,
           V: stats.V ?? 0,
@@ -61,11 +64,63 @@ function getAllPlayersFlat() {
       });
     });
   }
+
+  // Agentes livres (cadastrados só no Market)
+  Object.entries(marketPlayers).forEach(([key, m]) => {
+    if (!m || !m.freeAgent) return;
+    if (list.some(p => p.key === key)) return;
+    const st = m.stats || {};
+    list.push({
+      key,
+      name: m.name || key.split("_").slice(1).join("_") || key,
+      role: "titular",
+      club: "Livre",
+      marketValue: m.marketValue ?? null,
+      peakValue: m.peakValue ?? null,
+      nationality: m.nationality || "—",
+      age: m.age || null,
+      contractUntil: m.contractUntil || "—",
+      status: "livre",
+      photo: m.photo || "",
+      valueHistory: m.valueHistory || [],
+      rank: m.rank || "—",
+      functionRole: "Agente livre",
+      trophy: m.trophy || 0,
+      salary: m.salary ?? null,
+      releaseClause: m.releaseClause ?? null,
+      freeAgent: true,
+      stats: {
+        P: st.P ?? 0,
+        V: st.V ?? 0,
+        D: st.D ?? 0,
+        winRate: st.winRate ?? 0
+      },
+      statsRound: m.statsRound || ""
+    });
+  });
+
   return list;
 }
 
+function isTransferWindowOpen() {
+  return !!(window.AppState.market.settings && window.AppState.market.settings.transferWindowOpen);
+}
+
+function updateTransferWindowBadge() {
+  const el = document.getElementById("transferWindowBadge");
+  if (!el) return;
+  const open = isTransferWindowOpen();
+  el.textContent = open ? "JANELA ABERTA" : "JANELA FECHADA";
+  el.className = "window-badge " + (open ? "open" : "closed");
+}
+
+function getJetLeagueUrl() {
+  return (window.AppState.market.settings && window.AppState.market.settings.jetLeagueUrl) ||
+    "https://teste-jet.pages.dev";
+}
+
 function getClubMarketValue(clubName) {
-  const players = getAllPlayersFlat().filter(p => p.club === clubName);
+  const players = getAllPlayersFlat().filter(p => p.club === clubName && !p.freeAgent);
   return players.reduce((sum, p) => sum + (p.marketValue || 0), 0);
 }
 
@@ -284,7 +339,8 @@ function renderPlayers() {
       return r === rankF.toLowerCase() || r.includes(rankF.replace("Rank ", "").toLowerCase());
     });
   }
-  if (roleF) players = players.filter(p => p.role === roleF);
+  if (roleF === "livre") players = players.filter(p => p.freeAgent);
+  else if (roleF) players = players.filter(p => p.role === roleF && !p.freeAgent);
   if (valueF) {
     players = players.filter(p => {
       const v = p.marketValue || 0;
@@ -677,10 +733,16 @@ function openPlayerProfile(key) {
   // Monta histórico de valor para o gráfico (seed gera histórico sintético se não existir)
   let history = p.valueHistory && p.valueHistory.length ? [...p.valueHistory] : buildSyntheticHistory(p);
 
+  const shareKey = encodeURIComponent(p.key);
   content.innerHTML = `
-    <button onclick="showView('players')" style="background:none;border:1px solid var(--border);color:var(--text-muted);padding:6px 12px;border-radius:8px;cursor:pointer;margin-bottom:20px;font-size:0.85rem">
-      ← Voltar para Agentes
-    </button>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:20px">
+      <button onclick="showView('players')" style="background:none;border:1px solid var(--border);color:var(--text-muted);padding:6px 12px;border-radius:8px;cursor:pointer;font-size:0.85rem">
+        ← Voltar para Agentes
+      </button>
+      <button class="share-btn" onclick="copyPlayerLink('${p.key}')">🔗 Copiar link</button>
+      ${!p.freeAgent ? `<a class="ext-link" href="${getJetLeagueUrl()}" target="_blank" rel="noopener">Ver na Jet League ↗</a>` : ""}
+      <button class="btn-ai btn-sm" onclick="requestMarketAnalysis('${p.key}')">✨ Análise de mercado (IA)</button>
+    </div>
 
     <div class="profile-header">
       <div class="profile-photo" style="padding:0;overflow:hidden">
@@ -690,8 +752,9 @@ function openPlayerProfile(key) {
       <div class="profile-info">
         <h1>${p.name}</h1>
         <div class="profile-meta">
-          <span class="tag">${p.club}</span>
+          <span class="tag ${p.freeAgent ? "free-agent-tag" : ""}">${p.club}</span>
           <span class="tag ${p.role}">${roleLabel(p.role)}</span>
+          <span class="tag">${p.rank || "—"}</span>
           <span class="tag">${p.nationality}</span>
           ${p.age ? `<span class="tag">${p.age} anos</span>` : ""}
           <span class="tag">Contrato até ${p.contractUntil}</span>
@@ -708,6 +771,14 @@ function openPlayerProfile(key) {
         </div>
       ` : ""}
       ${p.peakValue ? `<div style="margin-top:8px;font-size:0.85rem;color:var(--text-muted)">Maior valor da carreira: <strong style="color:var(--text)">${formatUSD(p.peakValue)}</strong></div>` : ""}
+      <div style="margin-top:10px;display:flex;gap:16px;flex-wrap:wrap;font-size:0.85rem;color:var(--text-muted)">
+        <span>Salário: <strong style="color:var(--text)">${p.salary != null ? formatUSD(p.salary, true) + "/temp" : "—"}</strong></span>
+        <span>Cláusula: <strong style="color:var(--text)">${p.releaseClause != null ? formatUSD(p.releaseClause, true) : "—"}</strong></span>
+      </div>
+    </div>
+    <div id="marketAnalysisBox" class="section" style="display:none">
+      <h2 class="section-h">Análise de Mercado</h2>
+      <div id="marketAnalysisText" class="rumor-card"></div>
     </div>
 
     <div class="section">
@@ -753,12 +824,80 @@ function openPlayerProfile(key) {
         <div class="kpi"><div class="kpi-label">Nacionalidade</div><div class="kpi-value" style="font-size:1.1rem">${p.nationality}</div></div>
         <div class="kpi"><div class="kpi-label">Idade</div><div class="kpi-value" style="font-size:1.1rem">${p.age || "—"}</div></div>
         <div class="kpi"><div class="kpi-label">Contrato</div><div class="kpi-value" style="font-size:1.1rem">${p.contractUntil}</div></div>
+        <div class="kpi"><div class="kpi-label">Salário</div><div class="kpi-value" style="font-size:1rem">${p.salary != null ? formatUSD(p.salary, true) : "—"}</div></div>
+        <div class="kpi"><div class="kpi-label">Cláusula</div><div class="kpi-value" style="font-size:1rem">${p.releaseClause != null ? formatUSD(p.releaseClause, true) : "—"}</div></div>
       </div>
     </div>
   `;
 
+  // Deep link na URL
+  try {
+    const url = new URL(window.location.href);
+    url.searchParams.set("player", p.key);
+    history.replaceState(null, "", url.toString());
+  } catch (_) {}
+
   // Render chart
   requestAnimationFrame(() => renderValueChart(history));
+}
+
+function copyPlayerLink(key) {
+  const url = new URL(window.location.href);
+  url.searchParams.set("player", key);
+  navigator.clipboard.writeText(url.toString()).then(() => {
+    alert("Link copiado!");
+  }).catch(() => {
+    prompt("Copie o link:", url.toString());
+  });
+}
+
+async function requestMarketAnalysis(key) {
+  const p = getAllPlayersFlat().find(x => x.key === key);
+  if (!p) return;
+  const box = document.getElementById("marketAnalysisBox");
+  const text = document.getElementById("marketAnalysisText");
+  if (box) box.style.display = "block";
+  if (text) text.textContent = "Gerando análise com IA...";
+
+  const prompt = `Você é analista de mercado da Jet League.
+Escreva em português do Brasil, 1 parágrafo objetivo (4-6 frases) explicando por que o valor de mercado faz sentido.
+
+AGENTE: ${p.name}
+EQUIPE: ${p.club}
+RANK: ${p.rank}
+VALOR: ${p.marketValue ? formatUSD(p.marketValue) : "não definido"}
+PICO: ${p.peakValue ? formatUSD(p.peakValue) : "—"}
+PERFORMANCE: ${p.stats?.P || 0} partidas, ${p.stats?.V || 0}V-${p.stats?.D || 0}D, WR ${p.stats?.P ? Math.round(p.stats.winRate*100) : 0}%
+FUNÇÃO: ${p.functionRole || p.role}
+SALÁRIO: ${p.salary != null ? formatUSD(p.salary) : "não informado"}
+CLÁUSULA: ${p.releaseClause != null ? formatUSD(p.releaseClause) : "não informada"}
+
+Não invente estatísticas. Tom profissional de mercado esportivo.`;
+
+  try {
+    const raw = await window.marketGenerateWithAI(prompt);
+    // Modal de revisão
+    window._aiReviewData = {
+      action: "market-analysis",
+      data: { key, text: raw.trim(), playerName: p.name }
+    };
+    const overlay = document.getElementById("aiReviewOverlay");
+    document.getElementById("aiReviewTitle").textContent = "Revisar análise de mercado · " + p.name;
+    document.getElementById("aiReviewBody").innerHTML = `
+      <div class="review-field full">
+        <label>Texto da análise</label>
+        <textarea id="revAnalysisText" rows="6">${raw.trim().replace(/</g, "&lt;")}</textarea>
+      </div>
+      <p style="font-size:0.8rem;color:var(--text-muted)">Ao confirmar, a análise aparece no perfil (somente nesta sessão, ou salva se preferir depois).</p>
+    `;
+    // Fix textarea content properly
+    document.getElementById("revAnalysisText").value = raw.trim();
+    overlay.classList.add("open");
+    if (text) text.textContent = "Revise no modal antes de publicar no perfil.";
+  } catch (err) {
+    if (text) text.textContent = "IA indisponível. Tente novamente mais tarde.";
+    console.error(err);
+  }
 }
 
 function buildSyntheticHistory(p) {
@@ -882,9 +1021,19 @@ function openClubProfile(clubName) {
 document.addEventListener("DOMContentLoaded", () => {
   console.log("[Jet Market] Iniciando...");
 
+  if (typeof initTheme === "function") initTheme();
   startJetListeners();
   startMarketListeners();
   if (typeof initAuth === "function") initAuth();
+
+  // Deep link ?player=Key
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const playerParam = params.get("player");
+    if (playerParam) {
+      window._pendingPlayerDeepLink = decodeURIComponent(playerParam);
+    }
+  } catch (_) {}
 
   document.addEventListener("jet:updated", () => {
     const view = window.AppState.ui.currentView;
@@ -894,6 +1043,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   document.addEventListener("market:updated", () => {
+    updateTransferWindowBadge();
     const view = window.AppState.ui.currentView;
     if (view === "home") renderHome();
     if (view === "players") renderPlayers();
@@ -902,12 +1052,29 @@ document.addEventListener("DOMContentLoaded", () => {
     if (view === "transfers") renderTransfers();
     if (view === "rumors") renderRumors();
     if (view === "rankings") renderRankings();
+
+    if (window._pendingPlayerDeepLink) {
+      const key = window._pendingPlayerDeepLink;
+      window._pendingPlayerDeepLink = null;
+      setTimeout(() => openPlayerProfile(key), 300);
+    }
+  });
+
+  document.addEventListener("jet:updated", () => {
+    if (window._pendingPlayerDeepLink && Object.keys(window.AppState.jet.rosters || {}).length) {
+      const key = window._pendingPlayerDeepLink;
+      // wait also for market
+    }
   });
 
   renderHome();
+  updateTransferWindowBadge();
 });
 
 window.renderCompare = renderCompare;
 window.openPlayerProfile = openPlayerProfile;
 window.openClubProfile = openClubProfile;
 window.showView = showView;
+window.copyPlayerLink = copyPlayerLink;
+window.requestMarketAnalysis = requestMarketAnalysis;
+window.isTransferWindowOpen = isTransferWindowOpen;

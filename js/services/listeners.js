@@ -58,7 +58,16 @@ function startMarketListeners() {
 
   window.marketDb.ref("settings").on("value", (snap) => {
     const s = snap.val();
-    if (s) state.market.settings = { ...state.market.settings, ...s };
+    state.market.settings = {
+      currency: "USD",
+      currencySymbol: "US$",
+      transferWindowOpen: false,
+      jetLeagueUrl: "https://teste-jet.pages.dev",
+      ...(state.market.settings || {}),
+      ...(s || {})
+    };
+    if (typeof updateTransferWindowBadge === "function") updateTransferWindowBadge();
+    document.dispatchEvent(new CustomEvent("market:updated"));
   });
 }
 
@@ -71,7 +80,10 @@ function seedMarketData() {
     settings: {
       currency: "USD",
       currencySymbol: "US$",
-      seededAt: Date.now()
+      transferWindowOpen: false,
+      jetLeagueUrl: "https://teste-jet.pages.dev",
+      seededAt: Date.now(),
+      statsRound: "Rodada 12"
     }
   };
   window.marketDb.ref().update(updates).then(() => {
