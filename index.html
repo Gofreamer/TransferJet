@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Jet Transfer — Mercado de Agentes da Jet League</title>
+
+  <!-- Firebase compat (igual ao Jet League) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+
+  <link rel="stylesheet" href="./css/styles.css"/>
+</head>
+<body>
+  <header>
+    <div class="logo">
+      <span>JET TRANSFER</span>
+      <small class="version-pill">MERCADO</small>
+    </div>
+    <nav class="nav">
+      <a class="active" data-view="home" onclick="showView('home', this)">Início</a>
+      <a data-view="players" onclick="showView('players', this)">Agentes</a>
+      <a data-view="clubs" onclick="showView('clubs', this)">Times</a>
+      <a data-view="transfers" onclick="showView('transfers', this)">Transferências</a>
+      <a data-view="rumors" onclick="showView('rumors', this)">Rumores</a>
+    </nav>
+  </header>
+
+  <section class="hero">
+    <div class="hero-content">
+      <div>
+        <h1>Mercado de Agentes</h1>
+        <div class="badges">
+          <span class="badge purple">JET LEAGUE</span>
+          <span class="badge" id="seasonBadge">—</span>
+          <span class="badge live" id="marketStatus">AO VIVO</span>
+        </div>
+        <p class="hero-desc">Valores de mercado, transferências e o ranking oficial dos agentes da Jet League.</p>
+      </div>
+      <div class="hero-stats" id="heroStats">
+        <div class="stat-card">
+          <div class="stat-value" id="statPlayers">—</div>
+          <div class="stat-label">Agentes</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="statClubs">—</div>
+          <div class="stat-label">Times</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="statTransfers">—</div>
+          <div class="stat-label">Transferências</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div id="connectionStatus" class="connection-status offline">
+    <span class="status-dot offline"></span> Conectando...
+  </div>
+
+  <main>
+    <!-- VIEW: HOME -->
+    <div id="view-home">
+      <div class="section">
+        <h2 class="section-h">Visão Geral do Mercado</h2>
+        <div id="homeContent">
+          <p class="empty-state">Carregando dados da Jet League...</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- VIEW: PLAYERS -->
+    <div id="view-players" class="hidden">
+      <div class="section">
+        <h2 class="section-h">Agentes</h2>
+        <div class="filters">
+          <input type="text" id="playerSearch" placeholder="Buscar agente..." oninput="filterPlayers()"/>
+          <select id="playerClubFilter" onchange="filterPlayers()">
+            <option value="">Todos os times</option>
+          </select>
+        </div>
+        <div id="playersList" class="cards-grid">
+          <p class="empty-state">Carregando elencos...</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- VIEW: CLUBS -->
+    <div id="view-clubs" class="hidden">
+      <div class="section">
+        <h2 class="section-h">Times & Plantéis</h2>
+        <div id="clubsList" class="cards-grid">
+          <p class="empty-state">Carregando times...</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- VIEW: TRANSFERS -->
+    <div id="view-transfers" class="hidden">
+      <div class="section">
+        <h2 class="section-h">Últimas Transferências</h2>
+        <div id="transfersList">
+          <p class="empty-state">Nenhuma transferência registrada ainda.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- VIEW: RUMORS -->
+    <div id="view-rumors" class="hidden">
+      <div class="section">
+        <h2 class="section-h">Rumores do Mercado</h2>
+        <div id="rumorsList">
+          <p class="empty-state">Nenhum rumor no momento.</p>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <p>Jet Transfer · Mercado oficial de agentes da <strong>Jet League</strong></p>
+    <p class="footer-note">Dados de elencos sincronizados em tempo real com a liga.</p>
+  </footer>
+
+  <!-- Scripts na ordem correta -->
+  <script src="./js/config/firebase-config.js"></script>
+  <script src="./js/core/state.js"></script>
+  <script src="./js/services/firebase.js"></script>
+  <script src="./js/services/jet-listeners.js"></script>
+  <script src="./js/services/transfer-listeners.js"></script>
+  <script src="./js/app.js"></script>
+</body>
+</html>

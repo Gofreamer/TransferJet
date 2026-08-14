@@ -1,0 +1,26 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "players": {
+      ".read": true,
+      ".write": "auth != null && auth.token.email != null"
+    },
+
+    "transfers": {
+      ".read": true,
+      ".write": "auth != null && auth.token.email != null"
+    },
+
+    "rumors": {
+      ".read": true,
+      ".write": "auth != null && auth.token.email != null"
+    },
+
+    "settings": {
+      ".read": true,
+      ".write": "auth != null && auth.token.email != null"
+    }
+  }
+}
