@@ -215,23 +215,41 @@ async function fxAdminResetAll() {
   const season = settings.seasonId || window.AppState.jet.currentSeason || "Temporada 1";
   const existing = window.AppState.fantasy.participants || {};
   const participants = {};
+  const resetAt = Date.now();
 
+  // Preserva somente o cadastro do humano. Todo estado competitivo volta ao zero.
   Object.entries(existing).forEach(([id, p]) => {
     if (!p || p.type === "npc") return;
     participants[id] = {
-      ...p,
+      id: p.id || id,
+      type: p.type || "human",
+      displayName: p.displayName || id,
+      teamName: p.teamName || "",
+      inviteCode: p.inviteCode || "",
+      avatar: p.avatar || "",
+      active: p.active !== false,
       budgetRemaining: budget,
       squad: emptySquad(),
       acquisitions: {},
       totalPoints: 0,
       lastRoundPoints: 0,
       lastComment: null,
-      resetAt: Date.now()
+      lastSquadSource: null,
+      resetAt
     };
   });
 
+  // NPCs também recomeçam pelo construtor oficial do Fantasy.
   (window.FANTASY.NPC_SEED || []).forEach(seed => {
-    participants[seed.id] = createNpcParticipant(seed);
+    const npc = createNpcParticipant(seed);
+    participants[seed.id] = {
+      ...npc,
+      totalPoints: 0,
+      lastRoundPoints: 0,
+      lastComment: null,
+      lastSquadSource: null,
+      resetAt
+    };
   });
 
   const freshSettings = {
@@ -241,31 +259,80 @@ async function fxAdminResetAll() {
     currentRoundId: "r1",
     marketStatus: "OPEN",
     marketClosesAt: null,
-    resetAt: Date.now()
+    resetAt
   };
 
-  await window.marketDb.ref("fantasy").set({
-    settings: freshSettings,
-    participants,
-    rounds: {
-      r1: {
-        id: "r1",
-        name: "Rodada 1",
-        seasonId: season,
-        rodadaNumber: 1,
-        status: "OPEN",
-        locksAt: null,
-        processedAt: null,
-        jetMatchIds: [],
-        analysisCache: null
-      }
-    },
-    scores: {},
-    leaderboard: { byRound: {}, overall: {} }
-  });
+  const freshRounds = {
+    r1: {
+      id: "r1",
+      name: "Rodada 1",
+      seasonId: season,
+      rodadaNumber: 1,
+      status: "OPEN",
+      locksAt: null,
+      processedAt: null,
+      jetMatchIds: [],
+      analysisCache: null,
+      resetAt
+    }
+  };
 
-  alert(`Fantasy resetado. ${Object.keys(participants).length} participantes voltaram ao início.`);
-  renderFantasyAdmin();
+  try {
+    // IMPORTANTE: não usar set("fantasy") aqui. As Database Rules concedem
+    // permissões por subárvore; gravamos cada nó em seu caminho autorizado.
+    await window.marketDb.ref("fantasy/settings").set(freshSettings);
+    await window.marketDb.ref("fantasy/participants").set(participants);
+    await window.marketDb.ref("fantasy/rounds").set(freshRounds);
+    await window.marketDb.ref("fantasy/scores").remove();
+    await window.marketDb.ref("fantasy/leaderboard").remove();
+
+    // Confere o estado remoto antes de dizer ao mestre que o reset terminou.
+    const [settingsSnap, participantsSnap, scoresSnap, leaderboardSnap] = await Promise.all([
+      window.marketDb.ref("fantasy/settings").once("value"),
+      window.marketDb.ref("fantasy/participants").once("value"),
+      window.marketDb.ref("fantasy/scores").once("value"),
+      window.marketDb.ref("fantasy/leaderboard").once("value")
+    ]);
+
+    const remoteSettings = settingsSnap.val() || {};
+    const remoteParticipants = participantsSnap.val() || {};
+    const badHuman = Object.entries(remoteParticipants).find(([, p]) => {
+      if (!p || p.type === "npc") return false;
+      const sq = typeof normalizeFantasySquad === "function" ? normalizeFantasySquad(p.squad) : p.squad;
+      const hasSquad = sq && ([...(sq.starters || []), sq.bench].filter(Boolean).length > 0 || sq.captainKey);
+      return Number(p.budgetRemaining) !== budget || Number(p.totalPoints || 0) !== 0 || Number(p.lastRoundPoints || 0) !== 0 || hasSquad;
+    });
+
+    if (remoteSettings.currentRoundId !== "r1" || scoresSnap.exists() || leaderboardSnap.exists() || badHuman) {
+      throw new Error("O Firebase não confirmou que todos os dados competitivos foram zerados.");
+    }
+
+    // Atualiza a memória local imediatamente, sem esperar o próximo evento dos listeners.
+    const f = ensureFantasyState();
+    f.settings = freshSettings;
+    f.participants = {};
+    Object.entries(remoteParticipants).forEach(([id, p]) => {
+      f.participants[id] = typeof normalizeFantasyParticipant === "function"
+        ? normalizeFantasyParticipant(p, id)
+        : p;
+    });
+    f.rounds = freshRounds;
+    f.scores = {};
+    f.leaderboard = { byRound: {}, overall: {} };
+
+    document.dispatchEvent(new CustomEvent("fantasy:updated"));
+    if (f.active && typeof renderFantasyShell === "function") renderFantasyShell();
+
+    alert(`Fantasy resetado de verdade. Pontos, rankings, rodadas antigas e escalações humanas foram zerados. ${Object.keys(participants).length} participantes voltaram ao início.`);
+    renderFantasyAdmin();
+  } catch (err) {
+    console.error("[Jet Fantasy] Falha no reset completo", err);
+    alert(
+      "Não foi possível concluir o reset completo do Fantasy.\n\n" +
+      "Nada será tratado como concluído enquanto o Firebase não confirmar a limpeza.\n\n" +
+      "Detalhe: " + (err?.message || err)
+    );
+  }
 }
 
 async function fxAdminRebuildNpcs() {
