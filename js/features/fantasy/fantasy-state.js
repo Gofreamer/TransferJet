@@ -2,7 +2,7 @@
 window.FANTASY = window.FANTASY || {};
 
 window.FANTASY.DEFAULTS = {
-  budgetInitial: 100000000,
+  budgetInitial: 5000000,
   maxPerTeam: 2,
   starters: 5,
   bench: 1,
@@ -88,7 +88,7 @@ function normalizeFantasyParticipant(raw, id = null) {
   p.id = p.id || id || null;
   p.squad = normalizeFantasySquad(p.squad);
   if (!Number.isFinite(Number(p.budgetRemaining))) {
-    p.budgetRemaining = Number(fantasySettings().budgetInitial || 100000000);
+    p.budgetRemaining = Number(fantasySettings().budgetInitial || 5000000);
   } else {
     p.budgetRemaining = Number(p.budgetRemaining);
   }

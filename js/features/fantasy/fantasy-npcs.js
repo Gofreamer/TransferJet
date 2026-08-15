@@ -71,7 +71,7 @@ function buildNpcSquad(strategy, superfanTeam, budget) {
   const starters = [];
   const teamCount = {};
   let spent = 0;
-  const budgetCap = budget ?? settings.budgetInitial ?? 100000000;
+  const budgetCap = budget ?? settings.budgetInitial ?? 5000000;
 
   for (const p of ranked) {
     if (starters.length >= 5) break;
@@ -108,7 +108,7 @@ function buildNpcSquad(strategy, superfanTeam, budget) {
 }
 
 function createNpcParticipant(seed) {
-  const budget = fantasySettings().budgetInitial || 100000000;
+  const budget = fantasySettings().budgetInitial || 5000000;
   const built = buildNpcSquad(seed.strategy, seed.superfanTeam, budget);
   return {
     type: "npc",
@@ -164,7 +164,7 @@ function validateNpcAISquad(parsed, budget) {
 
   const settings = fantasySettings();
   const maxPerTeam = Number(settings.maxPerTeam || 2);
-  const budgetCap = Number(budget ?? settings.budgetInitial ?? 100000000);
+  const budgetCap = Number(budget ?? settings.budgetInitial ?? 5000000);
   const map = fantasyPlayerMap();
 
   const starters = Array.isArray(parsed.starters) ? parsed.starters.map(String) : [];
@@ -202,7 +202,7 @@ async function generateNpcSquadWithAI(seed, context, budget) {
   if (typeof gen !== "function") return null;
   if (fantasySettings().geminiEnabled === false) return null;
 
-  const budgetCap = Number(budget ?? fantasySettings().budgetInitial ?? 100000000);
+  const budgetCap = Number(budget ?? fantasySettings().budgetInitial ?? 5000000);
   const maxPerTeam = Number(fantasySettings().maxPerTeam || 2);
   const ctx = context || buildNpcAIContext();
 
@@ -254,7 +254,7 @@ Responda APENAS JSON válido, sem markdown e sem texto fora do JSON, neste forma
 }
 
 async function buildNpcSquadSmart(seed, budget, context) {
-  const budgetCap = Number(budget ?? fantasySettings().budgetInitial ?? 100000000);
+  const budgetCap = Number(budget ?? fantasySettings().budgetInitial ?? 5000000);
   const aiBuilt = await generateNpcSquadWithAI(seed, context || buildNpcAIContext(), budgetCap);
   if (aiBuilt) return { ...aiBuilt, source: "gemini" };
   const fallback = buildNpcSquad(seed.strategy, seed.superfanTeam, budgetCap);

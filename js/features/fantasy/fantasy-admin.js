@@ -183,7 +183,7 @@ async function fxAdminSeed() {
 async function fxAdminRepairData() {
   if (!confirm("Reparar e normalizar escalações do Fantasy?\n\nIsso não apaga pontos nem participantes. Apenas corrige formatos antigos/incompletos de elenco e orçamento.")) return;
   const parts = window.AppState.fantasy.participants || {};
-  const budgetInitial = Number(fantasySettings().budgetInitial || 100000000);
+  const budgetInitial = Number(fantasySettings().budgetInitial || 5000000);
   const updates = {};
   let count = 0;
 
@@ -211,7 +211,7 @@ async function fxAdminResetAll() {
   if (!ok) return;
 
   const settings = fantasySettings();
-  const budget = Number(settings.budgetInitial || 100000000);
+  const budget = Number(window.FANTASY.DEFAULTS.budgetInitial || 5000000);
   const season = settings.seasonId || window.AppState.jet.currentSeason || "Temporada 1";
   const existing = window.AppState.fantasy.participants || {};
   const participants = {};
@@ -339,7 +339,7 @@ async function fxAdminRebuildNpcs() {
   const parts = window.AppState.fantasy.participants || {};
   const updates = {};
   const activeNpcs = Object.entries(parts).filter(([, p]) => p && p.type === "npc" && p.active !== false);
-  const budget = fantasySettings().budgetInitial || 100000000;
+  const budget = fantasySettings().budgetInitial || 5000000;
   const context = typeof buildNpcAIContext === "function" ? buildNpcAIContext() : null;
   let aiCount = 0;
   let fallbackCount = 0;
@@ -385,7 +385,7 @@ async function fxAdminAddHuman() {
   if (!nick) return alert("Informe o nick");
   if (!code) code = "JET-" + nick.toUpperCase().replace(/\s+/g, "").slice(0, 10);
   const id = "human_" + Date.now();
-  const budget = fantasySettings().budgetInitial || 100000000;
+  const budget = fantasySettings().budgetInitial || 5000000;
   await saveFantasyParticipant(id, {
     type: "human",
     displayName: nick,
