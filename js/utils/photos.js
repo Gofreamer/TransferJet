@@ -1,15 +1,15 @@
 /* Jet Market — Sistema de fotos dos agentes
    Prioridade:
-   1. photo URL salva no market.players
+   1. photo URL salva no market.players (Admin → Fotos)
    2. DiceBear (avatar gerado pelo nome)
-   3. Iniciais
+   3. Iniciais (fallback no HTML)
 */
 
 function getPlayerPhoto(player) {
-  if (player?.photo && player.photo.startsWith("http")) {
-    return player.photo;
+  const raw = player?.photo || player?.photoUrl || player?.image || "";
+  if (raw && /^https?:\/\//i.test(String(raw).trim())) {
+    return String(raw).trim();
   }
-  // DiceBear - avatares consistentes baseados no nome
   const seed = encodeURIComponent(player?.name || player?.key || "agent");
   return `https://api.dicebear.com/9.x/avataaars/svg?seed=${seed}&backgroundColor=0d1219,111822`;
 }

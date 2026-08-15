@@ -101,6 +101,7 @@ function renderAdminPanel(tab = "values") {
     </div>
     <div class="admin-tabs">
       <button class="admin-tab ${tab==='values'?'active':''}" onclick="renderAdminPanel('values')">Valores</button>
+      <button class="admin-tab ${tab==='photos'?'active':''}" onclick="renderAdminPanel('photos')">Fotos</button>
       <button class="admin-tab ${tab==='import'?'active':''}" onclick="renderAdminPanel('import')">Importar Excel</button>
       <button class="admin-tab ${tab==='transfers'?'active':''}" onclick="renderAdminPanel('transfers')">Transferências</button>
       <button class="admin-tab ${tab==='rumors'?'active':''}" onclick="renderAdminPanel('rumors')">Rumores</button>
@@ -112,6 +113,7 @@ function renderAdminPanel(tab = "values") {
   `;
 
   if (tab === "values") renderAdminValues();
+  if (tab === "photos" && typeof renderAdminPhotos === "function") renderAdminPhotos();
   if (tab === "import") renderAdminImport();
   if (tab === "transfers") renderAdminTransfers();
   if (tab === "rumors") renderAdminRumors();
