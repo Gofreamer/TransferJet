@@ -22,6 +22,7 @@ function renderFantasyAdmin() {
       <button class="btn-gray btn-sm" onclick="fxAdminCloseMarket()">Fechar mercado</button>
       <button class="btn-ai btn-sm" onclick="fxAdminSeed()">Seed / reset NPCs (10)</button>
       <button class="btn-primary btn-sm" onclick="fxAdminRebuildNpcs()">Remontar escalações NPC</button>
+      <button class="btn-gray btn-sm" onclick="fxAdminRepairData()">Reparar dados Fantasy</button>
       <button class="btn-danger btn-sm" onclick="fxAdminResetAll()">Resetar Fantasy inteiro</button>
     </div>
 
@@ -175,6 +176,29 @@ async function fxAdminSeed() {
     id: "r1", name: "Rodada 1", seasonId: season, rodadaNumber: 1, status: "OPEN"
   });
   alert("Seed Fantasy aplicado (" + Object.keys(participants).length + " participantes)");
+  renderFantasyAdmin();
+}
+
+
+async function fxAdminRepairData() {
+  if (!confirm("Reparar e normalizar escalações do Fantasy?\n\nIsso não apaga pontos nem participantes. Apenas corrige formatos antigos/incompletos de elenco e orçamento.")) return;
+  const parts = window.AppState.fantasy.participants || {};
+  const budgetInitial = Number(fantasySettings().budgetInitial || 100000000);
+  const updates = {};
+  let count = 0;
+
+  Object.entries(parts).forEach(([id, raw]) => {
+    if (!raw) return;
+    const p = typeof normalizeFantasyParticipant === "function" ? normalizeFantasyParticipant(raw, id) : raw;
+    updates[id + "/squad"] = p.squad || emptySquad();
+    if (!Number.isFinite(Number(raw.budgetRemaining))) updates[id + "/budgetRemaining"] = budgetInitial;
+    count++;
+  });
+
+  if (Object.keys(updates).length) {
+    await window.marketDb.ref("fantasy/participants").update(updates);
+  }
+  alert(`Dados reparados para ${count} participante(s).`);
   renderFantasyAdmin();
 }
 
@@ -437,3 +461,5 @@ window.fxAdminDeletePart = fxAdminDeletePart;
 window.fxAdminToggleNpc = fxAdminToggleNpc;
 window.fxAdminPreviewProcess = fxAdminPreviewProcess;
 window.confirmFantasyProcessRound = confirmFantasyProcessRound;
+
+window.fxAdminRepairData = fxAdminRepairData;

@@ -13,7 +13,8 @@ function countTeamInSquad(squad, playerMap) {
 }
 
 function squadPlayerKeys(squad) {
-  return [...(squad?.starters || []), squad?.bench].filter(Boolean);
+  const safe = typeof normalizeFantasySquad === "function" ? normalizeFantasySquad(squad) : (squad || emptySquad());
+  return [...safe.starters, safe.bench].filter(Boolean);
 }
 
 function validateSquad(squad, budgetRemaining, opts = {}) {
@@ -23,6 +24,7 @@ function validateSquad(squad, budgetRemaining, opts = {}) {
   const map = fantasyPlayerMap();
   const errors = [];
 
+  squad = typeof normalizeFantasySquad === "function" ? normalizeFantasySquad(squad) : squad;
   const starters = (squad.starters || []).filter(Boolean);
   if (starters.length !== needStarters) {
     errors.push(`Precisa de ${needStarters} titulares (tem ${starters.length})`);
@@ -70,7 +72,7 @@ function tryAddToSquad(participant, playerKey, slot) {
   const map = fantasyPlayerMap();
   if (!map[playerKey]) return { ok: false, error: "Agente não encontrado" };
 
-  const squad = JSON.parse(JSON.stringify(participant.squad || emptySquad()));
+  const squad = typeof normalizeFantasySquad === "function" ? normalizeFantasySquad(participant.squad) : JSON.parse(JSON.stringify(participant.squad || emptySquad()));
   const currentKeys = squadPlayerKeys(squad);
 
   if (currentKeys.includes(playerKey)) return { ok: false, error: "Já está no seu elenco" };
@@ -123,7 +125,7 @@ function tryAddToSquad(participant, playerKey, slot) {
 
 function tryRemoveFromSquad(participant, playerKey) {
   if (!isFantasyMarketOpen()) return { ok: false, error: "Mercado fechado" };
-  const squad = JSON.parse(JSON.stringify(participant.squad || emptySquad()));
+  const squad = typeof normalizeFantasySquad === "function" ? normalizeFantasySquad(participant.squad) : JSON.parse(JSON.stringify(participant.squad || emptySquad()));
   let budget = participant.budgetRemaining || 0;
   let found = false;
 
@@ -148,14 +150,16 @@ function tryRemoveFromSquad(participant, playerKey) {
 
 function trySetCaptain(participant, playerKey) {
   if (!isFantasyMarketOpen()) return { ok: false, error: "Mercado fechado" };
-  const starters = (participant.squad?.starters || []).filter(Boolean);
+  const safeSquad = typeof normalizeFantasySquad === "function" ? normalizeFantasySquad(participant.squad) : (participant.squad || emptySquad());
+  const starters = safeSquad.starters.filter(Boolean);
   if (!starters.includes(playerKey)) return { ok: false, error: "Capitão deve ser titular" };
-  const squad = { ...(participant.squad || emptySquad()), captainKey: playerKey };
+  const squad = { ...safeSquad, captainKey: playerKey };
   return { ok: true, squad };
 }
 
 function firstEmptyStarterSlot(squad) {
-  const s = squad?.starters || [];
+  const safe = typeof normalizeFantasySquad === "function" ? normalizeFantasySquad(squad) : (squad || emptySquad());
+  const s = safe.starters || [];
   for (let i = 0; i < 5; i++) if (!s[i]) return i;
   return -1;
 }

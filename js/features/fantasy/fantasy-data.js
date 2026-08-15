@@ -2,8 +2,10 @@
 window.FANTASY = window.FANTASY || {};
 
 function startFantasyListeners() {
-  ensureFantasyState();
+  const f = ensureFantasyState();
   if (!window.marketDb) return;
+  if (f.ui.listenersStarted) return;
+  f.ui.listenersStarted = true;
 
   window.marketDb.ref("fantasy/settings").on("value", snap => {
     const f = ensureFantasyState();
@@ -15,8 +17,22 @@ function startFantasyListeners() {
 
   window.marketDb.ref("fantasy/participants").on("value", snap => {
     const f = ensureFantasyState();
-    f.participants = snap.val() || {};
+    const raw = snap.val() || {};
+    const normalized = {};
+    Object.entries(raw).forEach(([id, participant]) => {
+      normalized[id] = typeof normalizeFantasyParticipant === "function"
+        ? normalizeFantasyParticipant(participant, id)
+        : participant;
+    });
+    f.participants = normalized;
+    f.ui.participantsLoaded = true;
     document.dispatchEvent(new CustomEvent("fantasy:updated"));
+    if (f.active && typeof renderFantasyShell === "function") renderFantasyShell();
+  }, error => {
+    const f = ensureFantasyState();
+    f.ui.participantsLoaded = true;
+    f.ui.lastError = "Não foi possível carregar os participantes do Fantasy.";
+    console.error("[Jet Fantasy] participants listener", error);
     if (f.active && typeof renderFantasyShell === "function") renderFantasyShell();
   });
 

@@ -131,7 +131,7 @@ function scoreAgentInRound(playerKey, matches, opts = {}) {
 
 function scoreParticipantRound(participant, matches, opts = {}) {
   const S = window.FANTASY.SCORING;
-  const squad = participant.squad || emptySquad();
+  const squad = typeof normalizeFantasySquad === "function" ? normalizeFantasySquad(participant.squad) : (participant.squad || emptySquad());
   const starters = (squad.starters || []).filter(Boolean);
   const captainKey = squad.captainKey;
   const breakdown = [];

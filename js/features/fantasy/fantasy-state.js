@@ -60,6 +60,42 @@ function ensureFantasyState() {
   return window.AppState.fantasy;
 }
 
+
+function normalizeFantasySquad(raw) {
+  const src = raw && typeof raw === "object" ? raw : {};
+  let starters = src.starters;
+
+  if (Array.isArray(starters)) {
+    starters = starters.slice(0, 5);
+  } else if (starters && typeof starters === "object") {
+    starters = [0,1,2,3,4].map(i => starters[i] ?? starters[String(i)] ?? null);
+  } else {
+    starters = [];
+  }
+
+  while (starters.length < 5) starters.push(null);
+  starters = starters.slice(0, 5).map(v => (typeof v === "string" && v.trim()) ? v : null);
+
+  const bench = (typeof src.bench === "string" && src.bench.trim()) ? src.bench : null;
+  let captainKey = (typeof src.captainKey === "string" && src.captainKey.trim()) ? src.captainKey : null;
+  if (captainKey && !starters.includes(captainKey)) captainKey = null;
+
+  return { starters, bench, captainKey };
+}
+
+function normalizeFantasyParticipant(raw, id = null) {
+  const p = raw && typeof raw === "object" ? { ...raw } : {};
+  p.id = p.id || id || null;
+  p.squad = normalizeFantasySquad(p.squad);
+  if (!Number.isFinite(Number(p.budgetRemaining))) {
+    p.budgetRemaining = Number(fantasySettings().budgetInitial || 100000000);
+  } else {
+    p.budgetRemaining = Number(p.budgetRemaining);
+  }
+  p.acquisitions = p.acquisitions && typeof p.acquisitions === "object" ? p.acquisitions : {};
+  return p;
+}
+
 function fantasySettings() {
   ensureFantasyState();
   return { ...window.FANTASY.DEFAULTS, ...(window.AppState.fantasy.settings || {}) };
@@ -77,7 +113,8 @@ function isFantasyMarketOpen() {
 
 function getFantasyParticipant(id) {
   ensureFantasyState();
-  return (window.AppState.fantasy.participants || {})[id] || null;
+  const raw = (window.AppState.fantasy.participants || {})[id];
+  return raw ? normalizeFantasyParticipant(raw, id) : null;
 }
 
 function getMyFantasyParticipant() {
@@ -116,13 +153,14 @@ function teamSquadValue(teamName) {
 function fantasyEquity(participant) {
   if (!participant) return 0;
   const map = fantasyPlayerMap();
-  const keys = [...(participant.squad?.starters || []), participant.squad?.bench].filter(Boolean);
+  const squad = normalizeFantasySquad(participant.squad);
+  const keys = [...squad.starters, squad.bench].filter(Boolean);
   const assets = keys.reduce((s, k) => s + (map[k]?.marketValue || 0), 0);
-  return (participant.budgetRemaining || 0) + assets;
+  return Number(participant.budgetRemaining || 0) + assets;
 }
 
 function emptySquad() {
-  return { starters: [null, null, null, null, null], bench: null, captainKey: null };
+  return normalizeFantasySquad(null);
 }
 
 window.ensureFantasyState = ensureFantasyState;
@@ -135,3 +173,6 @@ window.fantasyPlayerMap = fantasyPlayerMap;
 window.teamSquadValue = teamSquadValue;
 window.fantasyEquity = fantasyEquity;
 window.emptySquad = emptySquad;
+
+window.normalizeFantasySquad = normalizeFantasySquad;
+window.normalizeFantasyParticipant = normalizeFantasyParticipant;
