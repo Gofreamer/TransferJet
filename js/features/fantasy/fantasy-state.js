@@ -3,6 +3,8 @@ window.FANTASY = window.FANTASY || {};
 
 window.FANTASY.DEFAULTS = {
   budgetInitial: 5000000,
+  priceScale: 0.10,
+  minFantasyPrice: 50000,
   maxPerTeam: 2,
   starters: 5,
   bench: 1,
@@ -155,7 +157,13 @@ function fantasyEquity(participant) {
   const map = fantasyPlayerMap();
   const squad = normalizeFantasySquad(participant.squad);
   const keys = [...squad.starters, squad.bench].filter(Boolean);
-  const assets = keys.reduce((s, k) => s + (map[k]?.marketValue || 0), 0);
+  const assets = keys.reduce((s, k) => {
+    if (typeof playerPrice === "function") return s + Number(playerPrice(k) || 0);
+    const mv = Number(map[k]?.marketValue || 0);
+    const scale = Number(fantasySettings().priceScale ?? 0.10);
+    const min = Number(fantasySettings().minFantasyPrice ?? 50000);
+    return s + Math.max(min, Math.round((mv * scale) / 10000) * 10000);
+  }, 0);
   return Number(participant.budgetRemaining || 0) + assets;
 }
 

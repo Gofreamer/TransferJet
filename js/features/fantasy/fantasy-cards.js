@@ -3,7 +3,9 @@ function fantasyCardHTML(p, opts = {}) {
   if (!p) {
     return `<div class="fx-card fx-card-empty">${opts.emptyLabel || "Slot vazio"}</div>`;
   }
-  const price = p.marketValue ? (typeof formatUSD === "function" ? formatUSD(p.marketValue, true) : p.marketValue) : "—";
+  const fantasyPrice = typeof playerPrice === "function" ? playerPrice(p.key) : Number(p.marketValue || 0);
+  const price = fantasyPrice ? (typeof formatUSD === "function" ? formatUSD(fantasyPrice, true) : fantasyPrice) : "—";
+  const officialPrice = p.marketValue ? (typeof formatUSD === "function" ? formatUSD(p.marketValue, true) : p.marketValue) : "—";
   const wr = p.stats?.P ? Math.round((p.stats.winRate || 0) * 100) + "%" : "—";
   const selected = opts.selected ? "selected" : "";
   const captain = opts.captain ? "captain" : "";
@@ -22,7 +24,7 @@ function fantasyCardHTML(p, opts = {}) {
         <div class="fx-card-name">${p.name}</div>
         <div class="fx-card-meta">${p.club} · ${p.rank || "—"}</div>
         <div class="fx-card-stats">
-          <span>${price}</span>
+          <span title="Valor oficial TransferJet: ${officialPrice}">${price}</span>
           <span>WR ${wr}</span>
         </div>
       </div>

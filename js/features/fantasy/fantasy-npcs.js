@@ -63,48 +63,170 @@ function rankPlayersForStrategy(strategy, superfanTeam) {
   return list;
 }
 
-/** Monta elenco válido respeitando orçamento e máx 2/time */
+/** Retorna os agentes elegíveis do Fantasy. */
+function fantasyEligiblePlayers() {
+  return (typeof getAllPlayersFlat === "function" ? getAllPlayersFlat() : [])
+    .filter(p => p && p.key && Number(p.marketValue || 0) > 0 && p.club && p.club !== "Livre");
+}
+
+/**
+ * Completa uma seleção com os agentes mais baratos possíveis, respeitando máx/time.
+ * Como os custos são positivos e há apenas um limite por equipe, esse preenchimento
+ * também serve como teste de viabilidade para reservar orçamento aos slots restantes.
+ */
+function cheapestNpcCompletion(selectedKeys, teamCountInput, slotsNeeded, budgetRemaining) {
+  if (slotsNeeded <= 0) return [];
+  const maxPerTeam = Number(fantasySettings().maxPerTeam || 2);
+  const selected = new Set(selectedKeys || []);
+  const teamCount = { ...(teamCountInput || {}) };
+  const candidates = fantasyEligiblePlayers()
+    .filter(p => !selected.has(p.key))
+    .sort((a, b) => playerPrice(a.key) - playerPrice(b.key));
+
+  const picked = [];
+  let spent = 0;
+  for (const p of candidates) {
+    if (picked.length >= slotsNeeded) break;
+    if ((teamCount[p.club] || 0) >= maxPerTeam) continue;
+    const price = Number(playerPrice(p.key) || 0);
+    if (spent + price > Number(budgetRemaining || 0)) continue;
+    picked.push(p);
+    spent += price;
+    teamCount[p.club] = (teamCount[p.club] || 0) + 1;
+  }
+  return picked.length === slotsNeeded ? picked : null;
+}
+
+function auditNpcSquad(squad, budgetCap) {
+  const normalized = typeof normalizeFantasySquad === "function" ? normalizeFantasySquad(squad) : squad;
+  const starters = normalized?.starters || [];
+  const bench = normalized?.bench || null;
+  const captainKey = normalized?.captainKey || null;
+  const all = [...starters, bench].filter(Boolean);
+  const map = fantasyPlayerMap();
+  const maxPerTeam = Number(fantasySettings().maxPerTeam || 2);
+  const cap = Number(budgetCap ?? fantasySettings().budgetInitial ?? 5000000);
+  const errors = [];
+
+  if (starters.filter(Boolean).length !== 5) errors.push("precisa de 5 titulares");
+  if (!bench) errors.push("precisa de 1 reserva");
+  if (all.length !== 6 || new Set(all).size !== 6) errors.push("os 6 agentes devem ser únicos");
+  if (!captainKey || !starters.includes(captainKey)) errors.push("capitão precisa ser titular");
+
+  const teams = {};
+  let spent = 0;
+  for (const key of all) {
+    const p = map[key];
+    if (!p) { errors.push(`agente inexistente: ${key}`); continue; }
+    const price = Number(playerPrice(p.key) || 0);
+    if (price <= 0 || !p.club || p.club === "Livre") errors.push(`agente inelegível: ${key}`);
+    spent += price;
+    teams[p.club] = (teams[p.club] || 0) + 1;
+    if (teams[p.club] > maxPerTeam) errors.push(`mais de ${maxPerTeam} agentes de ${p.club}`);
+  }
+  if (spent > cap) errors.push(`ultrapassa orçamento em ${spent - cap}`);
+
+  return {
+    valid: errors.length === 0,
+    errors: [...new Set(errors)],
+    spent,
+    budgetRemaining: Math.max(0, cap - spent),
+    count: all.length,
+    squad: normalized
+  };
+}
+
+/** Monta SEMPRE 5 titulares + 1 reserva quando existir combinação possível dentro do orçamento. */
 function buildNpcSquad(strategy, superfanTeam, budget) {
   const settings = fantasySettings();
-  const maxPerTeam = settings.maxPerTeam || 2;
+  const maxPerTeam = Number(settings.maxPerTeam || 2);
   const ranked = rankPlayersForStrategy(strategy, superfanTeam);
-  const starters = [];
+  const budgetCap = Number(budget ?? settings.budgetInitial ?? 5000000);
+  const selected = [];
   const teamCount = {};
   let spent = 0;
-  const budgetCap = budget ?? settings.budgetInitial ?? 5000000;
 
+  // Só aceita uma escolha estratégica se ainda houver dinheiro suficiente para
+  // completar TODOS os slots restantes com uma combinação válida.
   for (const p of ranked) {
-    if (starters.length >= 5) break;
-    const price = p.marketValue || 0;
-    if (spent + price > budgetCap) continue;
+    if (selected.length >= 6) break;
+    if (!p?.key || selected.some(x => x.key === p.key)) continue;
     if ((teamCount[p.club] || 0) >= maxPerTeam) continue;
-    starters.push(p.key);
+    const price = Number(playerPrice(p.key) || 0);
+    if (spent + price > budgetCap) continue;
+
+    const tentativeTeams = { ...teamCount, [p.club]: (teamCount[p.club] || 0) + 1 };
+    const tentativeKeys = [...selected.map(x => x.key), p.key];
+    const remainingSlots = 6 - tentativeKeys.length;
+    const canFinish = remainingSlots === 0 || cheapestNpcCompletion(
+      tentativeKeys,
+      tentativeTeams,
+      remainingSlots,
+      budgetCap - spent - price
+    );
+    if (!canFinish) continue;
+
+    selected.push(p);
+    spent += price;
     teamCount[p.club] = (teamCount[p.club] || 0) + 1;
-    spent += price;
   }
 
-  // bench: próximo barato válido
-  let bench = null;
-  for (const p of ranked) {
-    if (starters.includes(p.key)) continue;
-    const price = p.marketValue || 0;
-    if (spent + price > budgetCap) continue;
-    if ((teamCount[p.club] || 0) >= maxPerTeam) continue;
-    bench = p.key;
-    spent += price;
-    break;
+  // Se a personalidade não preencheu tudo, completa com os mais baratos válidos.
+  if (selected.length < 6) {
+    const fill = cheapestNpcCompletion(
+      selected.map(x => x.key),
+      teamCount,
+      6 - selected.length,
+      budgetCap - spent
+    );
+    if (fill) {
+      for (const p of fill) {
+        selected.push(p);
+        spent += Number(playerPrice(p.key) || 0);
+        teamCount[p.club] = (teamCount[p.club] || 0) + 1;
+      }
+    }
   }
 
+  // Último fallback: ignora a preferência estratégica e encontra o sexteto
+  // mais barato possível. Se nem isso couber, o orçamento é matematicamente inviável.
+  if (selected.length !== 6) {
+    selected.length = 0;
+    spent = 0;
+    Object.keys(teamCount).forEach(k => delete teamCount[k]);
+    const cheapest = cheapestNpcCompletion([], {}, 6, budgetCap);
+    if (cheapest) {
+      for (const p of cheapest) {
+        selected.push(p);
+        spent += Number(playerPrice(p.key) || 0);
+        teamCount[p.club] = (teamCount[p.club] || 0) + 1;
+      }
+    }
+  }
+
+  const starters = selected.slice(0, 5).map(p => p.key);
+  const bench = selected[5]?.key || null;
   while (starters.length < 5) starters.push(null);
 
+  // Capitão segue a preferência do NPC entre os 5 titulares; em empate, maior valor.
+  const rankIndex = new Map(ranked.map((p, i) => [p.key, i]));
   const captainKey = starters.filter(Boolean).sort((a, b) => {
+    const ra = rankIndex.has(a) ? rankIndex.get(a) : 999999;
+    const rb = rankIndex.has(b) ? rankIndex.get(b) : 999999;
+    if (ra !== rb) return ra - rb;
     const map = fantasyPlayerMap();
-    return (map[b]?.marketValue || 0) - (map[a]?.marketValue || 0);
+    return Number(map[b]?.marketValue || 0) - Number(map[a]?.marketValue || 0);
   })[0] || null;
 
   const squad = { starters, bench, captainKey };
-  const budgetRemaining = budgetCap - spent;
-  return { squad, budgetRemaining, spent };
+  const audit = auditNpcSquad(squad, budgetCap);
+  return {
+    squad,
+    spent: audit.spent,
+    budgetRemaining: audit.budgetRemaining,
+    valid: audit.valid,
+    errors: audit.errors
+  };
 }
 
 function createNpcParticipant(seed) {
@@ -142,7 +264,8 @@ function buildNpcAIContext() {
       key: p.key,
       name: p.name || p.nome || p.key,
       team: p.club,
-      value: Number(p.marketValue || 0),
+      officialValue: Number(p.marketValue || 0),
+      fantasyPrice: Number(playerPrice(p.key) || 0),
       winRate: Number(p.stats?.winRate || 0),
       matches: Number(p.stats?.P || 0),
       wins: Number(p.stats?.V || 0),
@@ -185,7 +308,7 @@ function validateNpcAISquad(parsed, budget) {
     const p = map[key];
     teamCount[p.club] = (teamCount[p.club] || 0) + 1;
     if (teamCount[p.club] > maxPerTeam) return null;
-    spent += Number(p.marketValue || 0);
+    spent += Number(playerPrice(p.key) || 0);
   }
   if (spent > budgetCap) return null;
 
@@ -209,7 +332,7 @@ async function generateNpcSquadWithAI(seed, context, budget) {
   try {
     const strategy = window.FANTASY.STRATEGIES?.[seed.strategy];
     const agentsText = (ctx.agents || []).map(a =>
-      `${a.key} | ${a.name} | equipe=${a.team} | valor=${a.value} | WR=${a.winRate} | P=${a.matches} | V=${a.wins} | D=${a.losses} | rank=${a.rank || "-"}`
+      `${a.key} | ${a.name} | equipe=${a.team} | precoFantasy=${a.fantasyPrice} | valorOficial=${a.officialValue} | WR=${a.winRate} | P=${a.matches} | V=${a.wins} | D=${a.losses} | rank=${a.rank || "-"}`
     ).join("\n");
     const fixturesText = (ctx.fixtures || []).length
       ? ctx.fixtures.map(f => `${f.home || "?"} vs ${f.away || "?"}`).join("\n")
@@ -268,3 +391,6 @@ window.buildNpcSquadSmart = buildNpcSquadSmart;
 window.buildNpcAIContext = buildNpcAIContext;
 window.validateNpcAISquad = validateNpcAISquad;
 window.rankPlayersForStrategy = rankPlayersForStrategy;
+window.auditNpcSquad = auditNpcSquad;
+window.cheapestNpcCompletion = cheapestNpcCompletion;
+window.fantasyEligiblePlayers = fantasyEligiblePlayers;

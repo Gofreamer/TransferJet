@@ -51,14 +51,26 @@ function validateSquad(squad, budgetRemaining, opts = {}) {
 }
 
 function squadCost(squad) {
-  const map = fantasyPlayerMap();
-  return squadPlayerKeys(squad).reduce((s, k) => s + (map[k]?.marketValue || 0), 0);
+  return squadPlayerKeys(squad).reduce((s, k) => s + playerPrice(k), 0);
 }
 
-/** Preço de referência = marketValue oficial atual */
+/**
+ * Preço Fantasy deriva do valor oficial do TransferJet, mas usa uma escala própria
+ * para a economia de US$ 5M continuar jogável. Por padrão: 10% do marketValue,
+ * arredondado em blocos de US$ 10 mil, com piso configurável.
+ */
+function fantasyPriceFromMarketValue(marketValue) {
+  const settings = fantasySettings();
+  const scale = Number(settings.priceScale ?? 0.10);
+  const min = Number(settings.minFantasyPrice ?? 50000);
+  const raw = Math.max(0, Number(marketValue || 0)) * scale;
+  if (raw <= 0) return 0;
+  return Math.max(min, Math.round(raw / 10000) * 10000);
+}
+
 function playerPrice(playerKey) {
   const map = fantasyPlayerMap();
-  return map[playerKey]?.marketValue || 0;
+  return fantasyPriceFromMarketValue(map[playerKey]?.marketValue || 0);
 }
 
 function canAfford(participant, playerKey) {
@@ -167,6 +179,7 @@ function firstEmptyStarterSlot(squad) {
 window.validateSquad = validateSquad;
 window.squadCost = squadCost;
 window.playerPrice = playerPrice;
+window.fantasyPriceFromMarketValue = fantasyPriceFromMarketValue;
 window.tryAddToSquad = tryAddToSquad;
 window.tryRemoveFromSquad = tryRemoveFromSquad;
 window.trySetCaptain = trySetCaptain;

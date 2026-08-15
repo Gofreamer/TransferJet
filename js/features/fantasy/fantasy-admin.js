@@ -1,4 +1,18 @@
 /* Jet Fantasy — painel Admin */
+function fxAdminAuditParticipantSquad(p) {
+  const budget = Number(fantasySettings().budgetInitial || 5000000);
+  if (typeof auditNpcSquad === "function") return auditNpcSquad(p?.squad, budget);
+  const squad = typeof normalizeFantasySquad === "function" ? normalizeFantasySquad(p?.squad) : (p?.squad || {});
+  const map = fantasyPlayerMap();
+  const keys = [...(squad.starters || []), squad.bench].filter(Boolean);
+  const spent = keys.reduce((sum, key) => sum + Number(typeof playerPrice === "function" ? playerPrice(key) : map[key]?.marketValue || 0), 0);
+  return { valid: keys.length === 6 && new Set(keys).size === 6, count: keys.length, spent, budgetRemaining: Math.max(0, budget - spent), errors: [] };
+}
+
+function fxAdminMoney(value) {
+  return typeof formatUSD === "function" ? formatUSD(Number(value || 0), true) : Number(value || 0).toLocaleString("pt-BR");
+}
+
 function renderFantasyAdmin() {
   const el = document.getElementById("adminTabContent");
   if (!el) return;
@@ -49,6 +63,7 @@ function renderFantasyAdmin() {
     <div class="admin-actions" style="margin-top:10px">
       <button class="btn-primary btn-sm" onclick="fxAdminSaveConfig()">Salvar config</button>
     </div>
+    <p class="admin-sub" style="margin-top:8px">Economia Fantasy: os preços usam <strong>10% do valor oficial do TransferJet</strong> (arredondado), mantendo o orçamento de US$ 5M viável para 6 agentes. O valor oficial continua intacto.</p>
 
     <h3 class="admin-section-title" style="margin-top:24px">Participantes humanos</h3>
     <div class="admin-form-grid">
@@ -77,23 +92,30 @@ function renderFantasyAdmin() {
     </div>
 
     <h3 class="admin-section-title" style="margin-top:24px">NPCs (${npcs.length})</h3>
+    <p class="admin-sub">Todos os NPCs ativos são obrigados a ter <strong>5 titulares + 1 reserva</strong> dentro do orçamento total de <strong>${fxAdminMoney(s.budgetInitial || 5000000)}</strong>. “Saldo” é apenas o dinheiro que sobrou depois das compras.</p>
     <div class="admin-table-wrap">
       <table class="admin-table">
-        <thead><tr><th></th><th>Nome</th><th>Estratégia</th><th>Ativo</th><th>Orçamento</th></tr></thead>
+        <thead><tr><th></th><th>Nome</th><th>Estratégia</th><th>Ativo</th><th>Escalação</th><th>Gasto</th><th>Saldo</th><th></th></tr></thead>
         <tbody>
-          ${npcs.map(([id,p]) => `
+          ${npcs.map(([id,p]) => {
+            const audit = fxAdminAuditParticipantSquad(p);
+            const statusColor = audit.valid ? "var(--green, #4ade80)" : "var(--red, #fb7185)";
+            return `
             <tr>
               <td>${p.avatar||""}</td>
               <td>${p.displayName}<br><small>${p.teamName||""}</small></td>
-              <td>${p.strategy}${p.superfanTeam?" · "+p.superfanTeam:""}</td>
+              <td>${p.strategy}${p.superfanTeam?" · "+p.superfanTeam:""}<br><small>${p.lastSquadSource === "gemini" ? "Gemini" : p.lastSquadSource === "deterministic" ? "Fallback" : "—"}</small></td>
               <td>
                 <button class="btn-sm ${p.active!==false?"btn-primary":"btn-gray"}" onclick="fxAdminToggleNpc('${id}', ${p.active===false})">
                   ${p.active===false?"Off":"On"}
                 </button>
               </td>
-              <td>${typeof formatUSD==="function"?formatUSD(p.budgetRemaining||0,true):p.budgetRemaining}</td>
-            </tr>
-          `).join("")}
+              <td style="font-weight:800;color:${statusColor}">${audit.valid ? "✓ 6/6" : `⚠ ${audit.count}/6`}</td>
+              <td>${fxAdminMoney(audit.spent)}</td>
+              <td>${fxAdminMoney(audit.budgetRemaining)}</td>
+              <td><button class="btn-gray btn-sm" onclick="fxAdminViewNpcSquad('${id}')">Ver escalação</button></td>
+            </tr>`;
+          }).join("")}
         </tbody>
       </table>
     </div>
@@ -181,24 +203,47 @@ async function fxAdminSeed() {
 
 
 async function fxAdminRepairData() {
-  if (!confirm("Reparar e normalizar escalações do Fantasy?\n\nIsso não apaga pontos nem participantes. Apenas corrige formatos antigos/incompletos de elenco e orçamento.")) return;
+  if (!confirm("Reparar dados do Fantasy?\n\nHumanos terão formatos antigos normalizados. NPCs incompletos ou acima do orçamento serão remontados para 5 titulares + 1 reserva dentro dos US$ 5M. Pontos e histórico não serão apagados.")) return;
   const parts = window.AppState.fantasy.participants || {};
   const budgetInitial = Number(fantasySettings().budgetInitial || 5000000);
   const updates = {};
-  let count = 0;
+  let normalizedCount = 0;
+  let rebuiltNpcs = 0;
 
-  Object.entries(parts).forEach(([id, raw]) => {
-    if (!raw) return;
+  for (const [id, raw] of Object.entries(parts)) {
+    if (!raw) continue;
     const p = typeof normalizeFantasyParticipant === "function" ? normalizeFantasyParticipant(raw, id) : raw;
-    updates[id + "/squad"] = p.squad || emptySquad();
-    if (!Number.isFinite(Number(raw.budgetRemaining))) updates[id + "/budgetRemaining"] = budgetInitial;
-    count++;
-  });
+
+    if (p.type === "npc") {
+      let audit = fxAdminAuditParticipantSquad(p);
+      if (!audit.valid) {
+        const built = buildNpcSquad(p.strategy, p.superfanTeam, budgetInitial);
+        audit = typeof auditNpcSquad === "function" ? auditNpcSquad(built.squad, budgetInitial) : fxAdminAuditParticipantSquad({ squad: built.squad });
+        if (!audit.valid) {
+          throw new Error(`${p.displayName || id}: não foi possível montar 6 agentes dentro do orçamento. ${audit.errors.join(" · ")}`);
+        }
+        updates[id + "/squad"] = audit.squad;
+        updates[id + "/budgetRemaining"] = audit.budgetRemaining;
+        updates[id + "/lastSquadSource"] = "deterministic";
+        updates[id + "/lastSquadGeneratedAt"] = Date.now();
+        rebuiltNpcs++;
+      } else {
+        updates[id + "/squad"] = audit.squad;
+        updates[id + "/budgetRemaining"] = audit.budgetRemaining;
+      }
+    } else {
+      const humanSquad = p.squad || emptySquad();
+      updates[id + "/squad"] = humanSquad;
+      const currentCost = typeof squadCost === "function" ? Number(squadCost(humanSquad) || 0) : 0;
+      updates[id + "/budgetRemaining"] = Math.max(0, budgetInitial - currentCost);
+    }
+    normalizedCount++;
+  }
 
   if (Object.keys(updates).length) {
     await window.marketDb.ref("fantasy/participants").update(updates);
   }
-  alert(`Dados reparados para ${count} participante(s).`);
+  alert(`Dados reparados para ${normalizedCount} participante(s). NPCs remontados: ${rebuiltNpcs}.`);
   renderFantasyAdmin();
 }
 
@@ -335,6 +380,57 @@ async function fxAdminResetAll() {
   }
 }
 
+function fxAdminViewNpcSquad(id) {
+  const p = (window.AppState.fantasy.participants || {})[id];
+  if (!p) return alert("NPC não encontrado.");
+  const audit = fxAdminAuditParticipantSquad(p);
+  const squad = typeof normalizeFantasySquad === "function" ? normalizeFantasySquad(p.squad) : p.squad;
+  const map = fantasyPlayerMap();
+  const budget = Number(fantasySettings().budgetInitial || 5000000);
+  const overlay = document.getElementById("aiReviewOverlay");
+  const body = document.getElementById("aiReviewBody");
+  const title = document.getElementById("aiReviewTitle");
+  if (!overlay || !body || !title) return alert("Não foi possível abrir a visualização da escalação.");
+
+  const row = (key, label) => {
+    if (!key) return `<tr><td>${label}</td><td style="color:var(--red,#fb7185);font-weight:800">NÃO ESCALADO</td><td>—</td><td>—</td></tr>`;
+    const agent = map[key];
+    if (!agent) return `<tr><td>${label}</td><td>${key}</td><td colspan="2" style="color:var(--red,#fb7185)">Agente não encontrado</td></tr>`;
+    const isCaptain = squad?.captainKey === key;
+    return `<tr>
+      <td>${label}${isCaptain ? " ⭐" : ""}</td>
+      <td><strong>${agent.name || agent.nome || key}</strong><br><small>${key}</small></td>
+      <td>${agent.club || "—"}</td>
+      <td>${fxAdminMoney(typeof playerPrice === "function" ? playerPrice(key) : agent.marketValue || 0)}</td>
+    </tr>`;
+  };
+
+  title.textContent = `Escalação NPC · ${p.displayName || id}`;
+  body.innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px">
+      <div class="admin-stat-card"><small>Status</small><strong style="display:block;color:${audit.valid ? "var(--green,#4ade80)" : "var(--red,#fb7185)"}">${audit.valid ? "✓ VÁLIDA · 6/6" : `⚠ INVÁLIDA · ${audit.count}/6`}</strong></div>
+      <div class="admin-stat-card"><small>Orçamento total</small><strong style="display:block">${fxAdminMoney(budget)}</strong></div>
+      <div class="admin-stat-card"><small>Gasto</small><strong style="display:block">${fxAdminMoney(audit.spent)}</strong></div>
+      <div class="admin-stat-card"><small>Saldo</small><strong style="display:block">${fxAdminMoney(audit.budgetRemaining)}</strong></div>
+    </div>
+    ${audit.errors?.length ? `<div style="padding:10px 12px;border:1px solid rgba(251,113,133,.45);border-radius:10px;margin-bottom:12px;color:var(--red,#fb7185)"><strong>Problemas:</strong> ${audit.errors.join(" · ")}</div>` : ""}
+    <div class="admin-table-wrap">
+      <table class="admin-table">
+        <thead><tr><th>Slot</th><th>Agente</th><th>Equipe</th><th>Preço</th></tr></thead>
+        <tbody>
+          ${(squad?.starters || []).map((key, i) => row(key, `Titular ${i + 1}`)).join("")}
+          ${row(squad?.bench, "Reserva")}
+        </tbody>
+      </table>
+    </div>
+    <p style="margin-top:12px;font-size:.82rem;color:var(--text-muted)"><strong>Origem:</strong> ${p.lastSquadSource === "gemini" ? "Gemini 3.6 Flash" : p.lastSquadSource === "deterministic" ? "fallback determinístico" : "não registrada"}${p.lastComment ? `<br><strong>Comentário:</strong> ${p.lastComment}` : ""}</p>
+  `;
+  window._aiReviewData = null;
+  const primaryAction = overlay.querySelector(".review-actions .btn-primary");
+  if (primaryAction) primaryAction.style.display = "none";
+  overlay.classList.add("open");
+}
+
 async function fxAdminRebuildNpcs() {
   const parts = window.AppState.fantasy.participants || {};
   const updates = {};
@@ -354,17 +450,28 @@ async function fxAdminRebuildNpcs() {
       avatar: p.avatar
     };
 
-    const built = typeof buildNpcSquadSmart === "function"
+    let built = typeof buildNpcSquadSmart === "function"
       ? await buildNpcSquadSmart(seed, budget, context)
       : { ...buildNpcSquad(p.strategy, p.superfanTeam, budget), source: "deterministic", comment: null };
+
+    let audit = typeof auditNpcSquad === "function" ? auditNpcSquad(built.squad, budget) : fxAdminAuditParticipantSquad({ squad: built.squad });
+    if (!audit.valid) {
+      const strict = buildNpcSquad(p.strategy, p.superfanTeam, budget);
+      built = { ...strict, source: "deterministic", comment: null };
+      audit = typeof auditNpcSquad === "function" ? auditNpcSquad(built.squad, budget) : fxAdminAuditParticipantSquad({ squad: built.squad });
+    }
+
+    if (!audit.valid) {
+      throw new Error(`${p.displayName || id}: não existe escalação válida de 6 agentes dentro de ${fxAdminMoney(budget)}. ${audit.errors.join(" · ")}`);
+    }
 
     if (built.source === "gemini") aiCount++;
     else fallbackCount++;
 
     updates[id] = {
       ...p,
-      squad: built.squad,
-      budgetRemaining: built.budgetRemaining,
+      squad: audit.squad,
+      budgetRemaining: audit.budgetRemaining,
       lastComment: built.comment || p.lastComment || null,
       lastSquadSource: built.source,
       lastSquadGeneratedAt: Date.now()
@@ -374,7 +481,7 @@ async function fxAdminRebuildNpcs() {
   if (Object.keys(updates).length) {
     await window.marketDb.ref("fantasy/participants").update(updates);
   }
-  alert(`NPCs remontados: ${aiCount} via Gemini · ${fallbackCount} via fallback determinístico`);
+  alert(`NPCs remontados e validados: ${activeNpcs.length}/${activeNpcs.length} com 6 agentes. ${aiCount} via Gemini · ${fallbackCount} via fallback determinístico.`);
   renderFantasyAdmin();
 }
 
@@ -440,6 +547,8 @@ function fxAdminPreviewProcess() {
   const overlay = document.getElementById("aiReviewOverlay");
   const body = document.getElementById("aiReviewBody");
   const title = document.getElementById("aiReviewTitle");
+  const primaryAction = overlay?.querySelector(".review-actions .btn-primary");
+  if (primaryAction) primaryAction.style.display = "";
   window._aiReviewData = {
     action: "fantasy-process-round",
     data: { result, round, roundId, rows }
@@ -516,6 +625,7 @@ async function confirmFantasyProcessRound() {
 }
 
 window.fxAdminResetAll = fxAdminResetAll;
+window.fxAdminViewNpcSquad = fxAdminViewNpcSquad;
 window.renderFantasyAdmin = renderFantasyAdmin;
 window.fxAdminOpenMarket = fxAdminOpenMarket;
 window.fxAdminCloseMarket = fxAdminCloseMarket;

@@ -1252,7 +1252,10 @@ function openAIReviewModal(action, data) {
 }
 
 function closeAIReviewModal() {
-  document.getElementById("aiReviewOverlay").classList.remove("open");
+  const overlay = document.getElementById("aiReviewOverlay");
+  overlay.classList.remove("open");
+  const primaryAction = overlay.querySelector(".review-actions .btn-primary");
+  if (primaryAction) primaryAction.style.display = "";
   window._aiReviewData = null;
 }
 
