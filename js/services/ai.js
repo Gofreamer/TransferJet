@@ -113,3 +113,5 @@
   window.isAIReady = () => !!cachedGenerate;
   window.getLastAIError = () => lastError;
 })();
+
+window.generateWithAI = window.marketGenerateWithAI;

@@ -1140,3 +1140,13 @@ window.showView = showView;
 window.copyPlayerLink = copyPlayerLink;
 window.requestMarketAnalysis = requestMarketAnalysis;
 window.isTransferWindowOpen = isTransferWindowOpen;
+
+
+/* Boot Fantasy listeners */
+(function bootFantasy() {
+  function run() {
+    if (typeof startFantasyListeners === "function") startFantasyListeners();
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", run);
+  else run();
+})();

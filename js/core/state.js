@@ -27,5 +27,16 @@ window.AppState = {
     loading: true,
     jetConnected: false,
     marketConnected: false
+  },
+
+  fantasy: {
+    settings: {},
+    participants: {},
+    rounds: {},
+    scores: {},
+    leaderboard: { byRound: {}, overall: {} },
+    session: { participantId: null, displayName: null },
+    ui: { view: "hub", connected: false },
+    active: false
   }
 };

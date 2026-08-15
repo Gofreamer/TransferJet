@@ -12,6 +12,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 
   <link rel="stylesheet" href="./css/styles.css"/>
+  <link rel="stylesheet" href="./css/fantasy.css"/>
 </head>
 <body>
   <header>
@@ -27,6 +28,7 @@
       <a data-view="transfers" onclick="showView('transfers', this)">Transferências</a>
       <a data-view="rumors" onclick="showView('rumors', this)">Rumores</a>
       <a data-view="rankings" onclick="showView('rankings', this)">Rankings</a>
+      <button class="fx-entry-btn" onclick="enterFantasyMode()">Jet Fantasy</button>
       <button id="adminBtn" onclick="openAdmin()">Admin</button>
       <button id="themeToggle" onclick="toggleTheme()" title="Alternar tema">☀</button>
     </nav>
@@ -232,6 +234,10 @@
     </div>
   </main>
 
+  <!-- Jet Fantasy shell -->
+  <div id="fantasyShell" class="hidden"></div>
+
+
   <footer>
     <p><strong>Jet Market</strong> · Global Agent Database da Jet League</p>
     <p class="footer-note">Dados de elencos sincronizados em tempo real · Valores de mercado em US$</p>
@@ -270,6 +276,15 @@
   <script src="./js/services/listeners.js"></script>
   <script src="./js/services/ai.js"></script>
   <script src="./js/features/admin/admin.js"></script>
+  <script src="./js/features/fantasy/fantasy-state.js"></script>
+  <script src="./js/features/fantasy/fantasy-scoring.js"></script>
+  <script src="./js/features/fantasy/fantasy-market.js"></script>
+  <script src="./js/features/fantasy/fantasy-npcs.js"></script>
+  <script src="./js/features/fantasy/fantasy-data.js"></script>
+  <script src="./js/features/fantasy/fantasy-cards.js"></script>
+  <script src="./js/features/fantasy/fantasy.js"></script>
+  <script src="./js/features/fantasy/fantasy-admin.js"></script>
+
   <script src="./js/app.js"></script>
 </body>
 </html>

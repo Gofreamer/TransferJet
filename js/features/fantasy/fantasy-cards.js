@@ -1,0 +1,34 @@
+/* Jet Fantasy — cartas visuais */
+function fantasyCardHTML(p, opts = {}) {
+  if (!p) {
+    return `<div class="fx-card fx-card-empty">${opts.emptyLabel || "Slot vazio"}</div>`;
+  }
+  const price = p.marketValue ? (typeof formatUSD === "function" ? formatUSD(p.marketValue, true) : p.marketValue) : "—";
+  const wr = p.stats?.P ? Math.round((p.stats.winRate || 0) * 100) + "%" : "—";
+  const selected = opts.selected ? "selected" : "";
+  const captain = opts.captain ? "captain" : "";
+  const bench = opts.bench ? "bench" : "";
+  const photo = typeof getPlayerPhoto === "function" ? getPlayerPhoto(p) : "";
+  const initials = typeof getPlayerInitials === "function" ? getPlayerInitials(p.name) : (p.name || "?").slice(0, 2);
+
+  return `
+    <div class="fx-card ${selected} ${captain} ${bench}" data-key="${p.key}" ${opts.onclick ? `onclick="${opts.onclick}"` : ""}>
+      ${opts.captain ? `<div class="fx-card-badge captain">⭐ CAPITÃO</div>` : ""}
+      ${opts.bench ? `<div class="fx-card-badge bench">RESERVA</div>` : ""}
+      <div class="fx-card-photo">
+        <img src="${photo}" alt="" onerror="this.parentElement.innerHTML='<span class=fx-initials>${initials}</span>'"/>
+      </div>
+      <div class="fx-card-body">
+        <div class="fx-card-name">${p.name}</div>
+        <div class="fx-card-meta">${p.club} · ${p.rank || "—"}</div>
+        <div class="fx-card-stats">
+          <span>${price}</span>
+          <span>WR ${wr}</span>
+        </div>
+      </div>
+      ${opts.actions || ""}
+    </div>
+  `;
+}
+
+window.fantasyCardHTML = fantasyCardHTML;

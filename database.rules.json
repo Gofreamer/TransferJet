@@ -18,6 +18,25 @@
     "settings": {
       ".read": true,
       ".write": "auth != null && auth.token.email != null"
+    },
+    "fantasy": {
+      ".read": true,
+      "settings": {
+        ".write": "auth != null && auth.token.email != null"
+      },
+      "rounds": {
+        ".write": "auth != null && auth.token.email != null"
+      },
+      "scores": {
+        ".write": "auth != null && auth.token.email != null"
+      },
+      "leaderboard": {
+        ".write": "auth != null && auth.token.email != null"
+      },
+      "participants": {
+        ".read": true,
+        ".write": true
+      }
     }
   }
 }

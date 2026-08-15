@@ -125,3 +125,11 @@ function updateConnectionStatus() {
 window.startJetListeners = startJetListeners;
 window.startMarketListeners = startMarketListeners;
 window.updateConnectionStatus = updateConnectionStatus;
+
+
+/* Fantasy listeners (isolado) */
+document.addEventListener("DOMContentLoaded", () => {
+  if (typeof startFantasyListeners === "function") {
+    try { startFantasyListeners(); } catch (e) { console.warn("[Fantasy] listeners", e); }
+  }
+});

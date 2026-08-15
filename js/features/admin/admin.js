@@ -105,6 +105,7 @@ function renderAdminPanel(tab = "values") {
       <button class="admin-tab ${tab==='transfers'?'active':''}" onclick="renderAdminPanel('transfers')">Transferências</button>
       <button class="admin-tab ${tab==='rumors'?'active':''}" onclick="renderAdminPanel('rumors')">Rumores</button>
       <button class="admin-tab ${tab==='ai'?'active':''}" onclick="renderAdminPanel('ai')">IA</button>
+      <button class="admin-tab ${tab==='fantasy'?'active':''}" onclick="renderAdminPanel('fantasy')">Fantasy</button>
     </div>
     <div id="adminTabContent"></div>
   `;
@@ -114,6 +115,7 @@ function renderAdminPanel(tab = "values") {
   if (tab === "transfers") renderAdminTransfers();
   if (tab === "rumors") renderAdminRumors();
   if (tab === "ai") renderAdminAI();
+  if (tab === "fantasy" && typeof renderFantasyAdmin === "function") renderFantasyAdmin();
 }
 
 /* ========== IMPORT EXCEL ========== */
@@ -1398,6 +1400,13 @@ function confirmAIReview() {
     if (box) box.style.display = "block";
     if (el) el.textContent = text;
     closeAIReviewModal();
+  }
+
+  if (action === "fantasy-process-round") {
+    if (typeof confirmFantasyProcessRound === "function") {
+      confirmFantasyProcessRound();
+    }
+    return;
   }
 
   if (action === "sync-jet-stats") {
