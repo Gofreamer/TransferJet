@@ -24,6 +24,17 @@ function showView(viewName, el) {
   if (viewName === "rankings") renderRankings();
 }
 
+
+function escapeInlineJsSingle(value) {
+  return String(value ?? "")
+    .replace(/\\/g, "\\\\")
+    .replace(/'/g, "\\'")
+    .replace(/\r/g, "\\r")
+    .replace(/\n/g, "\\n")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
+}
+
 /* ========== HELPERS DE DADOS ========== */
 function normalizeTitles(m) {
   const t = (m && m.titles) || {};
@@ -244,7 +255,7 @@ function renderHome() {
             ${recent.map(t => {
               const st = statusLabel(t.status);
               return `<tr>
-                <td><span class="player-link" onclick="openPlayerProfile('${t.playerKey}')">${t.playerName}</span></td>
+                <td><span class="player-link" onclick="openPlayerProfile('${escapeInlineJsSingle(t.playerKey)}')">${t.playerName}</span></td>
                 <td>${t.from} → <strong>${t.to}</strong></td>
                 <td style="color:var(--cyan);font-weight:700">${formatUSD(t.fee, true)}</td>
                 <td>${t.date || "—"}</td>
@@ -267,7 +278,7 @@ function renderHome() {
           ${byValue.map((p, i) => `
             <tr>
               <td style="color:var(--text-muted)">#${i + 1}</td>
-              <td><span class="player-link" onclick="openPlayerProfile('${p.key}')">${p.name}</span></td>
+              <td><span class="player-link" onclick="openPlayerProfile('${escapeInlineJsSingle(p.key)}')">${p.name}</span></td>
               <td>${p.club}</td>
               <td style="color:var(--cyan);font-weight:700">${formatUSD(p.marketValue, true)}</td>
             </tr>
@@ -298,7 +309,7 @@ function renderHome() {
       <thead><tr><th>Agente</th><th>Equipe</th><th>Valor</th></tr></thead>
       <tbody>
         ${top5.map(p => `<tr>
-          <td><span class="player-link" onclick="openPlayerProfile('${p.key}')">${p.name}</span></td>
+          <td><span class="player-link" onclick="openPlayerProfile('${escapeInlineJsSingle(p.key)}')">${p.name}</span></td>
           <td>${p.club}</td>
           <td class="variation up">${formatUSD(p.marketValue, true)}</td>
         </tr>`).join("")}
@@ -312,7 +323,7 @@ function renderHome() {
       <thead><tr><th>Agente</th><th>Equipe</th><th>Valor</th></tr></thead>
       <tbody>
         ${bottom5.map(p => `<tr>
-          <td><span class="player-link" onclick="openPlayerProfile('${p.key}')">${p.name}</span></td>
+          <td><span class="player-link" onclick="openPlayerProfile('${escapeInlineJsSingle(p.key)}')">${p.name}</span></td>
           <td>${p.club}</td>
           <td class="variation down">${formatUSD(p.marketValue, true)}</td>
         </tr>`).join("")}
@@ -406,7 +417,7 @@ function renderPlayers() {
   listEl.innerHTML = players.map(p => {
     const wr = p.stats?.P ? Math.round(p.stats.winRate * 100) + "%" : "—";
     return `
-    <div class="card" onclick="openPlayerProfile('${p.key}')">
+    <div class="card" onclick="openPlayerProfile('${escapeInlineJsSingle(p.key)}')">
       <div class="card-with-photo">
         ${photoHTML(p, 52)}
         <div class="card-body">
@@ -451,7 +462,7 @@ function renderClubs() {
   }
 
   listEl.innerHTML = clubs.map((c, i) => `
-    <div class="card" onclick="openClubProfile('${c.name}')">
+    <div class="card" onclick="openClubProfile('${escapeInlineJsSingle(c.name)}')">
       <div class="card-title">${c.name}</div>
       <div class="card-sub">#${i + 1} em valor de mercado</div>
       <div class="card-value">${formatUSD(c.totalValue, true)}</div>
@@ -500,7 +511,7 @@ function renderTransfers() {
           ${transfers.map(t => {
             const st = statusLabel(t.status);
             return `<tr>
-              <td><span class="player-link" onclick="openPlayerProfile('${t.playerKey}')">${t.playerName}</span></td>
+              <td><span class="player-link" onclick="openPlayerProfile('${escapeInlineJsSingle(t.playerKey)}')">${t.playerName}</span></td>
               <td>${t.from}</td>
               <td><strong>${t.to}</strong></td>
               <td style="color:var(--cyan);font-weight:700">${formatUSD(t.fee)}</td>
@@ -600,7 +611,7 @@ function renderCompare() {
             ${selected.map(p => `<th style="text-align:center">
               <div style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:8px 0">
                 ${photoHTML(p, 48)}
-                <span class="player-link" onclick="openPlayerProfile('${p.key}')">${p.name}</span>
+                <span class="player-link" onclick="openPlayerProfile('${escapeInlineJsSingle(p.key)}')">${p.name}</span>
                 <span style="font-size:0.75rem;color:var(--text-muted)">${p.club}</span>
               </div>
             </th>`).join("")}
@@ -667,7 +678,7 @@ function renderRankings() {
         <tbody>
           ${players.map((p, i) => `<tr>
             <td style="color:var(--text-muted);font-weight:700">#${i + 1}</td>
-            <td><span class="player-link" onclick="openPlayerProfile('${p.key}')">${p.name}</span></td>
+            <td><span class="player-link" onclick="openPlayerProfile('${escapeInlineJsSingle(p.key)}')">${p.name}</span></td>
             <td>${p.club}</td>
             <td>${p.rank || "—"}</td>
             <td style="color:var(--cyan);font-weight:700">${formatUSD(p.marketValue)}</td>
@@ -683,7 +694,7 @@ function renderRankings() {
         <tbody>
           ${players.map((p, i) => `<tr>
             <td style="color:var(--text-muted);font-weight:700">#${i + 1}</td>
-            <td><span class="player-link" onclick="openPlayerProfile('${p.key}')">${p.name}</span></td>
+            <td><span class="player-link" onclick="openPlayerProfile('${escapeInlineJsSingle(p.key)}')">${p.name}</span></td>
             <td>${p.club}</td>
             <td>${p.stats.P}-${p.stats.V}-${p.stats.D}</td>
             <td style="color:var(--green);font-weight:700">${Math.round(p.stats.winRate*100)}%</td>
@@ -704,7 +715,7 @@ function renderRankings() {
         <tbody>
           ${sorted.map((p, i) => `<tr>
             <td style="color:var(--text-muted);font-weight:700">#${i + 1}</td>
-            <td><span class="player-link" onclick="openPlayerProfile('${p.key}')">${p.name}</span></td>
+            <td><span class="player-link" onclick="openPlayerProfile('${escapeInlineJsSingle(p.key)}')">${p.name}</span></td>
             <td>${p.club}</td>
             <td style="color:var(--cyan);font-weight:700">${formatUSD(p.marketValue, true)}</td>
             <td>${formatUSD(p.peakValue, true)}</td>
@@ -725,7 +736,7 @@ function renderRankings() {
         <tbody>
           ${clubs.map((c, i) => `<tr>
             <td style="color:var(--text-muted);font-weight:700">#${i + 1}</td>
-            <td><span class="player-link" onclick="openClubProfile('${c.name}')">${c.name}</span></td>
+            <td><span class="player-link" onclick="openClubProfile('${escapeInlineJsSingle(c.name)}')">${c.name}</span></td>
             <td style="color:var(--cyan);font-weight:700">${formatUSD(c.value)}</td>
             <td>${c.size}</td>
             <td>${formatUSD(c.size ? c.value / c.size : 0, true)}</td>
@@ -774,9 +785,9 @@ function openPlayerProfile(key) {
       <button onclick="showView('players')" style="background:none;border:1px solid var(--border);color:var(--text-muted);padding:6px 12px;border-radius:8px;cursor:pointer;font-size:0.85rem">
         ← Voltar para Agentes
       </button>
-      <button class="share-btn" onclick="copyPlayerLink('${p.key}')">🔗 Copiar link</button>
+      <button class="share-btn" onclick="copyPlayerLink('${escapeInlineJsSingle(p.key)}')">🔗 Copiar link</button>
       ${!p.freeAgent ? `<a class="ext-link" href="${getJetLeagueUrl()}" target="_blank" rel="noopener">Ver na Jet League ↗</a>` : ""}
-      <button class="btn-ai btn-sm" onclick="requestMarketAnalysis('${p.key}')">✨ Análise de mercado (IA)</button>
+      <button class="btn-ai btn-sm" onclick="requestMarketAnalysis('${escapeInlineJsSingle(p.key)}')">✨ Análise de mercado (IA)</button>
     </div>
 
     <div class="profile-header">
@@ -1065,7 +1076,7 @@ function openClubProfile(clubName) {
             ${agents.map(p => `
               <tr>
                 <td style="width:44px">${photoHTML(p, 36)}</td>
-                <td><span class="player-link" onclick="openPlayerProfile('${p.key}')">${p.name}</span></td>
+                <td><span class="player-link" onclick="openPlayerProfile('${escapeInlineJsSingle(p.key)}')">${p.name}</span></td>
                 <td><span class="tag ${p.role}">${roleLabel(p.role)}</span></td>
                 <td style="color:var(--cyan);font-weight:700">${p.marketValue ? formatUSD(p.marketValue, true) : "—"}</td>
                 <td>${p.nationality}</td>

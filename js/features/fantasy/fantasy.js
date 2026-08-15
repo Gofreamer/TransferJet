@@ -1,4 +1,14 @@
 /* Jet Fantasy — shell, navegação e views */
+
+function fxEscapeInlineKey(value) {
+  return String(value ?? "")
+    .replace(/\\/g, "\\\\")
+    .replace(/'/g, "\\'")
+    .replace(/\r/g, "\\r")
+    .replace(/\n/g, "\\n")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
+}
 window.FANTASY = window.FANTASY || {};
 
 function enterFantasyMode() {
@@ -232,8 +242,8 @@ function renderFantasySquad(container) {
             ${fantasyCardHTML(map[k], { captain: k&&k===squad.captainKey })}
             ${open ? `<div class="fx-slot-actions">
               <button class="fx-btn sm" onclick="showFantasyView('market')">Trocar</button>
-              ${k?`<button class="fx-btn sm ghost" onclick="fxRemove('${k}')">Remover</button>`:""}
-              ${k&&k!==squad.captainKey?`<button class="fx-btn sm gold" onclick="fxCaptain('${k}')">⭐ Capitão</button>`:""}
+              ${k?`<button class="fx-btn sm ghost" onclick="fxRemove('${fxEscapeInlineKey(k)}')">Remover</button>`:""}
+              ${k&&k!==squad.captainKey?`<button class="fx-btn sm gold" onclick="fxCaptain('${fxEscapeInlineKey(k)}')">⭐ Capitão</button>`:""}
             </div>`:""}
           </div>
         `).join("")}
@@ -241,7 +251,7 @@ function renderFantasySquad(container) {
       <div class="fx-slot" style="max-width:220px;margin-top:16px">
         <div class="fx-slot-label">Reserva</div>
         ${fantasyCardHTML(map[squad.bench], { bench: true, emptyLabel: "Vazio" })}
-        ${open && squad.bench ? `<button class="fx-btn sm ghost" onclick="fxRemove('${squad.bench}')">Remover</button>`:""}
+        ${open && squad.bench ? `<button class="fx-btn sm ghost" onclick="fxRemove('${fxEscapeInlineKey(squad.bench)}')">Remover</button>`:""}
       </div>
     </div>
   `;
@@ -326,8 +336,8 @@ function fxFilterMarket() {
     const sel = mine.has(p.key);
     const actions = open
       ? (sel
-        ? `<button class="fx-btn sm ghost" onclick="event.stopPropagation();fxRemove('${p.key}')">Remover</button>`
-        : `<button class="fx-btn sm primary" onclick="event.stopPropagation();fxAdd('${p.key}')">Escalar</button>`)
+        ? `<button class="fx-btn sm ghost" onclick="event.stopPropagation();fxRemove('${fxEscapeInlineKey(p.key)}')">Remover</button>`
+        : `<button class="fx-btn sm primary" onclick="event.stopPropagation();fxAdd('${fxEscapeInlineKey(p.key)}')">Escalar</button>`)
       : "";
     return fantasyCardHTML(p, { selected: sel, actions: actions ? `<div class="fx-card-actions">${actions}</div>` : "" });
   }).join("");

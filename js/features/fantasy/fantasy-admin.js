@@ -9,6 +9,9 @@ function renderFantasyAdmin() {
   const npcs = Object.entries(parts).filter(([,p]) => p && p.type === "npc");
   const rounds = Object.values(window.AppState.fantasy.rounds || {}).sort((a,b)=>(a.rodadaNumber||0)-(b.rodadaNumber||0));
   const open = isFantasyMarketOpen();
+  const currentRoundNumber = Number((window.AppState.fantasy.rounds || {})[s.currentRoundId || ""]?.rodadaNumber)
+    || Number(String(s.currentRoundId || "").replace(/\D+/g, ""))
+    || 1;
 
   el.innerHTML = `
     <h3 class="admin-section-title">Jet Fantasy · Controle</h3>
@@ -19,6 +22,7 @@ function renderFantasyAdmin() {
       <button class="btn-gray btn-sm" onclick="fxAdminCloseMarket()">Fechar mercado</button>
       <button class="btn-ai btn-sm" onclick="fxAdminSeed()">Seed / reset NPCs (10)</button>
       <button class="btn-primary btn-sm" onclick="fxAdminRebuildNpcs()">Remontar escalações NPC</button>
+      <button class="btn-danger btn-sm" onclick="fxAdminResetAll()">Resetar Fantasy inteiro</button>
     </div>
 
     <h3 class="admin-section-title">Configuração</h3>
@@ -32,12 +36,9 @@ function renderFantasyAdmin() {
         <input type="datetime-local" id="fxClosesAt" value="${s.marketClosesAt ? toLocalInput(s.marketClosesAt) : ""}">
       </div>
       <div>
-        <label>Rodada atual (id)</label>
-        <input type="text" id="fxCurrentRound" value="${s.currentRoundId || "r1"}">
-      </div>
-      <div>
-        <label>Nº rodada Jet League</label>
-        <input type="number" id="fxRoundNum" value="${(window.AppState.fantasy.rounds||{})[s.currentRoundId||'']?.rodadaNumber || 1}">
+        <label>Rodada atual</label>
+        <input type="number" min="1" step="1" id="fxRoundNum" value="${currentRoundNumber}">
+        <small style="display:block;margin-top:5px;color:var(--text-muted)">O ID interno é gerado automaticamente (ex.: 12 → r12) e a mesma rodada é usada para buscar a Jet League.</small>
       </div>
       <div>
         <label>Temporada</label>
@@ -130,9 +131,9 @@ async function fxAdminSaveConfig() {
   const zebra = Number(document.getElementById("fxZebra")?.value) || 0.2;
   const closesRaw = document.getElementById("fxClosesAt")?.value;
   const marketClosesAt = closesRaw ? new Date(closesRaw).toISOString() : null;
-  const currentRoundId = document.getElementById("fxCurrentRound")?.value || "r1";
   const seasonId = document.getElementById("fxSeason")?.value || window.AppState.jet.currentSeason;
-  const rodadaNumber = Number(document.getElementById("fxRoundNum")?.value) || 1;
+  const rodadaNumber = Math.max(1, Math.floor(Number(document.getElementById("fxRoundNum")?.value) || 1));
+  const currentRoundId = `r${rodadaNumber}`;
 
   await saveFantasySettings({ zebraThreshold: zebra, marketClosesAt, currentRoundId, seasonId });
   await window.marketDb.ref("fantasy/rounds/" + currentRoundId).update({
@@ -174,6 +175,72 @@ async function fxAdminSeed() {
     id: "r1", name: "Rodada 1", seasonId: season, rodadaNumber: 1, status: "OPEN"
   });
   alert("Seed Fantasy aplicado (" + Object.keys(participants).length + " participantes)");
+  renderFantasyAdmin();
+}
+
+async function fxAdminResetAll() {
+  const ok = confirm(
+    "RESETAR TODO O JET FANTASY?\n\n" +
+    "Isso volta todos ao início: orçamento inicial, elencos vazios dos humanos, NPCs recriados, Rodada 1, mercado aberto, scores e rankings zerados.\n\n" +
+    "Os cadastros/códigos dos participantes humanos serão preservados. Esta ação não pode ser desfeita."
+  );
+  if (!ok) return;
+
+  const settings = fantasySettings();
+  const budget = Number(settings.budgetInitial || 100000000);
+  const season = settings.seasonId || window.AppState.jet.currentSeason || "Temporada 1";
+  const existing = window.AppState.fantasy.participants || {};
+  const participants = {};
+
+  Object.entries(existing).forEach(([id, p]) => {
+    if (!p || p.type === "npc") return;
+    participants[id] = {
+      ...p,
+      budgetRemaining: budget,
+      squad: emptySquad(),
+      acquisitions: {},
+      totalPoints: 0,
+      lastRoundPoints: 0,
+      lastComment: null,
+      resetAt: Date.now()
+    };
+  });
+
+  (window.FANTASY.NPC_SEED || []).forEach(seed => {
+    participants[seed.id] = createNpcParticipant(seed);
+  });
+
+  const freshSettings = {
+    ...window.FANTASY.DEFAULTS,
+    budgetInitial: budget,
+    seasonId: season,
+    currentRoundId: "r1",
+    marketStatus: "OPEN",
+    marketClosesAt: null,
+    resetAt: Date.now()
+  };
+
+  await window.marketDb.ref("fantasy").set({
+    settings: freshSettings,
+    participants,
+    rounds: {
+      r1: {
+        id: "r1",
+        name: "Rodada 1",
+        seasonId: season,
+        rodadaNumber: 1,
+        status: "OPEN",
+        locksAt: null,
+        processedAt: null,
+        jetMatchIds: [],
+        analysisCache: null
+      }
+    },
+    scores: {},
+    leaderboard: { byRound: {}, overall: {} }
+  });
+
+  alert(`Fantasy resetado. ${Object.keys(participants).length} participantes voltaram ao início.`);
   renderFantasyAdmin();
 }
 
@@ -357,6 +424,7 @@ async function confirmFantasyProcessRound() {
   renderFantasyAdmin();
 }
 
+window.fxAdminResetAll = fxAdminResetAll;
 window.renderFantasyAdmin = renderFantasyAdmin;
 window.fxAdminOpenMarket = fxAdminOpenMarket;
 window.fxAdminCloseMarket = fxAdminCloseMarket;
