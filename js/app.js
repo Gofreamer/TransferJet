@@ -1157,6 +1157,7 @@ window.isTransferWindowOpen = isTransferWindowOpen;
 (function bootFantasy() {
   function run() {
     if (typeof startFantasyListeners === "function") startFantasyListeners();
+    if (typeof startCardsListeners === "function") startCardsListeners();
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", run);
   else run();

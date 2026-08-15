@@ -106,6 +106,7 @@ function renderAdminPanel(tab = "values") {
       <button class="admin-tab ${tab==='rumors'?'active':''}" onclick="renderAdminPanel('rumors')">Rumores</button>
       <button class="admin-tab ${tab==='ai'?'active':''}" onclick="renderAdminPanel('ai')">IA</button>
       <button class="admin-tab ${tab==='fantasy'?'active':''}" onclick="renderAdminPanel('fantasy')">Fantasy</button>
+      <button class="admin-tab ${tab==='cards'?'active':''}" onclick="renderAdminPanel('cards')">Cards</button>
     </div>
     <div id="adminTabContent"></div>
   `;
@@ -116,6 +117,7 @@ function renderAdminPanel(tab = "values") {
   if (tab === "rumors") renderAdminRumors();
   if (tab === "ai") renderAdminAI();
   if (tab === "fantasy" && typeof renderFantasyAdmin === "function") renderFantasyAdmin();
+  if (tab === "cards" && typeof renderCardsAdmin === "function") renderCardsAdmin();
 }
 
 /* ========== IMPORT EXCEL ========== */

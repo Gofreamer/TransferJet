@@ -2,7 +2,6 @@
   "rules": {
     ".read": false,
     ".write": false,
-
     "players": {
       ".read": true,
       ".write": "auth != null && auth.token.email != null"
@@ -18,6 +17,33 @@
     "settings": {
       ".read": true,
       ".write": "auth != null && auth.token.email != null"
+    },
+    "cards": {
+      ".read": true,
+      "settings": {
+        ".write": "auth != null && auth.token.email != null"
+      },
+      "codes": {
+        ".write": "auth != null && auth.token.email != null || data.exists()"
+      },
+      "packs": {
+        ".write": true
+      },
+      "inventory": {
+        ".write": true
+      },
+      "offers": {
+        ".write": true
+      },
+      "showcases": {
+        ".write": true
+      },
+      "catalog": {
+        ".write": "auth != null && auth.token.email != null"
+      },
+      "specials": {
+        ".write": "auth != null && auth.token.email != null"
+      }
     },
     "fantasy": {
       ".read": true,
@@ -36,7 +62,7 @@
       "participants": {
         ".read": true,
         "$pid": {
-          ".write": "auth != null && auth.token.email != null || (data.exists() && newData.child('type').val() === data.child('type').val() && newData.child('displayName').val() === data.child('displayName').val() && ((!data.child('inviteCode').exists() && !newData.child('inviteCode').exists()) || newData.child('inviteCode').val() === data.child('inviteCode').val()) && (!newData.child('type').val() || newData.child('type').val() === 'human' || newData.child('type').val() === data.child('type').val()))",
+          ".write": "(auth != null && auth.token.email != null) || data.exists()",
           ".validate": "newData.hasChildren(['displayName', 'type'])"
         }
       }

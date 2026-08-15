@@ -38,5 +38,19 @@ window.AppState = {
     session: { participantId: null, displayName: null },
     ui: { view: "hub", connected: false },
     active: false
+  },
+
+  cards: {
+    settings: {},
+    packs: {},
+    inventory: {},
+    codes: {},
+    offers: {},
+    showcases: {},
+    catalog: {},
+    specials: {},
+    session: { ownerId: null, displayName: null },
+    ui: { view: "hub" },
+    active: false
   }
 };
