@@ -35,7 +35,10 @@
       },
       "participants": {
         ".read": true,
-        ".write": true
+        "$pid": {
+          ".write": "auth != null && auth.token.email != null || (data.exists() && newData.child('type').val() === data.child('type').val() && newData.child('displayName').val() === data.child('displayName').val() && ((!data.child('inviteCode').exists() && !newData.child('inviteCode').exists()) || newData.child('inviteCode').val() === data.child('inviteCode').val()) && (!newData.child('type').val() || newData.child('type').val() === 'human' || newData.child('type').val() === data.child('type').val()))",
+          ".validate": "newData.hasChildren(['displayName', 'type'])"
+        }
       }
     }
   }

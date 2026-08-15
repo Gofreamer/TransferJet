@@ -46,6 +46,9 @@ function extractPlayedByTeam(match) {
 function scoreAgentInRound(playerKey, matches, opts = {}) {
   const S = window.FANTASY.SCORING;
   const threshold = opts.zebraThreshold ?? fantasySettings().zebraThreshold ?? 0.2;
+  // perSeries (padrão): soma cada série da rodada
+  // perRoundOnce: no máximo uma participação/placar por rodada (melhor série por pontos base)
+  const scoreMode = opts.scoreMode || fantasySettings().scoreMode || "perSeries";
   const map = fantasyPlayerMap();
   const player = map[playerKey];
   if (!player) return { points: 0, events: ["agente não encontrado"], played: false, detail: {} };
@@ -54,24 +57,27 @@ function scoreAgentInRound(playerKey, matches, opts = {}) {
   let points = 0;
   const events = [];
   let playedAny = false;
-  let seriesResults = []; // win margin etc.
+  let seriesResults = [];
 
-  // Destaque da rodada (qualquer match)
   const highlightNames = new Set();
   matches.forEach(m => {
     if (m.destaqueRodada) highlightNames.add(normalizeNameFX(m.destaqueRodada));
   });
+
+  const seriesScores = []; // { points, events, meta }
 
   matches.forEach(m => {
     const { byName, hasFights } = extractPlayedByTeam(m);
     if (!hasFights) return;
 
     const team = byName[nameKey];
-    if (!team) return; // não jogou esta série
+    if (!team) return;
 
     playedAny = true;
-    points += S.played;
-    events.push(`+${S.played} participou (${m.timeA}×${m.timeB})`);
+    let sp = 0;
+    const se = [];
+    sp += S.played;
+    se.push(`+${S.played} participou (${m.timeA}×${m.timeB})`);
 
     const scoreForTeam = team === m.timeA ? Number(m.scoreA) : Number(m.scoreB);
     const scoreAgainst = team === m.timeA ? Number(m.scoreB) : Number(m.scoreA);
@@ -79,42 +85,56 @@ function scoreAgentInRound(playerKey, matches, opts = {}) {
 
     if (won) {
       if (scoreAgainst === 0) {
-        points += S.win20;
-        events.push(`+${S.win20} vitória ${scoreForTeam}–${scoreAgainst}`);
+        sp += S.win20;
+        se.push(`+${S.win20} vitória ${scoreForTeam}–${scoreAgainst}`);
       } else {
-        points += S.win21;
-        events.push(`+${S.win21} vitória ${scoreForTeam}–${scoreAgainst}`);
+        sp += S.win21;
+        se.push(`+${S.win21} vitória ${scoreForTeam}–${scoreAgainst}`);
       }
     } else {
       if (scoreForTeam === 0) {
-        points += S.loss02;
-        events.push(`${S.loss02} derrota ${scoreForTeam}–${scoreAgainst}`);
+        sp += S.loss02;
+        se.push(`${S.loss02} derrota ${scoreForTeam}–${scoreAgainst}`);
       } else {
-        points += S.loss12;
-        events.push(`${S.loss12} derrota ${scoreForTeam}–${scoreAgainst}`);
+        sp += S.loss12;
+        se.push(`${S.loss12} derrota ${scoreForTeam}–${scoreAgainst}`);
       }
     }
 
-    // MVP da série
     const mvpName = normalizeNameFX(m.seriesMvp?.agent || m.mvp || "");
     if (mvpName && mvpName === nameKey) {
-      points += S.mvp;
-      events.push(`+${S.mvp} MVP da série`);
+      sp += S.mvp;
+      se.push(`+${S.mvp} MVP da série`);
     }
 
-    // Zebra
     const z = computeZebraFlags(m, threshold);
     if (z.underdog && won && team === z.underdog) {
-      points += S.zebraWin;
-      events.push(`+${S.zebraWin} vitória zebra`);
+      sp += S.zebraWin;
+      se.push(`+${S.zebraWin} vitória zebra`);
     }
     if (z.favorite && !won && team === z.favorite) {
-      points += S.zebraLoss;
-      events.push(`${S.zebraLoss} derrota zebra`);
+      sp += S.zebraLoss;
+      se.push(`${S.zebraLoss} derrota zebra`);
     }
 
+    seriesScores.push({ points: sp, events: se, meta: { matchId: m.id, team, won, scoreForTeam, scoreAgainst } });
     seriesResults.push({ matchId: m.id, team, won, scoreForTeam, scoreAgainst });
   });
+
+  if (scoreMode === "perRoundOnce" && seriesScores.length > 0) {
+    seriesScores.sort((a, b) => b.points - a.points);
+    const best = seriesScores[0];
+    points += best.points;
+    events.push(...best.events);
+    if (seriesScores.length > 1) {
+      events.push(`(modo 1× por rodada: ${seriesScores.length - 1} série(s) extra ignorada(s))`);
+    }
+  } else {
+    seriesScores.forEach(s => {
+      points += s.points;
+      events.push(...s.events);
+    });
+  }
 
   if (!playedAny) {
     points += S.noShow;
@@ -126,7 +146,7 @@ function scoreAgentInRound(playerKey, matches, opts = {}) {
     events.push(`+${S.highlight} Destaque da rodada`);
   }
 
-  return { points, events, played: playedAny, detail: { seriesResults } };
+  return { points, events, played: playedAny, detail: { seriesResults, scoreMode } };
 }
 
 function scoreParticipantRound(participant, matches, opts = {}) {
@@ -177,12 +197,13 @@ function processFantasyRound(roundMeta, participants, opts = {}) {
   const season = roundMeta.seasonId || fantasySettings().seasonId || window.AppState.jet.currentSeason;
   const roundNumber = roundMeta.rodadaNumber;
   const matches = getMatchesForRound(season, roundNumber);
+  opts = { scoreMode: fantasySettings().scoreMode || "perSeries", zebraThreshold: fantasySettings().zebraThreshold, ...opts };
   const jetMatchIds = matches.map(m => m.id).filter(Boolean);
 
   const scores = {};
   Object.entries(participants || {}).forEach(([id, p]) => {
     if (!p || p.active === false) return;
-    const result = scoreParticipantRound(p, matches, opts);
+    const result = scoreParticipantRound(p, matches, { ...opts, scoreMode: opts.scoreMode || fantasySettings().scoreMode || "perSeries" });
     scores[id] = {
       total: result.total,
       breakdown: result.breakdown,

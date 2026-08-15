@@ -74,6 +74,9 @@ async function ensureFantasySeeded() {
     seasonId: season,
     currentRoundId: "r1",
     marketStatus: "OPEN",
+    scoreMode: window.FANTASY.DEFAULTS.scoreMode || "perSeries",
+    priceScale: window.FANTASY.DEFAULTS.priceScale || 0.10,
+    budgetInitial: window.FANTASY.DEFAULTS.budgetInitial || 5000000,
     seededAt: Date.now()
   };
 

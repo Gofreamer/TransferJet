@@ -5,6 +5,7 @@ window.FANTASY.DEFAULTS = {
   budgetInitial: 5000000,
   priceScale: 0.10,
   minFantasyPrice: 50000,
+  scoreMode: "perSeries", // perSeries | perRoundOnce
   maxPerTeam: 2,
   starters: 5,
   bench: 1,

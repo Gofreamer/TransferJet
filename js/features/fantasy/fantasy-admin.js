@@ -43,17 +43,37 @@ function renderFantasyAdmin() {
     <h3 class="admin-section-title">Configuração</h3>
     <div class="admin-form-grid">
       <div>
+        <label>Orçamento inicial (US$)</label>
+        <input type="number" min="1000000" step="100000" id="fxBudget" value="${s.budgetInitial ?? 5000000}">
+      </div>
+      <div>
+        <label>Escala de preço Fantasy (ex: 0.10 = 10% do valor oficial)</label>
+        <input type="number" step="0.01" min="0.01" max="1" id="fxPriceScale" value="${s.priceScale ?? 0.10}">
+      </div>
+      <div>
+        <label>Preço mínimo Fantasy (US$)</label>
+        <input type="number" min="0" step="10000" id="fxMinPrice" value="${s.minFantasyPrice ?? 50000}">
+      </div>
+      <div>
         <label>Zebra threshold (ex: 0.20 = 20%)</label>
         <input type="number" step="0.01" min="0.05" max="0.5" id="fxZebra" value="${s.zebraThreshold ?? 0.2}">
       </div>
       <div>
-        <label>Fecha em (ISO ou datetime-local)</label>
+        <label>Modo de pontuação</label>
+        <select id="fxScoreMode">
+          <option value="perSeries" ${(s.scoreMode || "perSeries") === "perSeries" ? "selected" : ""}>Por série (soma todas na rodada)</option>
+          <option value="perRoundOnce" ${s.scoreMode === "perRoundOnce" ? "selected" : ""}>1× por rodada (melhor série apenas)</option>
+        </select>
+        <small style="display:block;margin-top:5px;color:var(--text-muted)">MVP/zebra da série escolhida entram; Destaque da rodada continua único.</small>
+      </div>
+      <div>
+        <label>Fecha em (datetime-local)</label>
         <input type="datetime-local" id="fxClosesAt" value="${s.marketClosesAt ? toLocalInput(s.marketClosesAt) : ""}">
       </div>
       <div>
-        <label>Rodada atual</label>
+        <label>Rodada atual (nº Jet League)</label>
         <input type="number" min="1" step="1" id="fxRoundNum" value="${currentRoundNumber}">
-        <small style="display:block;margin-top:5px;color:var(--text-muted)">O ID interno é gerado automaticamente (ex.: 12 → r12) e a mesma rodada é usada para buscar a Jet League.</small>
+        <small style="display:block;margin-top:5px;color:var(--text-muted)">ID interno: rN (ex.: 12 → r12).</small>
       </div>
       <div>
         <label>Temporada</label>
@@ -63,7 +83,11 @@ function renderFantasyAdmin() {
     <div class="admin-actions" style="margin-top:10px">
       <button class="btn-primary btn-sm" onclick="fxAdminSaveConfig()">Salvar config</button>
     </div>
-    <p class="admin-sub" style="margin-top:8px">Economia Fantasy: os preços usam <strong>10% do valor oficial do TransferJet</strong> (arredondado), mantendo o orçamento de US$ 5M viável para 6 agentes. O valor oficial continua intacto.</p>
+    <p class="admin-sub" style="margin-top:8px">
+      <strong>Economia Fantasy:</strong> preço = <em>valor oficial × escala</em> (padrão 10%), com piso configurável.
+      Orçamento padrão <strong>US$ 5M</strong> para caber 5+1 agentes. O valor oficial do TransferJet <strong>não é alterado</strong>.
+      Patrimônio = saldo restante + preços Fantasy atuais do elenco.
+    </p>
 
     <h3 class="admin-section-title" style="margin-top:24px">Participantes humanos</h3>
     <div class="admin-form-grid">
@@ -152,13 +176,26 @@ async function fxAdminCloseMarket() {
 
 async function fxAdminSaveConfig() {
   const zebra = Number(document.getElementById("fxZebra")?.value) || 0.2;
+  const budgetInitial = Math.max(1000000, Number(document.getElementById("fxBudget")?.value) || 5000000);
+  const priceScale = Math.min(1, Math.max(0.01, Number(document.getElementById("fxPriceScale")?.value) || 0.10));
+  const minFantasyPrice = Math.max(0, Number(document.getElementById("fxMinPrice")?.value) || 50000);
+  const scoreMode = document.getElementById("fxScoreMode")?.value === "perRoundOnce" ? "perRoundOnce" : "perSeries";
   const closesRaw = document.getElementById("fxClosesAt")?.value;
   const marketClosesAt = closesRaw ? new Date(closesRaw).toISOString() : null;
   const seasonId = document.getElementById("fxSeason")?.value || window.AppState.jet.currentSeason;
   const rodadaNumber = Math.max(1, Math.floor(Number(document.getElementById("fxRoundNum")?.value) || 1));
   const currentRoundId = `r${rodadaNumber}`;
 
-  await saveFantasySettings({ zebraThreshold: zebra, marketClosesAt, currentRoundId, seasonId });
+  await saveFantasySettings({
+    zebraThreshold: zebra,
+    budgetInitial,
+    priceScale,
+    minFantasyPrice,
+    scoreMode,
+    marketClosesAt,
+    currentRoundId,
+    seasonId
+  });
   await window.marketDb.ref("fantasy/rounds/" + currentRoundId).update({
     id: currentRoundId,
     name: "Rodada " + rodadaNumber,
@@ -528,7 +565,7 @@ function fxAdminPreviewProcess() {
     rodadaNumber: Number(document.getElementById("fxRoundNum")?.value) || 1
   };
   const participants = window.AppState.fantasy.participants || {};
-  const result = processFantasyRound(round, participants, { zebraThreshold: s.zebraThreshold });
+  const result = processFantasyRound(round, participants, { zebraThreshold: s.zebraThreshold, scoreMode: s.scoreMode || "perSeries" });
 
   const status = document.getElementById("fxAdminProcessStatus");
   if (status) {
@@ -557,7 +594,7 @@ function fxAdminPreviewProcess() {
   body.innerHTML = `
     <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:10px">
       Temporada <strong>${result.season}</strong> · Rodada Jet <strong>${result.roundNumber}</strong> ·
-      Matches: <strong>${result.matchesCount}</strong>. Confirme para gravar scores e leaderboard.
+      Matches: <strong>${result.matchesCount}</strong> · modo: <strong>${fantasySettings().scoreMode || "perSeries"}</strong>. Confirme para gravar scores e leaderboard.
       ${((window.AppState.fantasy.rounds||{})[roundId]?.status)==="PROCESSED" ? "<br><span style='color:var(--orange)'>⚠ Rodada já processada — confirmar sobrescreve.</span>" : ""}
     </p>
     <div class="admin-table-wrap" style="max-height:400px;overflow:auto">
@@ -619,9 +656,56 @@ async function confirmFantasyProcessRound() {
   updates["fantasy/settings/marketStatus"] = "LOCKED";
 
   await window.marketDb.ref().update(updates);
-  alert("Rodada processada! " + rows.length + " participantes.");
+
+  // Análise narrativa (Gemini opcional) — nunca altera pontos
+  let analysisNote = "";
+  try {
+    const analysis = await fxGenerateRoundAnalysis(roundId, rows, result);
+    if (analysis) {
+      await window.marketDb.ref("fantasy/rounds/" + roundId + "/analysisCache").set({
+        text: analysis,
+        at: new Date().toISOString(),
+        source: analysis.startsWith("[auto]") ? "fallback" : "gemini"
+      });
+      analysisNote = " Análise da rodada salva.";
+    }
+  } catch (e) {
+    console.warn("[Fantasy] análise", e);
+    analysisNote = " (análise IA indisponível — pontos ok)";
+  }
+
+  alert("Rodada processada! " + rows.length + " participantes." + analysisNote);
   if (typeof closeAIReviewModal === "function") closeAIReviewModal();
   renderFantasyAdmin();
+}
+
+/** Gera texto de análise a partir dos resultados já calculados (nunca inventa placar). */
+async function fxGenerateRoundAnalysis(roundId, rows, result) {
+  const top = rows.slice(0, 5).map((r, i) => `${i + 1}. ${r.name}: ${r.total} pts`).join("\n");
+  const winner = rows[0];
+  const fallback = `[auto] ${winner ? winner.name + " liderou a rodada com " + winner.total + " pts." : "Rodada processada."} ${result.matchesCount} série(s) oficiais consideradas.`;
+
+  const gen = window.generateWithAI || window.marketGenerateWithAI;
+  if (typeof gen !== "function") return fallback;
+
+  const prompt = `Você é o narrador do Jet Fantasy (e-sports). Com base APENAS nos dados abaixo, escreva 2 a 4 frases em português sobre a rodada.
+Não invente placares, nomes ou pontos. Não use markdown.
+Rodada: ${roundId}
+Séries oficiais usadas: ${result.matchesCount}
+Ranking da rodada:
+${top}
+Texto objetivo, tom de transmissão esportiva premium.`;
+
+  try {
+    const text = await Promise.race([
+      gen(prompt),
+      new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 12000))
+    ]);
+    const clean = String(text || "").trim();
+    return clean || fallback;
+  } catch (e) {
+    return fallback;
+  }
 }
 
 window.fxAdminResetAll = fxAdminResetAll;
@@ -638,5 +722,6 @@ window.fxAdminDeletePart = fxAdminDeletePart;
 window.fxAdminToggleNpc = fxAdminToggleNpc;
 window.fxAdminPreviewProcess = fxAdminPreviewProcess;
 window.confirmFantasyProcessRound = confirmFantasyProcessRound;
+window.fxGenerateRoundAnalysis = fxGenerateRoundAnalysis;
 
 window.fxAdminRepairData = fxAdminRepairData;
