@@ -144,6 +144,34 @@ function renderAdminImport() {
     </div>
     <p id="importStatus" style="margin-top:12px;font-size:0.85rem;color:var(--text-muted)"></p>
 
+    <h3 class="admin-section-title" style="margin-top:32px">Sincronizar stats da Jet League</h3>
+    <p class="admin-sub">
+      Lê as partidas oficiais (<code>liga/matches</code>), identifica quem lutou pelo <strong>nome</strong> e soma P / V / D.
+      Sempre passa por <strong>revisão</strong> antes de gravar. Partidas já sincronizadas aparecem marcadas (não somam de novo, salvo se forçar).
+    </p>
+    <div class="admin-form-grid">
+      <div>
+        <label>Temporada</label>
+        <select id="syncSeason" onchange="refreshSyncRoundOptions()"></select>
+      </div>
+      <div>
+        <label>Rodada</label>
+        <select id="syncRound"></select>
+      </div>
+    </div>
+    <div class="import-options" style="margin-top:10px">
+      <label><input type="radio" name="syncMode" value="full" checked> Atualizar stats + recalcular valor</label>
+      <label><input type="radio" name="syncMode" value="statsOnly"> Só atualizar stats (manter valores)</label>
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:0.85rem;color:var(--text-muted)">
+      <input type="checkbox" id="syncForceResync"> Forçar reprocessar partidas já sincronizadas
+    </label>
+    <div class="admin-actions" style="margin-top:14px;gap:10px;display:flex;flex-wrap:wrap">
+      <button class="btn-primary" onclick="previewJetLeagueSync()">Analisar rodada e revisar</button>
+    </div>
+    <p id="syncStatus" style="margin-top:12px;font-size:0.85rem;color:var(--text-muted)"></p>
+    <div id="syncMatchList" style="margin-top:8px;font-size:0.8rem;color:var(--text-muted)"></div>
+
     <h3 class="admin-section-title" style="margin-top:28px">Janela de transferências</h3>
     <p class="admin-sub">Quando fechada, não é possível registrar transferências com status OFICIAL.</p>
     <div class="admin-actions">
@@ -163,6 +191,7 @@ function renderAdminImport() {
       <button class="btn-primary btn-sm" onclick="saveJetLeagueUrl()">Salvar URL</button>
     </div>
   `;
+  populateSyncSelectors();
 }
 
 function setTransferWindow(open) {
@@ -1371,12 +1400,440 @@ function confirmAIReview() {
     closeAIReviewModal();
   }
 
+  if (action === "sync-jet-stats") {
+    const mode = window._aiReviewData.mode || "full";
+    const statsOnly = mode === "statsOnly";
+    const matchIds = window._aiReviewData.matchIdsToMark || [];
+    const season = window._aiReviewData.season || "";
+    const round = window._aiReviewData.round;
+    const updates = {};
+    const seasonLabel = window.AppState.jet.currentSeason || season || "Temporada 1";
+    const inputs = document.querySelectorAll(".sync-val");
+    const valueByIdx = {};
+    inputs.forEach(input => {
+      valueByIdx[Number(input.dataset.idx)] = Number(input.value);
+    });
+
+    data.forEach((r, i) => {
+      const existing = r._existing || window.AppState.market.players[r.key] || {};
+      const value = statsOnly
+        ? (existing.marketValue ?? r.oldValue ?? null)
+        : (valueByIdx[i] != null ? valueByIdx[i] : r.newValue);
+
+      let history = existing.valueHistory || [];
+      if (!Array.isArray(history)) history = [];
+      if (!statsOnly && value != null) {
+        const hIdx = history.findIndex(h => h.season === seasonLabel);
+        if (hIdx >= 0) history[hIdx].value = value;
+        else history.push({ season: seasonLabel, value });
+      }
+
+      const titles = r.titles || normalizeTitlesAdmin(existing);
+      const trophyTotal = window.VALUATION.totalTitles
+        ? window.VALUATION.totalTitles(titles, r.trophy)
+        : (r.trophy || 0);
+
+      const payload = {
+        ...existing,
+        name: r.name,
+        team: r.team,
+        rank: r.rank || existing.rank,
+        functionRole: r.func || existing.functionRole,
+        trophy: trophyTotal,
+        titles,
+        stats: { P: r.P, V: r.V, D: r.D, winRate: r.wr },
+        statsRound: `Sync Jet · ${season} · Rodada ${round}`,
+        nationality: r.nationality || existing.nationality || "Brasil",
+        age: r.age || existing.age || 24,
+        photo: r.photo || existing.photo || "",
+        salary: existing.salary ?? null,
+        releaseClause: existing.releaseClause ?? null,
+        contractUntil: existing.contractUntil || "Temporada 4",
+        status: existing.status || "ativo",
+        valueHistory: history
+      };
+
+      if (value != null) {
+        payload.marketValue = value;
+        payload.peakValue = statsOnly
+          ? (existing.peakValue || value)
+          : Math.max(existing.peakValue || 0, r.peak || value);
+      }
+
+      updates["players/" + r.key] = payload;
+    });
+
+    // Marca partidas como sincronizadas
+    matchIds.filter(Boolean).forEach(id => {
+      updates["settings/syncedMatches/" + id] = {
+        at: new Date().toISOString(),
+        season,
+        round,
+        mode
+      };
+    });
+
+    window.marketDb.ref().update(updates)
+      .then(() => {
+        alert(`${data.length} agentes atualizados · ${matchIds.length} partida(s) marcada(s) como sincronizada(s).`);
+        closeAIReviewModal();
+        if (isLogged) renderAdminImport();
+      })
+      .catch(err => alert("Erro: " + err.message));
+  }
+
   if (action === "team-targets") {
     // Apenas fecha após revisão (conteúdo informativo)
     closeAIReviewModal();
     alert("Sugestões revisadas. Use como referência narrativa — nada foi gravado automaticamente.");
   }
 }
+
+
+/* ========== SYNC STATS DA JET LEAGUE ========== */
+
+function normalizeAgentName(n) {
+  return String(n || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function getSyncedMatchMap() {
+  return (window.AppState.market.settings && window.AppState.market.settings.syncedMatches) || {};
+}
+
+function listMatchesGrouped() {
+  const matches = window.AppState.jet.matches || [];
+  const list = Array.isArray(matches) ? matches : Object.values(matches);
+  const bySeason = {};
+  list.forEach(m => {
+    if (!m || !m.timeA || !m.timeB) return;
+    const season = m.temporada || window.AppState.jet.currentSeason || "Temporada ?";
+    const round = Number(m.rodada) || 0;
+    if (!bySeason[season]) bySeason[season] = {};
+    if (!bySeason[season][round]) bySeason[season][round] = [];
+    bySeason[season][round].push(m);
+  });
+  return bySeason;
+}
+
+function populateSyncSelectors() {
+  const seasonEl = document.getElementById("syncSeason");
+  const roundEl = document.getElementById("syncRound");
+  if (!seasonEl || !roundEl) return;
+
+  const grouped = listMatchesGrouped();
+  const seasons = Object.keys(grouped).sort();
+  const current = window.AppState.jet.currentSeason || "";
+
+  seasonEl.innerHTML = seasons.length
+    ? seasons.map(s => `<option value="${s}" ${s === current ? "selected" : ""}>${s}</option>`).join("")
+    : `<option value="">Nenhuma partida no Firebase</option>`;
+
+  refreshSyncRoundOptions();
+}
+
+function refreshSyncRoundOptions() {
+  const seasonEl = document.getElementById("syncSeason");
+  const roundEl = document.getElementById("syncRound");
+  const listEl = document.getElementById("syncMatchList");
+  if (!seasonEl || !roundEl) return;
+
+  const grouped = listMatchesGrouped();
+  const season = seasonEl.value;
+  const rounds = Object.keys(grouped[season] || {}).map(Number).sort((a, b) => a - b);
+  const synced = getSyncedMatchMap();
+
+  roundEl.innerHTML = rounds.length
+    ? rounds.map(r => {
+        const ms = grouped[season][r] || [];
+        const allSynced = ms.length && ms.every(m => m.id && synced[m.id]);
+        const label = r === 0 ? "Sem rodada (0)" : `Rodada ${r}`;
+        return `<option value="${r}">${label} · ${ms.length} partida(s)${allSynced ? " · já sync" : ""}</option>`;
+      }).join("")
+    : `<option value="">—</option>`;
+
+  if (listEl) {
+    const r = Number(roundEl.value);
+    const ms = (grouped[season] && grouped[season][r]) || [];
+    listEl.innerHTML = ms.length
+      ? `<strong>Partidas nesta rodada:</strong><br>` + ms.map(m => {
+          const done = m.id && synced[m.id];
+          const fights = Array.isArray(m.fights) ? m.fights.length : 0;
+          return `• ${m.timeA} ${m.scoreA}×${m.scoreB} ${m.timeB} · ${fights} luta(s)${done ? " · <span style='color:var(--green)'>já sincronizada</span>" : ""}`;
+        }).join("<br>")
+      : "Nenhuma partida encontrada para esta combinação.";
+  }
+
+  roundEl.onchange = () => refreshSyncRoundOptions();
+}
+
+/** Extrai participantes de uma partida (por nome + time da série). */
+function extractMatchParticipants(m) {
+  const participants = new Map(); // nameKey -> { name, team, played }
+  const fights = Array.isArray(m.fights) ? m.fights : [];
+
+  fights.forEach(f => {
+    const agentsA = f.teamA?.agents || (Array.isArray(f.teamA) ? f.teamA : []) || [];
+    const agentsB = f.teamB?.agents || (Array.isArray(f.teamB) ? f.teamB : []) || [];
+    agentsA.filter(Boolean).forEach(name => {
+      const k = normalizeAgentName(name);
+      if (!participants.has(k)) participants.set(k, { name: String(name).trim(), team: m.timeA, played: true });
+    });
+    agentsB.filter(Boolean).forEach(name => {
+      const k = normalizeAgentName(name);
+      if (!participants.has(k)) participants.set(k, { name: String(name).trim(), team: m.timeB, played: true });
+    });
+  });
+
+  return { participants, hasFights: fights.length > 0 };
+}
+
+function buildNameIndex() {
+  const byName = {};
+  getAllPlayersFlat().forEach(p => {
+    const k = normalizeAgentName(p.name);
+    if (!byName[k]) byName[k] = p;
+  });
+  // Market-only keys
+  Object.entries(window.AppState.market.players || {}).forEach(([key, m]) => {
+    const name = m.name || key.split("_").slice(1).join("_");
+    const k = normalizeAgentName(name);
+    if (k && !byName[k]) {
+      byName[k] = { key, name, club: key.split("_")[0], rank: m.rank, functionRole: m.functionRole, ...m };
+    }
+  });
+  return byName;
+}
+
+function previewJetLeagueSync() {
+  const status = document.getElementById("syncStatus");
+  const season = document.getElementById("syncSeason")?.value;
+  const round = Number(document.getElementById("syncRound")?.value);
+  const mode = document.querySelector('input[name="syncMode"]:checked')?.value || "full";
+  const force = !!document.getElementById("syncForceResync")?.checked;
+
+  if (!season && season !== "") {
+    if (status) status.textContent = "Selecione temporada e rodada.";
+    return;
+  }
+
+  const grouped = listMatchesGrouped();
+  const matches = (grouped[season] && grouped[season][round]) || [];
+  if (!matches.length) {
+    if (status) status.textContent = "Nenhuma partida nesta rodada.";
+    return;
+  }
+
+  const synced = getSyncedMatchMap();
+  const byName = buildNameIndex();
+
+  // Agrega deltas por agente
+  const agentMap = {}; // key -> row
+  const unmatched = [];
+  const matchSummaries = [];
+  const matchIdsToMark = [];
+  let skippedSynced = 0;
+  let matchesWithoutFights = 0;
+
+  matches.forEach(m => {
+    const already = m.id && synced[m.id];
+    if (already && !force) {
+      skippedSynced++;
+      matchSummaries.push({
+        id: m.id,
+        label: `${m.timeA} ${m.scoreA}×${m.scoreB} ${m.timeB}`,
+        status: "skipped",
+        reason: "já sincronizada"
+      });
+      return;
+    }
+
+    const { participants, hasFights } = extractMatchParticipants(m);
+    if (!hasFights) {
+      matchesWithoutFights++;
+      matchSummaries.push({
+        id: m.id,
+        label: `${m.timeA} ${m.scoreA}×${m.scoreB} ${m.timeB}`,
+        status: "warn",
+        reason: "sem lutas (fights) — ignorada"
+      });
+      return;
+    }
+
+    const winnerTeam = (Number(m.scoreA) > Number(m.scoreB)) ? m.timeA
+      : (Number(m.scoreB) > Number(m.scoreA)) ? m.timeB : null;
+
+    matchIdsToMark.push(m.id);
+    matchSummaries.push({
+      id: m.id,
+      label: `${m.timeA} ${m.scoreA}×${m.scoreB} ${m.timeB}`,
+      status: already ? "resync" : "ok",
+      reason: `${participants.size} agente(s)`,
+      already
+    });
+
+    participants.forEach((info, nameKey) => {
+      const found = byName[nameKey];
+      if (!found) {
+        unmatched.push({ name: info.name, team: info.team, match: matchSummaries[matchSummaries.length - 1].label });
+        return;
+      }
+
+      const key = found.key;
+      if (!agentMap[key]) {
+        const existing = window.AppState.market.players[key] || {};
+        const st = existing.stats || {};
+        agentMap[key] = {
+          key,
+          name: found.name,
+          team: found.club || info.team,
+          rank: existing.rank || found.rank || "—",
+          func: existing.functionRole || found.functionRole || "",
+          titles: (typeof normalizeTitlesAdmin === "function" ? normalizeTitlesAdmin(existing) : (existing.titles || {})),
+          trophy: existing.trophy || 0,
+          oldP: Number(st.P) || 0,
+          oldV: Number(st.V) || 0,
+          oldD: Number(st.D) || 0,
+          addP: 0,
+          addV: 0,
+          addD: 0,
+          matches: [],
+          oldValue: existing.marketValue ?? null,
+          nationality: existing.nationality || "Brasil",
+          age: existing.age || 24,
+          photo: existing.photo || "",
+          _existing: existing
+        };
+      }
+
+      const row = agentMap[key];
+      row.addP += 1;
+      if (winnerTeam && info.team === winnerTeam) row.addV += 1;
+      else if (winnerTeam) row.addD += 1;
+      // empate de série (raro na liga) → só P
+      row.matches.push(m.id || matchSummaries[matchSummaries.length - 1].label);
+    });
+  });
+
+  const rows = Object.values(agentMap).map(r => {
+    const P = r.oldP + r.addP;
+    const V = r.oldV + r.addV;
+    const D = r.oldD + r.addD;
+    const calc = window.VALUATION.calculate({
+      rank: r.rank,
+      func: r.func,
+      role: /emerg/i.test(r.func) ? "emergencia" : (/reserva/i.test(r.func) ? "reserva" : "titular"),
+      trophy: r.trophy,
+      titles: r.titles,
+      P, V, D,
+      team: r.team
+    });
+    return {
+      ...r,
+      P, V, D,
+      wr: calc.wr,
+      newValue: calc.value,
+      peak: calc.peak
+    };
+  }).sort((a, b) => b.addP - a.addP || a.name.localeCompare(b.name));
+
+  if (status) {
+    status.textContent = `${rows.length} agentes com delta · ${matchIdsToMark.length} partida(s) a sincronizar · ${skippedSynced} já sync ignorada(s)`;
+  }
+
+  showSyncReviewModal({
+    rows,
+    unmatched,
+    matchSummaries,
+    matchIdsToMark,
+    mode,
+    season,
+    round,
+    force
+  });
+}
+
+function showSyncReviewModal(payload) {
+  const { rows, unmatched, matchSummaries, matchIdsToMark, mode, season, round } = payload;
+  const overlay = document.getElementById("aiReviewOverlay");
+  const body = document.getElementById("aiReviewBody");
+  const title = document.getElementById("aiReviewTitle");
+  const statsOnly = mode === "statsOnly";
+
+  window._aiReviewData = {
+    action: "sync-jet-stats",
+    data: rows,
+    mode,
+    matchIdsToMark,
+    season,
+    round
+  };
+
+  title.textContent = `Revisar sync Jet League · ${season} · Rodada ${round}`;
+
+  body.innerHTML = `
+    <div class="import-summary">
+      <div class="kpi"><div class="kpi-label">Agentes</div><div class="kpi-value">${rows.length}</div></div>
+      <div class="kpi"><div class="kpi-label">Partidas OK</div><div class="kpi-value" style="color:var(--green)">${matchIdsToMark.length}</div></div>
+      <div class="kpi"><div class="kpi-label">Sem luta / skip</div><div class="kpi-value" style="color:var(--orange)">${matchSummaries.filter(m => m.status !== "ok" && m.status !== "resync").length}</div></div>
+      <div class="kpi"><div class="kpi-label">Não achados</div><div class="kpi-value" style="color:var(--red)">${unmatched.length}</div></div>
+    </div>
+    <p style="font-size:0.85rem;color:var(--cyan);margin-bottom:10px">
+      Modo: <strong>${statsOnly ? "somente stats" : "stats + recalcular valor"}</strong>.
+      P/V/D são <strong>somados</strong> ao que já está no perfil (não substituem a temporada inteira).
+    </p>
+    <div class="rumor-card" style="margin-bottom:12px">
+      <strong>Partidas</strong>
+      <div style="font-size:0.8rem;margin-top:6px;color:var(--text-muted)">
+        ${matchSummaries.map(m => {
+          const color = m.status === "ok" ? "var(--green)" : m.status === "resync" ? "var(--cyan)" : "var(--orange)";
+          return `<div style="color:${color}">• ${m.label} — ${m.reason}</div>`;
+        }).join("") || "—"}
+      </div>
+    </div>
+    ${unmatched.length ? `
+      <div class="rumor-card" style="border-color:var(--orange);margin-bottom:12px">
+        <strong style="color:var(--orange)">⚠ Nomes nas lutas sem match no Market (${unmatched.length})</strong>
+        <div style="font-size:0.8rem;margin-top:6px;color:var(--text-muted)">
+          ${unmatched.slice(0, 20).map(u => `${u.name} (${u.team})`).join(" · ")}
+          ${unmatched.length > 20 ? "…" : ""}
+        </div>
+        <p style="font-size:0.75rem;margin-top:6px">Confira ortografia no elenco / Market. Esses não serão atualizados.</p>
+      </div>
+    ` : ""}
+    <div class="admin-table-wrap" style="max-height:360px;overflow:auto">
+      <table class="admin-table">
+        <thead>
+          <tr>
+            <th>Agente</th><th>Time</th>
+            <th>ΔP</th><th>ΔV</th><th>ΔD</th>
+            <th>P-V-D final</th>
+            <th>Valor atual</th>
+            <th>Novo valor</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map((r, i) => `
+            <tr>
+              <td><strong>${r.name}</strong></td>
+              <td>${r.team}</td>
+              <td style="color:var(--cyan)">+${r.addP}</td>
+              <td style="color:var(--green)">+${r.addV}</td>
+              <td style="color:var(--red)">+${r.addD}</td>
+              <td>${r.P}-${r.V}-${r.D}</td>
+              <td style="color:var(--text-muted)">${r.oldValue != null ? formatUSD(r.oldValue, true) : "—"}</td>
+              <td>${statsOnly
+                ? (r.oldValue != null ? formatUSD(r.oldValue, true) : "—")
+                : `<input type="number" class="admin-input sync-val" data-idx="${i}" value="${r.newValue}" style="width:120px">`
+              }</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+  overlay.classList.add("open");
+}
+
 
 window.openAdmin = openAdmin;
 window.closeAdmin = closeAdmin;
@@ -1392,6 +1849,10 @@ window.deleteRumor = deleteRumor;
 window.generateRumorWithAI = generateRumorWithAI;
 window.runAIGeneration = runAIGeneration;
 window.processImportFile = processImportFile;
+window.populateSyncSelectors = populateSyncSelectors;
+window.refreshSyncRoundOptions = refreshSyncRoundOptions;
+window.previewJetLeagueSync = previewJetLeagueSync;
+
 window.forceReseedFromCode = forceReseedFromCode;
 window.setTransferWindow = setTransferWindow;
 window.saveJetLeagueUrl = saveJetLeagueUrl;
