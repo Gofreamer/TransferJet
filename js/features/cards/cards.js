@@ -155,25 +155,24 @@ function renderCardsHub(container) {
 /* ========== PACKS + abertura sequencial ========== */
 function renderCardsPacks(container) {
   const ownerId = getCardsOwnerId();
+  // Só lacrados — abertos somem da lista (cartas já estão no inventário)
   const packs = Object.entries(window.AppState.cards.packs || {})
-    .filter(([, p]) => p.ownerId === ownerId)
+    .filter(([, p]) => p.ownerId === ownerId && p.status === "sealed")
     .sort((a, b) => (b[1].grantedAt || "").localeCompare(a[1].grantedAt || ""));
 
   container.innerHTML = `
     <div class="jc-section">
       <h2>Pacotes</h2>
-      <p class="jc-hint">Revelação carta a carta. Animações só no dispositivo — Firebase salva o resultado uma vez.</p>
+      <p class="jc-hint">Revelação carta a carta. Depois de abrir, o pack some daqui — as cartas ficam no inventário.</p>
       <div class="jc-pack-list">
         ${packs.map(([id, p]) => `
-          <div class="jc-pack-item status-${p.status}">
+          <div class="jc-pack-item status-sealed">
             <div class="jc-pack-visual">📦</div>
             <div class="jc-pack-info">
               <div class="jc-pack-title">${p.label || "Pacote Jet Cards"}</div>
-              <div class="jc-pack-meta">${p.status === "sealed" ? "Lacrado" : "Aberto"} · ${p.source || ""}</div>
+              <div class="jc-pack-meta">Lacrado · ${p.source || ""}</div>
             </div>
-            ${p.status === "sealed"
-              ? `<button class="jc-btn primary sm" onclick="cardsOpenPack('${id}')">Abrir</button>`
-              : `<button class="jc-btn ghost sm" onclick="cardsReplayPack('${id}')">Rever</button>`}
+            <button class="jc-btn primary sm" onclick="cardsOpenPack('${id}')">Abrir</button>
           </div>
         `).join("") || "<p class='jc-hint'>Nenhum pacote. Resgate um código ou peça ao Admin.</p>"}
       </div>
