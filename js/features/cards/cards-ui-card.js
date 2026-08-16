@@ -57,7 +57,8 @@ function collectibleCardHTML(card, opts = {}) {
     ? `<div class="tc-count">×${opts.count}</div>`
     : "";
 
-  const tiltClass = !opts.small && !opts.locked ? "tc-tilt" : "";
+  // tilt em todas (inclui small/vitrine) — mobile + desktop
+  const tiltClass = !opts.locked ? "tc-tilt" : "";
 
   return `
     <div class="tc-card rarity-${rarity} ${foil} ${opts.small ? "small" : ""} ${opts.selected ? "selected" : ""} ed-${edition.toLowerCase()} ${tiltClass}"
@@ -92,7 +93,7 @@ function collectibleCardHTML(card, opts = {}) {
   `;
 }
 
-/** Liga tilt 3D nas cartas .tc-tilt (pointer/touch). Só visual. */
+/** Liga tilt 3D nas cartas .tc-tilt — mouse + touch (mobile). Só visual. */
 function cardsBindTilt(root) {
   const scope = root || document;
   scope.querySelectorAll(".tc-card.tc-tilt").forEach(card => {
@@ -102,20 +103,23 @@ function cardsBindTilt(root) {
     const glare = card.querySelector(".tc-glare");
     if (!frame) return;
 
-    const max = card.classList.contains("rarity-legend") ? 14
+    const isSmall = card.classList.contains("small");
+    let max = card.classList.contains("rarity-legend") ? 14
       : card.classList.contains("rarity-epic") ? 11
       : 8;
+    if (isSmall) max = Math.max(6, max - 4);
 
     const onMove = (clientX, clientY) => {
       const rect = card.getBoundingClientRect();
-      const px = (clientX - rect.left) / rect.width;
-      const py = (clientY - rect.top) / rect.height;
+      if (!rect.width || !rect.height) return;
+      const px = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+      const py = Math.min(1, Math.max(0, (clientY - rect.top) / rect.height));
       const rx = (0.5 - py) * max;
       const ry = (px - 0.5) * max;
-      frame.style.transform = `rotateX(${rx}deg) rotateY(${ry}deg)`;
+      frame.style.transform = `rotateX(${rx.toFixed(2)}deg) rotateY(${ry.toFixed(2)}deg) scale(1.03)`;
       if (glare) {
-        glare.style.opacity = "0.55";
-        glare.style.background = `radial-gradient(circle at ${px * 100}% ${py * 100}%, rgba(255,255,255,0.45), transparent 55%)`;
+        glare.style.opacity = "0.6";
+        glare.style.background = `radial-gradient(circle at ${px * 100}% ${py * 100}%, rgba(255,255,255,0.5), transparent 55%)`;
       }
     };
     const reset = () => {
@@ -123,9 +127,26 @@ function cardsBindTilt(root) {
       if (glare) glare.style.opacity = "0";
     };
 
-    card.addEventListener("pointermove", e => onMove(e.clientX, e.clientY));
+    // pointer capture = funciona no celular (touch) e desktop
+    card.addEventListener("pointerdown", e => {
+      try { card.setPointerCapture(e.pointerId); } catch (_) {}
+      onMove(e.clientX, e.clientY);
+    });
+    card.addEventListener("pointermove", e => {
+      if (e.pointerType === "mouse" || card.hasPointerCapture?.(e.pointerId)) {
+        onMove(e.clientX, e.clientY);
+      }
+    });
+    card.addEventListener("pointerup", reset);
     card.addEventListener("pointerleave", reset);
     card.addEventListener("pointercancel", reset);
+    // fallback touch explícito
+    card.addEventListener("touchmove", e => {
+      if (!e.touches?.[0]) return;
+      onMove(e.touches[0].clientX, e.touches[0].clientY);
+    }, { passive: true });
+    card.addEventListener("touchend", reset);
+    card.addEventListener("touchcancel", reset);
   });
 }
 

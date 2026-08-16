@@ -137,8 +137,15 @@ function renderCardsHub(container) {
         <div class="jc-kpi"><div class="jc-kpi-label">Legend</div><div class="jc-kpi-value gold">${counts.legend}</div></div>
         <div class="jc-kpi"><div class="jc-kpi-label">Pacotes</div><div class="jc-kpi-value">${sealed.length}</div></div>
       </div>
+      <div class="jc-actions-row jc-hub-actions">
+        <button class="jc-btn primary" onclick="showCardsView('packs')">Abrir pacotes</button>
+        <button class="jc-btn" onclick="showCardsView('inventory')">Inventário</button>
+        <button class="jc-btn" onclick="showCardsView('carddex')">Álbum</button>
+        <button class="jc-btn" onclick="showCardsView('showcase')">Editar vitrine</button>
+        <button class="jc-btn" onclick="showCardsView('redeem')">Código</button>
+      </div>
       <div class="jc-section">
-        <div class="jc-section-head"><h2>Vitrine</h2><button class="jc-btn sm" onclick="showCardsView('showcase')">Editar</button></div>
+        <div class="jc-section-head"><h2>Sua vitrine</h2><button class="jc-btn sm" onclick="showCardsView('showcase')">Editar</button></div>
         <div class="jc-showcase-row">
           ${((showcase?.slots) || []).filter(Boolean).slice(0, 6).map(id => {
             const c = byId[id];
@@ -146,10 +153,10 @@ function renderCardsHub(container) {
           }).join("") || "<p class='jc-hint'>Monte a vitrine com suas melhores cartas.</p>"}
         </div>
       </div>
-      <div class="jc-actions-row">
-        <button class="jc-btn primary" onclick="showCardsView('packs')">Abrir pacotes</button>
-        <button class="jc-btn" onclick="showCardsView('carddex')">Álbum</button>
-        <button class="jc-btn" onclick="showCardsView('redeem')">Código</button>
+      <div class="jc-section jc-hall-section">
+        <div class="jc-section-head"><h2>Hall de colecionadores</h2></div>
+        <p class="jc-hint">Jogadores e personagens / NPCs.</p>
+        ${renderHallCollectorsHTML(ownerId)}
       </div>
     </div>
   `;
@@ -679,19 +686,41 @@ function cardsOpenDetail(cardId) {
   document.body.appendChild(modal);
 }
 
-/* ========== VITRINE / NPC / CÓDIGO — preservados com novo visual ========== */
+/* ========== VITRINE (edição) — Hall fica no Início ========== */
 function renderCardsShowcase(container) {
   const ownerId = getCardsOwnerId();
-  const cards = inventoryList(ownerId);
   const sc = (window.AppState.cards.showcases || {})[ownerId] || { slots: [], title: "Minha vitrine" };
   const slots = Array.from({ length: cardsSettings().showcaseSlots || 6 }, (_, i) => sc.slots?.[i] || null);
-  const byId = Object.fromEntries(cards.map(c => [c.cardId, c]));
+  const byId = Object.fromEntries(inventoryList(ownerId).map(c => [c.cardId, c]));
   if (!window._jcShowcaseDraft) window._jcShowcaseDraft = slots.slice();
 
+  const rarity = window._jcVitRarity || "";
+  const foil = window._jcVitFoil || "";
+  const edition = window._jcVitEdition || "";
+  const q = (window._jcVitSearch || "").trim().toLowerCase();
+  let list = inventoryGrouped(ownerId);
+  if (rarity) list = list.filter(c => c.rarity === rarity);
+  if (foil === "holo") list = list.filter(c => c.foil === "holo");
+  if (foil === "normal") list = list.filter(c => c.foil !== "holo");
+  if (edition) list = list.filter(c => (c.edition || "BASE").toUpperCase() === edition);
+  if (q) list = list.filter(c =>
+    (c.playerName || "").toLowerCase().includes(q) ||
+    (c.team || "").toLowerCase().includes(q) ||
+    (c.edition || "").toLowerCase().includes(q)
+  );
+  const editionKeys = Object.keys(window.CARDS.EDITIONS || { BASE: 1 });
+
   container.innerHTML = `
-    <div class="jc-section">
-      <h2>Sua vitrine</h2>
-      <p class="jc-hint">Clique no slot e depois na carta. Prestígio da coleção.</p>
+    <div class="jc-section jc-vitrine-edit">
+      <div class="jc-vitrine-sticky">
+        <div class="jc-section-head">
+          <div>
+            <h2 style="margin:0">Sua vitrine</h2>
+            <p class="jc-hint" style="margin:4px 0 0">Toque no slot, depois na carta. Hall dos colecionadores está no <strong>Início</strong>.</p>
+          </div>
+          <button class="jc-btn primary" onclick="cardsSaveShowcase()">Salvar vitrine</button>
+        </div>
+      </div>
       <div class="jc-showcase-row">
         ${(window._jcShowcaseDraft || slots).map((id, i) => {
           const c = id && byId[id];
@@ -700,20 +729,44 @@ function renderCardsShowcase(container) {
           </div>`;
         }).join("")}
       </div>
-      <div class="jc-grid tc-grid" style="margin-top:16px">
-        ${inventoryGrouped(ownerId).map(c => collectibleCardHTML(c, {
-          showCount: true, count: c.count, selected: (window._jcShowcaseDraft || []).includes(c.copies[0]),
-          onclick: `cardsAssignToSlot('${c.copies[0]}')`
-        })).join("")}
+      <div class="jc-vitrine-picker">
+        <div class="jc-section-head" style="margin-top:14px">
+          <h3 style="margin:0;font-size:0.95rem">Escolher cartas</h3>
+        </div>
+        <div class="jc-inv-filters jc-vit-filters">
+          <input type="search" class="jc-input jc-filter-search" placeholder="Buscar nome / time…"
+            value="${(window._jcVitSearch || "").replace(/"/g, "&quot;")}"
+            oninput="window._jcVitSearch=this.value;renderCardsShell()"/>
+          <select onchange="window._jcVitRarity=this.value;renderCardsShell()">
+            <option value="">Raridade</option>
+            ${["legend","epic","rare","common"].map(r =>
+              `<option value="${r}" ${rarity===r?"selected":""}>${(window.CARDS.RARITY[r]||{}).label||r}</option>`
+            ).join("")}
+          </select>
+          <select onchange="window._jcVitFoil=this.value;renderCardsShell()">
+            <option value="">Foil</option>
+            <option value="holo" ${foil==="holo"?"selected":""}>Holo</option>
+            <option value="normal" ${foil==="normal"?"selected":""}>Normal</option>
+          </select>
+          <select onchange="window._jcVitEdition=this.value;renderCardsShell()">
+            <option value="">Edição</option>
+            ${editionKeys.map(ed =>
+              `<option value="${ed}" ${edition===ed?"selected":""}>${(window.CARDS.EDITIONS[ed]||{}).label||ed}</option>`
+            ).join("")}
+          </select>
+        </div>
+        <p class="jc-hint">${list.length} carta${list.length!==1?"s":""} · ${window._jcSlot!=null ? "slot "+(window._jcSlot+1)+" selecionado" : "escolha um slot acima"}</p>
+        <div class="jc-grid tc-grid">
+          ${list.map(c => collectibleCardHTML(c, {
+            showCount: true, count: c.count,
+            selected: (window._jcShowcaseDraft || []).includes(c.copies[0]),
+            onclick: `cardsAssignToSlot('${c.copies[0]}')`
+          })).join("") || "<p class='jc-hint'>Nenhuma carta com esses filtros.</p>"}
+        </div>
+        <div class="jc-vitrine-save-bottom">
+          <button class="jc-btn primary" onclick="cardsSaveShowcase()">Salvar vitrine</button>
+        </div>
       </div>
-      <div style="margin-top:12px">
-        <button class="jc-btn primary" onclick="cardsSaveShowcase()">Salvar vitrine</button>
-      </div>
-    </div>
-    <div class="jc-section">
-      <h2>Hall de colecionadores</h2>
-      <p class="jc-hint">Vitrines dos jogadores cadastrados e dos personagens / NPCs.</p>
-      ${renderHallCollectorsHTML(ownerId)}
     </div>
   `;
 }
