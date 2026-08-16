@@ -77,6 +77,7 @@ function renderCardsShell() {
   else if (view === "showcase") renderCardsShowcase(el);
   else if (view === "npcs") renderCardsNpcs(el);
   else if (view === "redeem") renderCardsRedeem(el);
+  if (typeof cardsBindTilt === "function" && el) cardsBindTilt(el);
 }
 
 function renderCardsLogin(container) {
@@ -106,11 +107,13 @@ function cardsDoLogin() {
   }
   if (!found && raw.trim()) {
     setCardsSession("human_" + raw.trim().toLowerCase().replace(/\s+/g, "_"), raw.trim());
+    if (typeof cardsRebindInventoryListener === "function") cardsRebindInventoryListener();
     renderCardsShell();
     return;
   }
   if (!found) return alert("Não encontrado.");
   setCardsSession(found.id, found.displayName);
+  if (typeof cardsRebindInventoryListener === "function") cardsRebindInventoryListener();
   renderCardsShell();
 }
 
@@ -442,7 +445,7 @@ function cardsRunRevealSequence(results, skipSave) {
       <div class="jc-pack-box" id="jcPackBox">📦</div>
       <p class="jc-hint">Toque para abrir</p>
       <button class="jc-btn primary" id="jcRevealBtn" onclick="cardsRevealNext()">Abrir pacote</button>
-      <button class="jc-btn ghost sm" onclick="cardsSkipReveal()">Pular animação</button>
+      <button class="jc-btn" onclick="cardsSkipReveal()">Pular tudo · ver cartas</button>
       <div id="jcRevealFocus" class="jc-reveal-focus"></div>
       <div id="jcRevealDone" class="jc-reveal-done hidden"></div>
     </div>
@@ -534,27 +537,47 @@ function cardsRevealNext(forceAll) {
 function renderCardsInventory(container) {
   const grouped = inventoryGrouped(getCardsOwnerId());
   const rarity = window._jcInvRarity || "";
+  const foil = window._jcInvFoil || "";
+  const edition = window._jcInvEdition || "";
   let list = grouped;
   if (rarity) list = list.filter(c => c.rarity === rarity);
+  if (foil === "holo") list = list.filter(c => c.foil === "holo");
+  if (foil === "normal") list = list.filter(c => c.foil !== "holo");
+  if (edition) list = list.filter(c => (c.edition || "BASE").toUpperCase() === edition);
+
+  const editionKeys = Object.keys(window.CARDS.EDITIONS || { BASE: 1 });
 
   container.innerHTML = `
     <div class="jc-section">
-      <div class="jc-section-head">
+      <div class="jc-section-head" style="flex-wrap:wrap;gap:8px">
         <h2>Inventário</h2>
-        <select onchange="window._jcInvRarity=this.value;renderCardsShell()">
-          <option value="">Todas</option>
-          ${["legend","epic","rare","common"].map(r =>
-            `<option value="${r}" ${rarity===r?"selected":""}>${(window.CARDS.RARITY[r]||{}).label||r}</option>`
-          ).join("")}
-        </select>
+        <div class="jc-inv-filters" style="display:flex;flex-wrap:wrap;gap:6px">
+          <select onchange="window._jcInvRarity=this.value;renderCardsShell()" title="Raridade">
+            <option value="">Raridade</option>
+            ${["legend","epic","rare","common"].map(r =>
+              `<option value="${r}" ${rarity===r?"selected":""}>${(window.CARDS.RARITY[r]||{}).label||r}</option>`
+            ).join("")}
+          </select>
+          <select onchange="window._jcInvFoil=this.value;renderCardsShell()" title="Foil">
+            <option value="">Foil</option>
+            <option value="holo" ${foil==="holo"?"selected":""}>Holo</option>
+            <option value="normal" ${foil==="normal"?"selected":""}>Normal</option>
+          </select>
+          <select onchange="window._jcInvEdition=this.value;renderCardsShell()" title="Edição">
+            <option value="">Edição</option>
+            ${editionKeys.map(ed =>
+              `<option value="${ed}" ${edition===ed?"selected":""}>${(window.CARDS.EDITIONS[ed]||{}).label||ed}</option>`
+            ).join("")}
+          </select>
+        </div>
       </div>
-      <p class="jc-hint">Duplicatas aparecem como ×N. Toque para detalhes.</p>
+      <p class="jc-hint">${list.length} tipo${list.length!==1?"s":""} · duplicatas como ×N. Toque para detalhes.</p>
       <div class="jc-grid tc-grid">
         ${list.map(c => collectibleCardHTML(c, {
           showCount: true,
           count: c.count,
           onclick: `cardsOpenDetail('${c.copies[0]}')`
-        })).join("") || "<p class='jc-hint'>Sem cartas.</p>"}
+        })).join("") || "<p class='jc-hint'>Sem cartas com esses filtros.</p>"}
       </div>
     </div>
   `;
@@ -695,11 +718,39 @@ function renderCardsShowcase(container) {
   `;
 }
 
-/** Monta HTML do hall: humanos + NPCs/personagens */
+/** Prestígio da vitrine: legend×10 + epic×4 + rare×2 + holo×1 + slots preenchidos */
+function cardsShowcasePrestige(sid, s) {
+  const inv = (window.AppState.cards.inventory || {})[sid] || {};
+  let score = 0;
+  let filled = 0;
+  (s.slots || []).filter(Boolean).forEach(slot => {
+    const c = typeof slot === "object" && slot?.playerKey ? slot : inv[slot];
+    if (!c) return;
+    filled++;
+    const r = c.rarity || "common";
+    if (r === "legend") score += 10;
+    else if (r === "epic") score += 4;
+    else if (r === "rare") score += 2;
+    else score += 1;
+    if (c.foil === "holo") score += 1;
+  });
+  return score + filled * 0.1;
+}
+
+/** Monta HTML do hall: humanos (por prestígio) + NPCs/personagens */
 function renderHallCollectorsHTML(excludeOwnerId) {
   const all = Object.entries(window.AppState.cards.showcases || {});
-  const humans = all.filter(([id, s]) => s && s.type !== "npc" && id !== excludeOwnerId);
+  let humans = all.filter(([id, s]) => s && s.type !== "npc" && id !== excludeOwnerId);
   const npcs = all.filter(([, s]) => s && s.type === "npc");
+
+  // busca inventários faltantes dos outros (listener escopado só traz o seu)
+  humans.forEach(([id]) => {
+    if (!(window.AppState.cards.inventory || {})[id] && typeof cardsFetchInventoryOnce === "function") {
+      cardsFetchInventoryOnce(id);
+    }
+  });
+
+  humans = humans.slice().sort((a, b) => cardsShowcasePrestige(b[0], b[1]) - cardsShowcasePrestige(a[0], a[1]));
 
   const resolveHumanSlots = (sid, s) => {
     const inv = (window.AppState.cards.inventory || {})[sid] || {};
@@ -721,13 +772,15 @@ function renderHallCollectorsHTML(excludeOwnerId) {
   let html = "";
 
   if (humans.length) {
-    html += `<h3 class="jc-hall-subtitle">Jogadores</h3>`;
-    html += humans.map(([id, s]) => `
+    html += `<h3 class="jc-hall-subtitle">Jogadores · por prestígio</h3>`;
+    html += humans.map(([id, s]) => {
+      const prest = Math.floor(cardsShowcasePrestige(id, s));
+      return `
       <div class="jc-npc-vitrine jc-human-vitrine">
-        <div class="jc-npc-head">👤 <strong>${s.name || "Colecionador"}</strong>${s.title ? " · " + s.title : ""}</div>
+        <div class="jc-npc-head">👤 <strong>${s.name || "Colecionador"}</strong>${s.title ? " · " + s.title : ""} <span class="jc-hint">· prestígio ${prest}</span></div>
         <div class="jc-showcase-row">${resolveHumanSlots(id, s)}</div>
-      </div>
-    `).join("");
+      </div>`;
+    }).join("");
   } else {
     html += `<p class="jc-hint">Nenhum outro colecionador com vitrine ainda.</p>`;
   }

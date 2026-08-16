@@ -30,10 +30,28 @@ function startCardsListeners() {
     refresh();
   });
 
-  window.marketDb.ref("cards/inventory").on("value", snap => {
-    ensureCardsState().inventory = snap.val() || {};
-    refresh();
-  });
+  // Inventário só do jogador logado (economiza download no free tier)
+  window._jcInvOwnerBound = null;
+  window._jcInvRef = null;
+  const bindOwnInventory = () => {
+    const ownerId = typeof getCardsOwnerId === "function" ? getCardsOwnerId() : null;
+    if (ownerId === window._jcInvOwnerBound) return;
+    if (window._jcInvRef) {
+      try { window._jcInvRef.off(); } catch (_) {}
+      window._jcInvRef = null;
+    }
+    window._jcInvOwnerBound = ownerId;
+    if (!ownerId) return;
+    window._jcInvRef = window.marketDb.ref("cards/inventory/" + ownerId);
+    window._jcInvRef.on("value", snap => {
+      const all = ensureCardsState().inventory || {};
+      all[ownerId] = snap.val() || {};
+      ensureCardsState().inventory = all;
+      refresh();
+    });
+  };
+  bindOwnInventory();
+  window.cardsRebindInventoryListener = bindOwnInventory;
 
   window.marketDb.ref("cards/codes").on("value", snap => {
     ensureCardsState().codes = snap.val() || {};
@@ -92,7 +110,31 @@ async function syncCardsCatalog() {
   return Object.keys(updates).length;
 }
 
+/** Carrega inventário de outro jogador uma vez (ex.: hall). Não escuta em tempo real. */
+async function cardsFetchInventoryOnce(ownerId) {
+  if (!ownerId || !window.marketDb) return null;
+  if ((window.AppState.cards?.inventory || {})[ownerId]) return window.AppState.cards.inventory[ownerId];
+  if (!window._jcInvFetching) window._jcInvFetching = {};
+  if (window._jcInvFetching[ownerId]) return window._jcInvFetching[ownerId];
+  window._jcInvFetching[ownerId] = window.marketDb.ref("cards/inventory/" + ownerId).once("value").then(snap => {
+    const all = ensureCardsState().inventory || {};
+    all[ownerId] = snap.val() || {};
+    ensureCardsState().inventory = all;
+    delete window._jcInvFetching[ownerId];
+    if (window.AppState.cards.active && typeof renderCardsShell === "function") {
+      // re-render leve se estiver no hall
+      if ((window.AppState.cards.ui || {}).view === "showcase") renderCardsShell();
+    }
+    return all[ownerId];
+  }).catch(() => {
+    delete window._jcInvFetching[ownerId];
+    return null;
+  });
+  return window._jcInvFetching[ownerId];
+}
+
 window.startCardsListeners = startCardsListeners;
 window.ensureCardsSeeded = ensureCardsSeeded;
 window.saveCardsSettings = saveCardsSettings;
 window.syncCardsCatalog = syncCardsCatalog;
+window.cardsFetchInventoryOnce = cardsFetchInventoryOnce;
