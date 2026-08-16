@@ -19,8 +19,40 @@ function renderCardsAdmin() {
     <p class="admin-sub">Catálogo base: <strong>${catalogCount}</strong> cartas · Coleção, edições especiais, packs e códigos.</p>
     <div class="admin-actions" style="flex-wrap:wrap;gap:8px;margin-bottom:14px">
       <button class="btn-primary btn-sm" onclick="jcAdminSeed()">Seed / sync catálogo</button>
-      <button class="btn-primary btn-sm" onclick="jcAdminGrantPack()">Dar pack</button>
     </div>
+
+    <h3 class="admin-section-title" style="margin-top:18px">Dar packs</h3>
+    <p class="admin-sub">Selecione o jogador e a quantidade de packs para enviar.</p>
+    <div class="admin-form-grid">
+      <div>
+        <label>Jogador</label>
+        <select id="jcPackOwner">
+          ${humans.map(([id, p]) => `<option value="${id}">${p.displayName || id}</option>`).join("") || "<option value=''>Nenhum humano</option>"}
+        </select>
+      </div>
+      <div>
+        <label>Quantidade</label>
+        <input type="number" id="jcPackQty" min="1" max="50" value="1">
+      </div>
+    </div>
+    <div class="admin-actions" style="margin-top:8px">
+      <button class="btn-primary btn-sm" onclick="jcAdminGrantPack()">Enviar packs</button>
+    </div>
+
+    <h3 class="admin-section-title" style="margin-top:22px">Ver vitrine do jogador</h3>
+    <p class="admin-sub">Escolha um jogador para visualizar a vitrine dele.</p>
+    <div class="admin-form-grid">
+      <div>
+        <label>Jogador</label>
+        <select id="jcViewVitrineOwner">
+          ${humans.map(([id, p]) => `<option value="${id}">${p.displayName || id}</option>`).join("") || "<option value=''>Nenhum humano</option>"}
+        </select>
+      </div>
+    </div>
+    <div class="admin-actions" style="margin-top:8px">
+      <button class="btn-primary btn-sm" onclick="jcAdminViewVitrine()">Ver vitrine</button>
+    </div>
+    <div id="jcAdminVitrinePreview" style="margin-top:12px"></div>
 
     <h3 class="admin-section-title">Config</h3>
     <div class="admin-form-grid">
@@ -337,16 +369,65 @@ async function jcAdminDeleteCode(id) {
 }
 
 async function jcAdminGrantPack() {
+  const ownerId = document.getElementById("jcPackOwner")?.value;
+  const qty = Math.max(1, Math.min(50, parseInt(document.getElementById("jcPackQty")?.value || "1", 10) || 1));
+  if (!ownerId) return alert("Selecione um jogador");
   const humans = Object.entries(window.AppState.fantasy?.participants || {}).filter(([, p]) => p && p.type !== "npc");
-  if (!humans.length) return alert("Cadastre humano no Fantasy");
-  const ownerId = humans[0][0];
-  const packId = newPackId();
-  await window.marketDb.ref("cards/packs/" + packId).set({
-    ownerId, status: "sealed", label: "Pack Admin",
-    source: "admin", grantedAt: new Date().toISOString()
-  });
-  alert("Pack → " + humans[0][1].displayName);
+  const target = humans.find(([id]) => id === ownerId);
+  const name = target?.[1]?.displayName || ownerId;
+
+  const now = new Date().toISOString();
+  const updates = {};
+  for (let i = 0; i < qty; i++) {
+    const packId = "pack_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8) + "_" + i;
+    updates["cards/packs/" + packId] = {
+      ownerId,
+      status: "sealed",
+      label: "Pack Admin",
+      source: "admin",
+      grantedAt: now
+    };
+  }
+  await window.marketDb.ref().update(updates);
+  alert(`${qty} pack${qty > 1 ? "s" : ""} → ${name}`);
   renderCardsAdmin();
+}
+
+function jcAdminViewVitrine() {
+  const ownerId = document.getElementById("jcViewVitrineOwner")?.value;
+  const box = document.getElementById("jcAdminVitrinePreview");
+  if (!box) return;
+  if (!ownerId) {
+    box.innerHTML = "<p class='admin-sub'>Selecione um jogador.</p>";
+    return;
+  }
+  const humans = Object.entries(window.AppState.fantasy?.participants || {}).filter(([, p]) => p && p.type !== "npc");
+  const target = humans.find(([id]) => id === ownerId);
+  const name = target?.[1]?.displayName || ownerId;
+  const sc = (window.AppState.cards.showcases || {})[ownerId];
+  const slots = sc?.slots || [];
+  const inv = (window.AppState.cards.inventory || {})[ownerId] || {};
+  const byId = {};
+  Object.entries(inv).forEach(([cid, c]) => { byId[cid] = { ...c, cardId: cid }; });
+
+  const cardsHtml = slots.filter(Boolean).map(id => {
+    const c = byId[id];
+    if (!c) return `<div class="jc-slot-empty" style="padding:8px;border:1px dashed #666;border-radius:8px;font-size:12px">Carta ausente</div>`;
+    if (typeof collectibleCardHTML === "function") {
+      return collectibleCardHTML(c, { small: true });
+    }
+    return `<div style="padding:6px 10px;background:#1a1a2e;border-radius:8px;font-size:12px">${c.playerName || c.playerKey} · ${c.rarity || "?"}</div>`;
+  }).join("") || "<p class='admin-sub'>Vitrine vazia ou ainda não configurada.</p>";
+
+  box.innerHTML = `
+    <div style="border:1px solid rgba(255,255,255,0.12);border-radius:12px;padding:14px;background:rgba(0,0,0,0.25)">
+      <div style="font-weight:600;margin-bottom:10px">Vitrine de ${name}</div>
+      <div class="jc-showcase-row" style="display:flex;flex-wrap:wrap;gap:10px">
+        ${cardsHtml}
+      </div>
+      <p class="admin-sub" style="margin-top:10px;margin-bottom:0">Slots: ${slots.filter(Boolean).length} / ${(sc?.slots?.length || cardsSettings().showcaseSlots || 6)}</p>
+    </div>
+  `;
 }
 
 async function jcAdminCreateOffer() {
@@ -440,6 +521,7 @@ window.jcAdminDeleteSpecial = jcAdminDeleteSpecial;
 window.jcAdminCreateCode = jcAdminCreateCode;
 window.jcAdminDeleteCode = jcAdminDeleteCode;
 window.jcAdminGrantPack = jcAdminGrantPack;
+window.jcAdminViewVitrine = jcAdminViewVitrine;
 window.jcAdminCreateOffer = jcAdminCreateOffer;
 window.jcAdminGrantCard = jcAdminGrantCard;
 window.jcAdminAddNpcShowcaseCard = jcAdminAddNpcShowcaseCard;
