@@ -318,22 +318,29 @@ body.cards-mode main.jc-hide-official > [id^="view-"] { display: none !important
   padding: 6px 12px !important; border-radius: 8px !important; cursor: pointer;
 }
 
-/* Modal detalhe */
+/* Modal detalhe + viewer 3D */
 .jc-modal-overlay {
   position: fixed; inset: 0; z-index: 9999;
-  background: rgba(0,0,0,0.75); display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.78); display: flex; align-items: center; justify-content: center;
   padding: 16px; backdrop-filter: blur(6px);
+  box-sizing: border-box;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 .jc-modal {
   position: relative; background: #120f1c; border: 1px solid var(--jc-border);
   border-radius: 18px; padding: 20px; max-width: 520px; width: 100%;
   display: grid; grid-template-columns: 1fr 1.1fr; gap: 16px; max-height: 90vh; overflow: auto;
+  box-sizing: border-box;
 }
 .jc-modal-close {
   position: absolute; top: 8px; right: 12px; background: transparent; border: none;
   color: #fff; font-size: 1.4rem; cursor: pointer;
+  width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;
+  z-index: 2;
 }
-.jc-modal-card { max-width: 200px; margin: 0 auto; }
+.jc-modal-card { max-width: 220px; margin: 0 auto; }
+.jc-modal-card .tc-card { max-width: 220px; width: 100%; }
 .jc-modal-info h2 { margin: 0 0 4px; font-size: 1.2rem; }
 .jc-modal-ed { color: var(--jc-gold); font-size: 0.85rem; font-weight: 700; }
 .jc-desc { font-size: 0.85rem; color: var(--jc-muted); margin-top: 8px; }
@@ -342,8 +349,26 @@ body.cards-mode main.jc-hide-official > [id^="view-"] { display: none !important
 .jc-achievements ul { margin: 0; padding-left: 18px; font-size: 0.82rem; color: var(--jc-muted); }
 
 @media (max-width: 640px) {
-  .jc-modal { grid-template-columns: 1fr; }
-  .jc-modal-card { max-width: 180px; }
+  .jc-modal,
+  .jc-modal-viewer {
+    grid-template-columns: 1fr;
+    padding: 16px 14px 20px;
+    max-height: 94vh;
+    gap: 14px;
+    align-items: center;
+  }
+  .jc-modal-card {
+    max-width: min(78vw, 280px);
+    width: 100%;
+  }
+  .jc-modal-card .tc-card {
+    max-width: min(78vw, 280px);
+  }
+  .jc-modal-close {
+    width: 44px;
+    height: 44px;
+    font-size: 1.6rem;
+  }
   .tc-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
   .jc-reveal-row { grid-template-columns: 1fr; max-width: 200px; }
 }
@@ -640,4 +665,78 @@ body.cards-mode main.jc-hide-official > [id^="view-"] { display: none !important
   border-radius: 8px;
   padding: 4px 8px;
   font-size: 0.78rem;
+}
+
+/* ========== Vitrine edit: sticky save + filters ========== */
+.jc-vitrine-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  padding: 10px 0 12px;
+  margin: -4px 0 8px;
+  background: linear-gradient(180deg, rgba(12,10,18,0.98) 60%, rgba(12,10,18,0.85) 100%);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--jc-border, rgba(255,255,255,0.08));
+}
+.jc-vitrine-sticky .jc-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.jc-vit-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+  align-items: center;
+}
+.jc-filter-search {
+  max-width: 100%;
+  flex: 1 1 160px;
+  min-width: 140px;
+  padding: 8px 10px !important;
+}
+.jc-vitrine-save-bottom {
+  position: sticky;
+  bottom: 8px;
+  margin-top: 16px;
+  padding: 10px 0;
+  display: flex;
+  justify-content: center;
+  background: linear-gradient(0deg, rgba(12,10,18,0.95), transparent);
+}
+.jc-hall-section {
+  margin-top: 28px;
+  padding-top: 8px;
+  border-top: 1px solid var(--jc-border, rgba(255,255,255,0.08));
+}
+.jc-hall-subtitle {
+  font-size: 0.9rem;
+  margin: 12px 0 8px;
+  color: var(--jc-muted, #a1a1aa);
+}
+
+@media (max-width: 720px) {
+  .jc-vitrine-sticky .jc-section-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .jc-vitrine-sticky .jc-btn.primary {
+    width: 100%;
+    min-height: 44px;
+  }
+  .jc-vit-filters {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .jc-vit-filters select,
+  .jc-vit-filters .jc-input,
+  .jc-filter-search {
+    width: 100%;
+    max-width: none;
+    font-size: 16px; /* evita zoom iOS */
+    min-height: 44px;
+  }
 }

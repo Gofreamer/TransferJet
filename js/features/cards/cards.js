@@ -151,6 +151,11 @@ function renderCardsHub(container) {
         <button class="jc-btn" onclick="showCardsView('carddex')">Álbum</button>
         <button class="jc-btn" onclick="showCardsView('redeem')">Código</button>
       </div>
+      <div class="jc-section jc-hall-section">
+        <h2>Hall de colecionadores</h2>
+        <p class="jc-hint">Vitrines dos jogadores e personagens. Toque numa carta para ver em tela cheia com efeito 3D.</p>
+        ${renderHallCollectorsHTML(ownerId)}
+      </div>
     </div>
   `;
 }
@@ -637,19 +642,33 @@ function renderCardsCarddex(container) {
   `;
 }
 
-/* ========== DETALHE ========== */
+/* ========== DETALHE (tela grande + tilt 3D no mobile/PC) ========== */
+function cardsHallOpenOnclick(card) {
+  if (!card) return "";
+  window._jcHallCache = window._jcHallCache || {};
+  const key = String(card.cardId || ("p_" + (card.playerKey || "") + "_" + (card.edition || "BASE") + "_" + (card.rarity || "")));
+  window._jcHallCache[key] = card;
+  return `cardsOpenDetail('${key.replace(/'/g, "")}')`;
+}
+
 function cardsOpenDetail(cardId) {
   if (!cardId) return;
   const ownerId = getCardsOwnerId();
   const list = inventoryList(ownerId);
-  const card = list.find(c => c.cardId === cardId);
+  let card = list.find(c => c.cardId === cardId);
+  let isPreview = false;
+  if (!card && window._jcHallCache && window._jcHallCache[cardId]) {
+    card = window._jcHallCache[cardId];
+    isPreview = true;
+  }
   if (!card) return;
+
   const defId = card.defId || catalogDefId(card.playerKey, card.edition || "BASE");
-  const count = list.filter(c => (c.defId || catalogDefId(c.playerKey, c.edition || "BASE")) === defId
+  const count = isPreview ? 0 : list.filter(c => (c.defId || catalogDefId(c.playerKey, c.edition || "BASE")) === defId
     && c.rarity === card.rarity && (c.foil || "normal") === (card.foil || "normal")).length;
-  const resolved = resolveCardDef(card);
+  const resolved = typeof resolveCardDef === "function" ? resolveCardDef(card) : card;
   const edition = (card.edition || "BASE").toUpperCase();
-  const editionLabel = (window.CARDS.EDITIONS[edition] || {}).label || edition;
+  const editionLabel = (window.CARDS.EDITIONS && window.CARDS.EDITIONS[edition] || {}).label || edition;
 
   document.getElementById("jcCardModal")?.remove();
   const modal = document.createElement("div");
@@ -657,18 +676,20 @@ function cardsOpenDetail(cardId) {
   modal.className = "jc-modal-overlay";
   modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
   modal.innerHTML = `
-    <div class="jc-modal">
-      <button class="jc-modal-close" onclick="document.getElementById('jcCardModal').remove()">×</button>
+    <div class="jc-modal jc-modal-viewer" role="dialog" aria-modal="true">
+      <button type="button" class="jc-modal-close" aria-label="Fechar" onclick="document.getElementById('jcCardModal').remove()">×</button>
       <div class="jc-modal-card">
-        ${collectibleCardHTML(card)}
+        ${collectibleCardHTML(card, { tilt: true })}
       </div>
       <div class="jc-modal-info">
-        <h2>${card.customName || resolved.playerName}</h2>
+        <h2>${card.customName || resolved.playerName || card.playerName || "—"}</h2>
         <p class="jc-modal-ed">${editionLabel}${card.foil === "holo" ? " · HOLO" : ""}</p>
-        <p><strong>${(window.CARDS.RARITY[card.rarity] || {}).label || card.rarity}</strong></p>
-        <p>${resolved.team} · ${resolved.rank}</p>
-        <p>${resolved.cycle} · ${resolved.cardNumber}</p>
-        <p class="jc-hint">Possui ×${count} desta variante</p>
+        <p><strong>${(window.CARDS.RARITY && window.CARDS.RARITY[card.rarity] || {}).label || card.rarity}</strong></p>
+        <p>${resolved.team || card.team || "—"} · ${resolved.rank || card.rank || "—"}</p>
+        <p>${resolved.cycle || card.cycle || ""} · ${resolved.cardNumber || card.cardNumber || ""}</p>
+        ${isPreview
+          ? `<p class="jc-hint">Carta da vitrine de outro colecionador · arraste para ver o 3D</p>`
+          : `<p class="jc-hint">Possui ×${count} desta variante · arraste para ver o 3D</p>`}
         ${resolved.description ? `<p class="jc-desc">${resolved.description}</p>` : ""}
         ${(card.achievements || resolved.achievements || []).length
           ? `<div class="jc-achievements"><h3>Conquistas</h3><ul>${(card.achievements || resolved.achievements).map(a => `<li>${a}</li>`).join("")}</ul></div>`
@@ -677,9 +698,10 @@ function cardsOpenDetail(cardId) {
     </div>
   `;
   document.body.appendChild(modal);
+  if (typeof cardsBindTilt === "function") cardsBindTilt(modal);
 }
 
-/* ========== VITRINE / NPC / CÓDIGO — preservados com novo visual ========== */
+/* ========== VITRINE (edição) — Hall fica no Início ========== */
 function renderCardsShowcase(container) {
   const ownerId = getCardsOwnerId();
   const cards = inventoryList(ownerId);
@@ -688,10 +710,33 @@ function renderCardsShowcase(container) {
   const byId = Object.fromEntries(cards.map(c => [c.cardId, c]));
   if (!window._jcShowcaseDraft) window._jcShowcaseDraft = slots.slice();
 
+  const rarity = window._jcVitRarity || "";
+  const foil = window._jcVitFoil || "";
+  const edition = window._jcVitEdition || "";
+  const q = (window._jcVitSearch || "").trim().toLowerCase();
+  let list = inventoryGrouped(ownerId);
+  if (rarity) list = list.filter(c => c.rarity === rarity);
+  if (foil === "holo") list = list.filter(c => c.foil === "holo");
+  if (foil === "normal") list = list.filter(c => c.foil !== "holo");
+  if (edition) list = list.filter(c => (c.edition || "BASE").toUpperCase() === edition);
+  if (q) list = list.filter(c =>
+    (c.playerName || "").toLowerCase().includes(q) ||
+    (c.team || "").toLowerCase().includes(q) ||
+    (c.edition || "").toLowerCase().includes(q)
+  );
+  const editionKeys = Object.keys(window.CARDS.EDITIONS || { BASE: 1 });
+
   container.innerHTML = `
-    <div class="jc-section">
-      <h2>Sua vitrine</h2>
-      <p class="jc-hint">Clique no slot e depois na carta. Prestígio da coleção.</p>
+    <div class="jc-section jc-vitrine-edit">
+      <div class="jc-vitrine-sticky">
+        <div class="jc-section-head">
+          <div>
+            <h2 style="margin:0">Sua vitrine</h2>
+            <p class="jc-hint" style="margin:4px 0 0">Toque no slot, depois na carta. Hall dos colecionadores está no <strong>Início</strong>.</p>
+          </div>
+          <button class="jc-btn primary" type="button" onclick="cardsSaveShowcase()">Salvar vitrine</button>
+        </div>
+      </div>
       <div class="jc-showcase-row">
         ${(window._jcShowcaseDraft || slots).map((id, i) => {
           const c = id && byId[id];
@@ -700,22 +745,65 @@ function renderCardsShowcase(container) {
           </div>`;
         }).join("")}
       </div>
-      <div class="jc-grid tc-grid" style="margin-top:16px">
-        ${inventoryGrouped(ownerId).map(c => collectibleCardHTML(c, {
-          showCount: true, count: c.count, selected: (window._jcShowcaseDraft || []).includes(c.copies[0]),
-          onclick: `cardsAssignToSlot('${c.copies[0]}')`
-        })).join("")}
+      <div class="jc-vitrine-picker">
+        <div class="jc-section-head" style="margin-top:14px">
+          <h3 style="margin:0;font-size:0.95rem">Escolher cartas</h3>
+        </div>
+        <div class="jc-inv-filters jc-vit-filters">
+          <input type="search" class="jc-input jc-filter-search" placeholder="Buscar nome / time…"
+            value="${(window._jcVitSearch || "").replace(/"/g, "&quot;")}"
+            oninput="window._jcVitSearch=this.value;clearTimeout(window._jcVitSearchT);window._jcVitSearchT=setTimeout(cardsRefreshShowcaseOnly,180)"/>
+          <select onchange="window._jcVitRarity=this.value;cardsRefreshShowcaseOnly()">
+            <option value="">Raridade</option>
+            ${["legend","epic","rare","common"].map(r =>
+              `<option value="${r}" ${rarity===r?"selected":""}>${(window.CARDS.RARITY[r]||{}).label||r}</option>`
+            ).join("")}
+          </select>
+          <select onchange="window._jcVitFoil=this.value;cardsRefreshShowcaseOnly()">
+            <option value="">Foil</option>
+            <option value="holo" ${foil==="holo"?"selected":""}>Holo</option>
+            <option value="normal" ${foil==="normal"?"selected":""}>Normal</option>
+          </select>
+          <select onchange="window._jcVitEdition=this.value;cardsRefreshShowcaseOnly()">
+            <option value="">Edição</option>
+            ${editionKeys.map(ed =>
+              `<option value="${ed}" ${edition===ed?"selected":""}>${(window.CARDS.EDITIONS[ed]||{}).label||ed}</option>`
+            ).join("")}
+          </select>
+        </div>
+        <p class="jc-hint">${list.length} carta${list.length!==1?"s":""} · ${window._jcSlot!=null ? "slot "+(window._jcSlot+1)+" selecionado" : "escolha um slot acima"}</p>
+        <div class="jc-grid tc-grid">
+          ${list.map(c => collectibleCardHTML(c, {
+            showCount: true, count: c.count,
+            selected: (window._jcShowcaseDraft || []).includes(c.copies[0]),
+            onclick: `cardsAssignToSlot('${c.copies[0]}')`
+          })).join("") || "<p class='jc-hint'>Nenhuma carta com esses filtros.</p>"}
+        </div>
+        <div class="jc-vitrine-save-bottom">
+          <button class="jc-btn primary" type="button" onclick="cardsSaveShowcase()">Salvar vitrine</button>
+        </div>
       </div>
-      <div style="margin-top:12px">
-        <button class="jc-btn primary" onclick="cardsSaveShowcase()">Salvar vitrine</button>
-      </div>
-    </div>
-    <div class="jc-section">
-      <h2>Hall de colecionadores</h2>
-      <p class="jc-hint">Vitrines dos jogadores cadastrados e dos personagens / NPCs.</p>
-      ${renderHallCollectorsHTML(ownerId)}
     </div>
   `;
+}
+
+/** Re-render só o conteúdo da vitrine (mantém foco no campo de busca). */
+function cardsRefreshShowcaseOnly() {
+  const el = document.getElementById("jcContent");
+  if (!el || window.AppState.cards?.ui?.view !== "showcase") return;
+  const search = el.querySelector(".jc-filter-search");
+  const start = search?.selectionStart;
+  const end = search?.selectionEnd;
+  const hadFocus = document.activeElement === search;
+  renderCardsShowcase(el);
+  if (typeof cardsBindTilt === "function") cardsBindTilt(el);
+  const again = el.querySelector(".jc-filter-search");
+  if (again && hadFocus) {
+    again.focus();
+    if (typeof start === "number") {
+      try { again.setSelectionRange(start, end ?? start); } catch (_) {}
+    }
+  }
 }
 
 /** Prestígio da vitrine: legend×10 + epic×4 + rare×2 + holo×1 + slots preenchidos */
@@ -755,16 +843,25 @@ function renderHallCollectorsHTML(excludeOwnerId) {
   const resolveHumanSlots = (sid, s) => {
     const inv = (window.AppState.cards.inventory || {})[sid] || {};
     return (s.slots || []).filter(Boolean).map(slot => {
-      if (typeof slot === "object" && slot?.playerKey) return collectibleCardHTML(slot, { small: true });
+      if (typeof slot === "object" && slot?.playerKey) {
+        const c = { ...slot, cardId: slot.cardId || ("hall_" + (slot.playerKey || "x")) };
+        return collectibleCardHTML(c, { small: true, onclick: cardsHallOpenOnclick(c) });
+      }
       const c = inv[slot];
-      if (c) return collectibleCardHTML({ cardId: slot, ...c }, { small: true });
+      if (c) {
+        const full = { cardId: slot, ...c };
+        return collectibleCardHTML(full, { small: true, onclick: cardsHallOpenOnclick(full) });
+      }
       return "";
     }).filter(Boolean).join("") || "<span class='jc-hint'>Vitrine vazia</span>";
   };
 
   const resolveNpcSlots = (s) => {
     return (s.slots || []).map(slot => {
-      if (typeof slot === "object" && slot?.playerKey) return collectibleCardHTML(slot, { small: true });
+      if (typeof slot === "object" && slot?.playerKey) {
+        const c = { ...slot, cardId: slot.cardId || ("npc_" + (slot.playerKey || "x")) };
+        return collectibleCardHTML(c, { small: true, onclick: cardsHallOpenOnclick(c) });
+      }
       return "";
     }).filter(Boolean).join("") || "<span class='jc-hint'>Em montagem</span>";
   };
@@ -948,6 +1045,8 @@ window.cardsReplayPack = cardsReplayPack;
 window.cardsRevealNext = cardsRevealNext;
 window.cardsSkipReveal = cardsSkipReveal;
 window.cardsOpenDetail = cardsOpenDetail;
+window.cardsHallOpenOnclick = cardsHallOpenOnclick;
+window.cardsRefreshShowcaseOnly = cardsRefreshShowcaseOnly;
 window.cardsPickSlot = cardsPickSlot;
 window.cardsAssignToSlot = cardsAssignToSlot;
 window.cardsSaveShowcase = cardsSaveShowcase;
