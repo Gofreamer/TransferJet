@@ -57,8 +57,7 @@ function collectibleCardHTML(card, opts = {}) {
     ? `<div class="tc-count">×${opts.count}</div>`
     : "";
 
-  // Tilt só quando pedido (detalhe / reveal). Grade fica sem tilt = scroll livre no celular.
-  const tiltClass = (!opts.locked && opts.tilt) ? "tc-tilt" : "";
+  const tiltClass = !opts.small && !opts.locked ? "tc-tilt" : "";
 
   return `
     <div class="tc-card rarity-${rarity} ${foil} ${opts.small ? "small" : ""} ${opts.selected ? "selected" : ""} ed-${edition.toLowerCase()} ${tiltClass}"
@@ -93,11 +92,8 @@ function collectibleCardHTML(card, opts = {}) {
   `;
 }
 
-/** Liga tilt 3D só em .tc-tilt (detalhe/reveal). Respeita prefers-reduced-motion. */
+/** Liga tilt 3D nas cartas .tc-tilt (pointer/touch). Só visual. */
 function cardsBindTilt(root) {
-  if (typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-    return;
-  }
   const scope = root || document;
   scope.querySelectorAll(".tc-card.tc-tilt").forEach(card => {
     if (card.dataset.tiltBound === "1") return;
@@ -106,23 +102,20 @@ function cardsBindTilt(root) {
     const glare = card.querySelector(".tc-glare");
     if (!frame) return;
 
-    const isSmall = card.classList.contains("small");
-    let max = card.classList.contains("rarity-legend") ? 14
+    const max = card.classList.contains("rarity-legend") ? 14
       : card.classList.contains("rarity-epic") ? 11
       : 8;
-    if (isSmall) max = Math.max(6, max - 4);
 
     const onMove = (clientX, clientY) => {
       const rect = card.getBoundingClientRect();
-      if (!rect.width || !rect.height) return;
-      const px = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
-      const py = Math.min(1, Math.max(0, (clientY - rect.top) / rect.height));
+      const px = (clientX - rect.left) / rect.width;
+      const py = (clientY - rect.top) / rect.height;
       const rx = (0.5 - py) * max;
       const ry = (px - 0.5) * max;
-      frame.style.transform = `rotateX(${rx.toFixed(2)}deg) rotateY(${ry.toFixed(2)}deg) scale(1.03)`;
+      frame.style.transform = `rotateX(${rx}deg) rotateY(${ry}deg)`;
       if (glare) {
-        glare.style.opacity = "0.6";
-        glare.style.background = `radial-gradient(circle at ${px * 100}% ${py * 100}%, rgba(255,255,255,0.5), transparent 55%)`;
+        glare.style.opacity = "0.55";
+        glare.style.background = `radial-gradient(circle at ${px * 100}% ${py * 100}%, rgba(255,255,255,0.45), transparent 55%)`;
       }
     };
     const reset = () => {
@@ -130,20 +123,7 @@ function cardsBindTilt(root) {
       if (glare) glare.style.opacity = "0";
     };
 
-    // Só pointer (mouse + touch controlado). Sem touch-action:none na grade — tilt fica no detalhe.
-    card.addEventListener("pointerdown", e => {
-      if (e.pointerType === "touch") {
-        // No detalhe/reveal: permite tilt; não captura scroll da página fora do card
-        try { card.setPointerCapture(e.pointerId); } catch (_) {}
-      }
-      onMove(e.clientX, e.clientY);
-    });
-    card.addEventListener("pointermove", e => {
-      if (e.pointerType === "mouse" || card.hasPointerCapture?.(e.pointerId)) {
-        onMove(e.clientX, e.clientY);
-      }
-    });
-    card.addEventListener("pointerup", reset);
+    card.addEventListener("pointermove", e => onMove(e.clientX, e.clientY));
     card.addEventListener("pointerleave", reset);
     card.addEventListener("pointercancel", reset);
   });
