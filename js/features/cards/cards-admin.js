@@ -1,8 +1,10 @@
 /* Jet Cards 2.0 — Admin */
-function renderCardsAdmin() {
+function renderCardsAdmin(subTab) {
   const el = document.getElementById("adminTabContent");
   if (!el) return;
   ensureCardsState();
+  if (subTab) window._jcAdminTab = subTab;
+  const tab = window._jcAdminTab || "config";
   const s = cardsSettings();
   const codes = Object.entries(window.AppState.cards.codes || {});
   const offers = Object.entries(window.AppState.cards.offers || {});
@@ -13,296 +15,339 @@ function renderCardsAdmin() {
   const editionOpts = Object.entries(window.CARDS.EDITIONS || {}).map(([k, v]) =>
     `<option value="${k}">${v.label}</option>`
   ).join("");
+  const humanOpts = humans.map(([id, p]) => `<option value="${id}">${p.displayName || id}</option>`).join("") || "<option value=''>Nenhum humano</option>";
+  const playerOpts = players.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(p =>
+    `<option value="${p.key}" data-name="${p.name}" data-team="${p.club}" data-rank="${p.rank||""}">${p.name}${p.club ? " ("+p.club+")" : ""}</option>`
+  ).join("");
+  const npcVitOpts = (() => {
+    const fixed = window.CARDS.NPC_VITRINES || [];
+    const fromDb = Object.entries(window.AppState.cards.showcases || {})
+      .filter(([, s]) => s && s.type === "npc")
+      .map(([id, s]) => ({ id, name: s.name || id }));
+    const seen = new Set();
+    const opts = [];
+    [...fixed, ...fromDb].forEach(n => {
+      if (seen.has(n.id)) return;
+      seen.add(n.id);
+      opts.push(`<option value="${n.id}">${n.name}</option>`);
+    });
+    return opts.join("") || "<option value=''>Nenhuma</option>";
+  })();
+
+  const tabs = [
+    ["config", "Config"],
+    ["packs", "Packs"],
+    ["cartas", "Cartas"],
+    ["codigos", "Códigos"],
+    ["vitrines", "Vitrines"],
+    ["cenas", "Cenas"],
+    ["jogadores", "Jogadores"]
+  ];
+
+  let body = "";
+  if (tab === "config") {
+    body = `
+      <p class="admin-sub">Catálogo base: <strong>${catalogCount}</strong> cartas · rates, ciclo e slots.</p>
+      <div class="admin-actions" style="flex-wrap:wrap;gap:8px;margin-bottom:14px">
+        <button class="btn-primary btn-sm" onclick="jcAdminSeed()">Seed / sync catálogo</button>
+      </div>
+      <h3 class="admin-section-title">Config</h3>
+      <div class="admin-form-grid">
+        <div><label>Cartas/pack</label><input type="number" id="jcPackSize" min="1" max="5" value="${s.packSize ?? 3}"></div>
+        <div><label>Common</label><input type="number" step="0.01" id="jcRateC" value="${s.rates?.common ?? 0.82}"></div>
+        <div><label>Rare</label><input type="number" step="0.01" id="jcRateR" value="${s.rates?.rare ?? 0.13}"></div>
+        <div><label>Epic</label><input type="number" step="0.01" id="jcRateE" value="${s.rates?.epic ?? 0.04}"></div>
+        <div><label>Legend</label><input type="number" step="0.01" id="jcRateL" value="${s.rates?.legend ?? 0.01}"></div>
+        <div><label>Label do ciclo</label><input type="text" id="jcCycle" value="${s.cycleLabel || ""}" placeholder="CICLO III"></div>
+        <div><label>Temporada</label><input type="text" id="jcSeason" value="${s.seasonId || window.AppState.jet?.currentSeason || ""}"></div>
+        <div><label>Slots vitrine</label><input type="number" id="jcSlots" min="3" max="12" value="${s.showcaseSlots ?? 6}"></div>
+      </div>
+      <div class="admin-actions" style="margin-top:8px">
+        <button class="btn-primary btn-sm" onclick="jcAdminSaveConfig()">Salvar config</button>
+      </div>
+    `;
+  } else if (tab === "packs") {
+    body = `
+      <h3 class="admin-section-title">Dar packs</h3>
+      <p class="admin-sub">Selecione o jogador e a quantidade de packs para enviar.</p>
+      <div class="admin-form-grid">
+        <div>
+          <label>Jogador</label>
+          <select id="jcPackOwner">${humanOpts}</select>
+        </div>
+        <div>
+          <label>Quantidade</label>
+          <input type="number" id="jcPackQty" min="1" max="50" value="1">
+        </div>
+      </div>
+      <div class="admin-actions" style="margin-top:8px">
+        <button class="btn-primary btn-sm" onclick="jcAdminGrantPack()">Enviar packs</button>
+      </div>
+    `;
+  } else if (tab === "cartas") {
+    body = `
+      <h3 class="admin-section-title">Edição especial</h3>
+      <p class="admin-sub">MVP, Champion, Finals, Commemorative… com arte por URL opcional.</p>
+      <div class="admin-form-grid">
+        <div><label>Tipo</label><select id="jcSpEdition">${editionOpts}</select></div>
+        <div>
+          <label>Agente</label>
+          <select id="jcSpPlayer">${playerOpts}</select>
+        </div>
+        <div><label>Equipe (congelada)</label><input type="text" id="jcSpTeam" placeholder="deixe vazio = equipe atual"></div>
+        <div>
+          <label>Raridade padrão</label>
+          <select id="jcSpRarity">
+            <option value="rare">Rare</option>
+            <option value="epic" selected>Epic</option>
+            <option value="legend">Legend</option>
+          </select>
+        </div>
+        <div><label>HOLO padrão</label><select id="jcSpFoil"><option value="normal">Normal</option><option value="holo">Holo</option></select></div>
+        <div><label>Ciclo</label><input type="text" id="jcSpCycle" value="${s.cycleLabel || (typeof cardsCycleLabel==="function"?cardsCycleLabel():"")}"></div>
+        <div><label>No pool de packs?</label><select id="jcSpPool"><option value="no">Não</option><option value="yes">Sim</option></select></div>
+        <div class="full"><label>Imagem URL</label><input type="url" id="jcSpImg"></div>
+        <div class="full"><label>Descrição</label><input type="text" id="jcSpDesc"></div>
+      </div>
+      <div class="admin-actions" style="margin-top:8px">
+        <button class="btn-primary btn-sm" onclick="jcAdminCreateSpecial()">Criar edição especial</button>
+      </div>
+      <div class="admin-table-wrap" style="margin-top:10px;max-height:180px;overflow:auto">
+        <table class="admin-table">
+          <thead><tr><th>ID</th><th>Agente</th><th>Edição</th><th>Nº</th><th>Pack</th><th></th></tr></thead>
+          <tbody>
+            ${specials.map(([id, sp]) => `
+              <tr>
+                <td><code style="font-size:0.7rem">${id.slice(0,18)}</code></td>
+                <td>${sp.playerName || sp.playerKey}</td>
+                <td>${sp.edition}</td>
+                <td>${sp.number != null ? "JL-" + String(sp.number).padStart(3,"0") : "—"}</td>
+                <td>${sp.inPackPool ? "Sim" : "Não"}</td>
+                <td><button class="btn-gray btn-sm" onclick="jcAdminDeleteSpecial('${id}')">Remover</button></td>
+              </tr>
+            `).join("") || "<tr><td colspan='6'>—</td></tr>"}
+          </tbody>
+        </table>
+      </div>
+
+      <h3 class="admin-section-title" style="margin-top:22px">Dar carta direta</h3>
+      <div class="admin-form-grid">
+        <div>
+          <label>Jogador</label>
+          <select id="jcGrantOwner">${humanOpts}</select>
+        </div>
+        <div>
+          <label>Agente</label>
+          <select id="jcGrantPlayer">${playerOpts}</select>
+        </div>
+        <div><label>Edição</label><select id="jcGrantEdition">${editionOpts}</select></div>
+        <div>
+          <label>Raridade</label>
+          <select id="jcGrantRarity"><option value="legend">Legend</option><option value="epic">Epic</option><option value="rare">Rare</option></select>
+        </div>
+        <div><label>Foil</label><select id="jcGrantFoil"><option value="holo">Holo</option><option value="normal">Normal</option></select></div>
+        <div class="full"><label>Imagem URL</label><input type="url" id="jcGrantImg"></div>
+      </div>
+      <div class="admin-actions" style="margin-top:8px">
+        <button class="btn-primary btn-sm" onclick="jcAdminGrantCard()">Dar carta</button>
+      </div>
+
+      <h3 class="admin-section-title" style="margin-top:22px">Remover carta da coleção</h3>
+      <p class="admin-sub">Quando o jogador vende a carta em outro site — remove da conta e da vitrine.</p>
+      <div class="admin-form-grid">
+        <div>
+          <label>Jogador</label>
+          <select id="jcRemoveOwner" onchange="jcAdminLoadPlayerCards()">
+            <option value="">— selecione —</option>
+            ${humans.map(([id, p]) => `<option value="${id}">${p.displayName || id}</option>`).join("")}
+          </select>
+        </div>
+        <div class="full">
+          <label>Carta</label>
+          <select id="jcRemoveCard"><option value="">— carregue o jogador —</option></select>
+        </div>
+      </div>
+      <div class="admin-actions" style="margin-top:8px">
+        <button class="btn-primary btn-sm" onclick="jcAdminLoadPlayerCards()">Carregar cartas</button>
+        <button class="btn-gray btn-sm" style="background:#7f1d1d;border-color:#991b1b" onclick="jcAdminRemoveCard()">Remover carta</button>
+      </div>
+    `;
+  } else if (tab === "codigos") {
+    body = `
+      <h3 class="admin-section-title">Código</h3>
+      <div class="admin-form-grid">
+        <div>
+          <label>Tipo</label>
+          <select id="jcCodeType" onchange="jcAdminToggleCodeType()">
+            <option value="pack">Pack</option>
+            <option value="card">Carta específica</option>
+          </select>
+        </div>
+        <div><label>Código</label><input type="text" id="jcCodeStr" placeholder="auto se vazio"></div>
+        <div><label>Label</label><input type="text" id="jcCodeLabel"></div>
+        <div id="jcCodeCardFields" style="display:none;grid-column:1/-1">
+          <div class="admin-form-grid">
+            <div>
+              <label>Agente</label>
+              <select id="jcCodePlayer">${playerOpts}</select>
+            </div>
+            <div><label>Edição</label><select id="jcCodeEdition">${editionOpts}</select></div>
+            <div>
+              <label>Raridade</label>
+              <select id="jcCodeRarity"><option value="rare">Rare</option><option value="epic">Epic</option><option value="legend">Legend</option></select>
+            </div>
+            <div><label>Foil</label><select id="jcCodeFoil"><option value="normal">Normal</option><option value="holo">Holo</option></select></div>
+            <div class="full"><label>Imagem URL</label><input type="url" id="jcCodeImg"></div>
+          </div>
+        </div>
+      </div>
+      <div class="admin-actions" style="margin-top:8px">
+        <button class="btn-primary btn-sm" onclick="jcAdminCreateCode()">Gerar código</button>
+      </div>
+      <div class="admin-table-wrap" style="margin-top:10px;max-height:220px;overflow:auto">
+        <table class="admin-table">
+          <thead><tr><th>Código</th><th>Tipo</th><th>Label</th><th>Usado</th><th></th></tr></thead>
+          <tbody>
+            ${codes.map(([id, c]) => `
+              <tr>
+                <td><code>${c.code || id}</code></td>
+                <td>${c.type || "pack"}</td>
+                <td>${c.label || "—"}</td>
+                <td>${c.used ? "Sim" : "Não"}</td>
+                <td><button class="btn-gray btn-sm" onclick="jcAdminDeleteCode('${id}')">Apagar</button></td>
+              </tr>
+            `).join("") || "<tr><td colspan='5'>—</td></tr>"}
+          </tbody>
+        </table>
+      </div>
+    `;
+  } else if (tab === "vitrines") {
+    body = `
+      <h3 class="admin-section-title">Ver vitrine do jogador</h3>
+      <p class="admin-sub">Escolha um jogador para visualizar a vitrine dele.</p>
+      <div class="admin-form-grid">
+        <div>
+          <label>Jogador</label>
+          <select id="jcViewVitrineOwner">${humanOpts}</select>
+        </div>
+      </div>
+      <div class="admin-actions" style="margin-top:8px">
+        <button class="btn-primary btn-sm" onclick="jcAdminViewVitrine()">Ver vitrine</button>
+      </div>
+      <div id="jcAdminVitrinePreview" style="margin-top:12px"></div>
+
+      <h3 class="admin-section-title" style="margin-top:22px">Criar vitrine de personagem / NPC</h3>
+      <p class="admin-sub">Crie vitrines extras. Elas aparecem no Hall de colecionadores para todo mundo.</p>
+      <div class="admin-form-grid">
+        <div><label>Nome</label><input type="text" id="jcNewNpcName" placeholder="Ex: Zico Lendas"></div>
+        <div><label>Título</label><input type="text" id="jcNewNpcTitle" placeholder="Ex: Ídolos eternos"></div>
+        <div><label>Avatar (emoji)</label><input type="text" id="jcNewNpcAvatar" value="🎴" maxlength="4"></div>
+      </div>
+      <div class="admin-actions" style="margin-top:8px">
+        <button class="btn-primary btn-sm" onclick="jcAdminCreateNpcVitrine()">Criar vitrine</button>
+      </div>
+
+      <h3 class="admin-section-title" style="margin-top:22px">Vitrine NPC / Personagem</h3>
+      <div class="admin-form-grid">
+        <div>
+          <label>Vitrine</label>
+          <select id="jcNpcVitrine">${npcVitOpts}</select>
+        </div>
+        <div>
+          <label>Agente</label>
+          <select id="jcNpcVitPlayer">${playerOpts}</select>
+        </div>
+        <div>
+          <label>Raridade</label>
+          <select id="jcNpcVitRarity"><option value="legend">Legend</option><option value="epic">Epic</option></select>
+        </div>
+        <div><label>Edição</label><select id="jcNpcVitEdition">${editionOpts}</select></div>
+      </div>
+      <div class="admin-actions" style="margin-top:8px">
+        <button class="btn-primary btn-sm" onclick="jcAdminAddNpcShowcaseCard()">Add carta na vitrine</button>
+        <button class="btn-gray btn-sm" onclick="jcAdminClearNpcShowcase()">Limpar vitrine</button>
+      </div>
+    `;
+  } else if (tab === "cenas") {
+    body = `
+      <h3 class="admin-section-title">Cena / oferta NPC</h3>
+      <div class="admin-form-grid">
+        <div><label>Nome NPC</label><input type="text" id="jcOfferNpc" placeholder="Ex: Luna"></div>
+        <div><label>Avatar</label><input type="text" id="jcOfferAvatar" value="🎭" maxlength="4"></div>
+        <div class="full"><label>Texto da cena</label><input type="text" id="jcOfferText" placeholder="Diálogo / pitch"></div>
+        <div>
+          <label>Agente</label>
+          <select id="jcOfferPlayer">${playerOpts}</select>
+        </div>
+        <div><label>Edição</label><select id="jcOfferEdition">${editionOpts}</select></div>
+        <div>
+          <label>Raridade</label>
+          <select id="jcOfferRarity"><option value="epic">Epic</option><option value="legend">Legend</option><option value="rare">Rare</option></select>
+        </div>
+        <div><label>Foil</label><select id="jcOfferFoil"><option value="holo">Holo</option><option value="normal">Normal</option></select></div>
+        <div>
+          <label>Dono (opcional)</label>
+          <select id="jcOfferOwner"><option value="">Qualquer um</option>${humanOpts}</select>
+        </div>
+        <div class="full"><label>Imagem URL</label><input type="url" id="jcOfferImg"></div>
+      </div>
+      <div class="admin-actions" style="margin-top:8px">
+        <button class="btn-primary btn-sm" onclick="jcAdminCreateOffer()">Publicar cena</button>
+      </div>
+      <div class="admin-table-wrap" style="margin-top:10px;max-height:200px;overflow:auto">
+        <table class="admin-table">
+          <thead><tr><th>NPC</th><th>Agente</th><th>Raridade</th><th></th></tr></thead>
+          <tbody>
+            ${offers.map(([id, o]) => `
+              <tr>
+                <td>${o.npcAvatar || ""} ${o.npcName || "NPC"}</td>
+                <td>${o.playerName || o.playerKey || "—"}</td>
+                <td>${o.rarity || "—"}</td>
+                <td><button class="btn-gray btn-sm" onclick="window.marketDb.ref('cards/offers/${id}').remove().then(()=>renderCardsAdmin())">Remover</button></td>
+              </tr>
+            `).join("") || "<tr><td colspan='4'>—</td></tr>"}
+          </tbody>
+        </table>
+      </div>
+    `;
+  } else if (tab === "jogadores") {
+    body = `
+      <h3 class="admin-section-title">Cadastrar jogador (nick / código)</h3>
+      <p class="admin-sub">Cria conta humana no Fantasy + Cards. Use o código pra logar em Jet Cards e fingir ser o jogador em tempo real.</p>
+      <div class="admin-form-grid">
+        <div><label>Nick</label><input type="text" id="jcNewNick" placeholder="Ex: Richa"></div>
+        <div><label>Nome do time</label><input type="text" id="jcNewTeam" placeholder="Ex: Dark Side"></div>
+        <div><label>Código de convite</label><input type="text" id="jcNewCode" placeholder="Ex: JET-RICHA (auto se vazio)"></div>
+      </div>
+      <div class="admin-actions" style="margin-top:8px">
+        <button class="btn-primary btn-sm" onclick="jcAdminAddHuman()">Cadastrar jogador</button>
+      </div>
+      <div class="admin-table-wrap" style="margin-top:12px">
+        <table class="admin-table">
+          <thead><tr><th>Nick</th><th>Time</th><th>Código</th><th>ID</th></tr></thead>
+          <tbody>
+            ${humans.map(([id, p]) => `
+              <tr>
+                <td>${p.displayName || "—"}</td>
+                <td>${p.teamName || "—"}</td>
+                <td><code>${p.inviteCode || "—"}</code></td>
+                <td><code style="font-size:0.7rem">${id}</code></td>
+              </tr>
+            `).join("") || "<tr><td colspan='4'>Nenhum humano ainda</td></tr>"}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
 
   el.innerHTML = `
     <h3 class="admin-section-title">Jet Cards 2.0</h3>
-    <p class="admin-sub">Catálogo base: <strong>${catalogCount}</strong> cartas · Coleção, edições especiais, packs e códigos.</p>
-    <div class="admin-actions" style="flex-wrap:wrap;gap:8px;margin-bottom:14px">
-      <button class="btn-primary btn-sm" onclick="jcAdminSeed()">Seed / sync catálogo</button>
+    <div class="admin-subtabs" style="display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 16px">
+      ${tabs.map(([id, label]) =>
+        `<button class="btn-sm ${tab===id?"btn-primary":"btn-gray"}" onclick="renderCardsAdmin('${id}')">${label}</button>`
+      ).join("")}
     </div>
-
-    <h3 class="admin-section-title" style="margin-top:18px">Dar packs</h3>
-    <p class="admin-sub">Selecione o jogador e a quantidade de packs para enviar.</p>
-    <div class="admin-form-grid">
-      <div>
-        <label>Jogador</label>
-        <select id="jcPackOwner">
-          ${humans.map(([id, p]) => `<option value="${id}">${p.displayName || id}</option>`).join("") || "<option value=''>Nenhum humano</option>"}
-        </select>
-      </div>
-      <div>
-        <label>Quantidade</label>
-        <input type="number" id="jcPackQty" min="1" max="50" value="1">
-      </div>
-    </div>
-    <div class="admin-actions" style="margin-top:8px">
-      <button class="btn-primary btn-sm" onclick="jcAdminGrantPack()">Enviar packs</button>
-    </div>
-
-    <h3 class="admin-section-title" style="margin-top:22px">Ver vitrine do jogador</h3>
-    <p class="admin-sub">Escolha um jogador para visualizar a vitrine dele.</p>
-    <div class="admin-form-grid">
-      <div>
-        <label>Jogador</label>
-        <select id="jcViewVitrineOwner">
-          ${humans.map(([id, p]) => `<option value="${id}">${p.displayName || id}</option>`).join("") || "<option value=''>Nenhum humano</option>"}
-        </select>
-      </div>
-    </div>
-    <div class="admin-actions" style="margin-top:8px">
-      <button class="btn-primary btn-sm" onclick="jcAdminViewVitrine()">Ver vitrine</button>
-    </div>
-    <div id="jcAdminVitrinePreview" style="margin-top:12px"></div>
-
-    <h3 class="admin-section-title">Config</h3>
-    <div class="admin-form-grid">
-      <div><label>Cartas/pack</label><input type="number" id="jcPackSize" min="1" max="5" value="${s.packSize ?? 3}"></div>
-      <div><label>Common</label><input type="number" step="0.01" id="jcRateC" value="${s.rates?.common ?? 0.7}"></div>
-      <div><label>Rare</label><input type="number" step="0.01" id="jcRateR" value="${s.rates?.rare ?? 0.22}"></div>
-      <div><label>Epic</label><input type="number" step="0.01" id="jcRateE" value="${s.rates?.epic ?? 0.065}"></div>
-      <div><label>Legend</label><input type="number" step="0.01" id="jcRateL" value="${s.rates?.legend ?? 0.015}"></div>
-      <div><label>Label do ciclo</label><input type="text" id="jcCycle" value="${s.cycleLabel || ""}" placeholder="CICLO III"></div>
-      <div><label>Temporada</label><input type="text" id="jcSeason" value="${s.seasonId || window.AppState.jet.currentSeason || ""}"></div>
-      <div><label>Slots vitrine</label><input type="number" id="jcSlots" min="3" max="12" value="${s.showcaseSlots ?? 6}"></div>
-    </div>
-    <div class="admin-actions" style="margin-top:8px">
-      <button class="btn-primary btn-sm" onclick="jcAdminSaveConfig()">Salvar config</button>
-    </div>
-
-    <h3 class="admin-section-title" style="margin-top:22px">Edição especial</h3>
-    <p class="admin-sub">MVP, Champion, Finals, Commemorative… com arte por URL opcional.</p>
-    <div class="admin-form-grid">
-      <div><label>Tipo</label><select id="jcSpEdition">${editionOpts}</select></div>
-      <div>
-        <label>Agente</label>
-        <select id="jcSpPlayer">
-          ${players.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(p =>
-            `<option value="${p.key}" data-name="${p.name}" data-team="${p.club}" data-rank="${p.rank||""}">${p.name} (${p.club})</option>`
-          ).join("")}
-        </select>
-      </div>
-      <div><label>Equipe (congelada)</label><input type="text" id="jcSpTeam" placeholder="deixe vazio = equipe atual"></div>
-      <div>
-        <label>Raridade padrão</label>
-        <select id="jcSpRarity">
-          <option value="rare">Rare</option>
-          <option value="epic" selected>Epic</option>
-          <option value="legend">Legend</option>
-        </select>
-      </div>
-      <div><label>HOLO padrão</label><select id="jcSpFoil"><option value="normal">Normal</option><option value="holo">Holo</option></select></div>
-      <div><label>Ciclo</label><input type="text" id="jcSpCycle" value="${s.cycleLabel || cardsCycleLabel()}"></div>
-      <div class="full"><label>Imagem especial (URL)</label><input type="url" id="jcSpImg" placeholder="https://..."></div>
-      <div class="full"><label>Descrição</label><input type="text" id="jcSpDesc" placeholder="Campeão do Ciclo III..."></div>
-      <div class="full"><label>Conquistas (uma por linha)</label><textarea id="jcSpAch" rows="2" placeholder="🏆 Campeão&#10;⭐ MVP"></textarea></div>
-      <div><label>No pool de packs?</label><select id="jcSpPool"><option value="no">Não</option><option value="yes">Sim</option></select></div>
-      <div><label>Nome custom (opcional)</label><input type="text" id="jcSpCustom"></div>
-    </div>
-    <div class="admin-actions" style="margin-top:8px">
-      <button class="btn-primary btn-sm" onclick="jcAdminCreateSpecial()">Criar edição especial</button>
-    </div>
-    <div class="admin-table-wrap" style="margin-top:10px;max-height:180px;overflow:auto">
-      <table class="admin-table">
-        <thead><tr><th>ID</th><th>Agente</th><th>Edição</th><th>Nº</th><th>Pack</th><th></th></tr></thead>
-        <tbody>
-          ${specials.map(([id, s]) => `
-            <tr>
-              <td><code style="font-size:0.7rem">${id.slice(0,18)}</code></td>
-              <td>${s.playerName || s.playerKey}</td>
-              <td>${s.edition}</td>
-              <td>${s.number != null ? "JL-" + String(s.number).padStart(3,"0") : "—"}</td>
-              <td>${s.inPackPool ? "Sim" : "Não"}</td>
-              <td><button class="btn-gray btn-sm" onclick="jcAdminDeleteSpecial('${id}')">Remover</button></td>
-            </tr>
-          `).join("") || "<tr><td colspan='6'>—</td></tr>"}
-        </tbody>
-      </table>
-    </div>
-
-    <h3 class="admin-section-title" style="margin-top:22px">Código</h3>
-    <div class="admin-form-grid">
-      <div>
-        <label>Tipo</label>
-        <select id="jcCodeType" onchange="jcAdminToggleCodeType()">
-          <option value="pack">Pack</option>
-          <option value="card">Carta específica</option>
-        </select>
-      </div>
-      <div><label>Código</label><input type="text" id="jcCodeStr" placeholder="auto se vazio"></div>
-      <div><label>Label</label><input type="text" id="jcCodeLabel"></div>
-      <div id="jcCodeCardFields" style="display:none;grid-column:1/-1">
-        <div class="admin-form-grid">
-          <div>
-            <label>Agente</label>
-            <select id="jcCodePlayer">
-              ${players.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(p =>
-                `<option value="${p.key}" data-name="${p.name}" data-team="${p.club}">${p.name}</option>`
-              ).join("")}
-            </select>
-          </div>
-          <div><label>Edição</label><select id="jcCodeEdition">${editionOpts}</select></div>
-          <div>
-            <label>Raridade</label>
-            <select id="jcCodeRarity">
-              <option value="rare">Rare</option><option value="epic">Epic</option><option value="legend">Legend</option>
-            </select>
-          </div>
-          <div><label>Foil</label><select id="jcCodeFoil"><option value="normal">Normal</option><option value="holo">Holo</option></select></div>
-          <div class="full"><label>Imagem URL (opcional)</label><input type="url" id="jcCodeImg"></div>
-        </div>
-      </div>
-    </div>
-    <div class="admin-actions" style="margin-top:8px">
-      <button class="btn-primary btn-sm" onclick="jcAdminCreateCode()">Criar código</button>
-    </div>
-    <div class="admin-table-wrap" style="margin-top:10px;max-height:160px;overflow:auto">
-      <table class="admin-table">
-        <thead><tr><th>Código</th><th>Tipo</th><th>Status</th><th></th></tr></thead>
-        <tbody>
-          ${codes.slice().reverse().slice(0, 25).map(([id, c]) => `
-            <tr>
-              <td><code>${c.code || id}</code></td>
-              <td>${c.type || "pack"}</td>
-              <td>${c.used ? "Usado" : "Livre"}</td>
-              <td>${!c.used ? `<button class="btn-gray btn-sm" onclick="jcAdminDeleteCode('${id}')">Apagar</button>` : ""}</td>
-            </tr>
-          `).join("") || "<tr><td colspan='4'>—</td></tr>"}
-        </tbody>
-      </table>
-    </div>
-
-    <h3 class="admin-section-title" style="margin-top:22px">Cena NPC</h3>
-    <div class="admin-form-grid">
-      <div><label>NPC</label><input type="text" id="jcOfferNpc" value="Luna Underdog"></div>
-      <div><label>Avatar</label><input type="text" id="jcOfferAvatar" value="🦓"></div>
-      <div class="full"><label>Texto</label><input type="text" id="jcOfferText" placeholder="Cena narrativa..."></div>
-      <div>
-        <label>Agente</label>
-        <select id="jcOfferPlayer">
-          ${players.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(p =>
-            `<option value="${p.key}" data-name="${p.name}" data-team="${p.club}">${p.name}</option>`
-          ).join("")}
-        </select>
-      </div>
-      <div><label>Edição</label><select id="jcOfferEdition">${editionOpts}</select></div>
-      <div>
-        <label>Raridade</label>
-        <select id="jcOfferRarity"><option value="epic">Epic</option><option value="legend">Legend</option><option value="rare">Rare</option></select>
-      </div>
-      <div><label>Foil</label><select id="jcOfferFoil"><option value="holo">Holo</option><option value="normal">Normal</option></select></div>
-      <div class="full"><label>Imagem URL</label><input type="url" id="jcOfferImg"></div>
-      <div>
-        <label>Dono</label>
-        <select id="jcOfferOwner">
-          <option value="">Qualquer</option>
-          ${humans.map(([id, p]) => `<option value="${id}">${p.displayName}</option>`).join("")}
-        </select>
-      </div>
-    </div>
-    <div class="admin-actions" style="margin-top:8px">
-      <button class="btn-primary btn-sm" onclick="jcAdminCreateOffer()">Publicar cena</button>
-    </div>
-
-    <h3 class="admin-section-title" style="margin-top:22px">Dar carta direta</h3>
-    <div class="admin-form-grid">
-      <div>
-        <label>Jogador</label>
-        <select id="jcGrantOwner">
-          ${humans.map(([id, p]) => `<option value="${id}">${p.displayName}</option>`).join("")}
-        </select>
-      </div>
-      <div>
-        <label>Agente</label>
-        <select id="jcGrantPlayer">
-          ${players.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(p =>
-            `<option value="${p.key}" data-name="${p.name}" data-team="${p.club}" data-rank="${p.rank||""}">${p.name}</option>`
-          ).join("")}
-        </select>
-      </div>
-      <div><label>Edição</label><select id="jcGrantEdition">${editionOpts}</select></div>
-      <div>
-        <label>Raridade</label>
-        <select id="jcGrantRarity"><option value="legend">Legend</option><option value="epic">Epic</option><option value="rare">Rare</option></select>
-      </div>
-      <div><label>Foil</label><select id="jcGrantFoil"><option value="holo">Holo</option><option value="normal">Normal</option></select></div>
-      <div class="full"><label>Imagem URL</label><input type="url" id="jcGrantImg"></div>
-    </div>
-    <div class="admin-actions" style="margin-top:8px">
-      <button class="btn-primary btn-sm" onclick="jcAdminGrantCard()">Dar carta</button>
-    </div>
-
-    <h3 class="admin-section-title" style="margin-top:22px">Remover carta da coleção</h3>
-    <p class="admin-sub">Útil quando o jogador vende a carta em outro site — remove da conta dele (e da vitrine se estiver lá).</p>
-    <div class="admin-form-grid">
-      <div>
-        <label>Jogador</label>
-        <select id="jcRemoveOwner" onchange="jcAdminLoadPlayerCards()">
-          <option value="">— selecione —</option>
-          ${humans.map(([id, p]) => `<option value="${id}">${p.displayName || id}</option>`).join("")}
-        </select>
-      </div>
-      <div class="full">
-        <label>Carta</label>
-        <select id="jcRemoveCard">
-          <option value="">— carregue o jogador —</option>
-        </select>
-      </div>
-    </div>
-    <div class="admin-actions" style="margin-top:8px">
-      <button class="btn-primary btn-sm" onclick="jcAdminLoadPlayerCards()">Carregar cartas</button>
-      <button class="btn-gray btn-sm" style="background:#7f1d1d;border-color:#991b1b" onclick="jcAdminRemoveCard()">Remover carta</button>
-    </div>
-
-    <h3 class="admin-section-title" style="margin-top:22px">Criar vitrine de personagem / NPC</h3>
-    <p class="admin-sub">Crie vitrines extras além do Hall da Fama fixo. Elas aparecem no Hall de colecionadores para todo mundo.</p>
-    <div class="admin-form-grid">
-      <div><label>Nome</label><input type="text" id="jcNewNpcName" placeholder="Ex: Zico Lendas"></div>
-      <div><label>Título</label><input type="text" id="jcNewNpcTitle" placeholder="Ex: Ídolos eternos"></div>
-      <div><label>Avatar (emoji)</label><input type="text" id="jcNewNpcAvatar" value="🎴" maxlength="4"></div>
-    </div>
-    <div class="admin-actions" style="margin-top:8px">
-      <button class="btn-primary btn-sm" onclick="jcAdminCreateNpcVitrine()">Criar vitrine</button>
-    </div>
-
-    <h3 class="admin-section-title" style="margin-top:22px">Vitrine NPC / Personagem</h3>
-    <div class="admin-form-grid">
-      <div>
-        <label>Vitrine</label>
-        <select id="jcNpcVitrine">
-          ${(() => {
-            const fixed = window.CARDS.NPC_VITRINES || [];
-            const fromDb = Object.entries(window.AppState.cards.showcases || {})
-              .filter(([, s]) => s && s.type === "npc")
-              .map(([id, s]) => ({ id, name: s.name || id }));
-            const seen = new Set();
-            const opts = [];
-            [...fixed, ...fromDb].forEach(n => {
-              if (seen.has(n.id)) return;
-              seen.add(n.id);
-              opts.push(`<option value="${n.id}">${n.name}</option>`);
-            });
-            return opts.join("") || "<option value=''>Nenhuma</option>";
-          })()}
-        </select>
-      </div>
-      <div>
-        <label>Agente</label>
-        <select id="jcNpcVitPlayer">
-          ${players.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(p =>
-            `<option value="${p.key}" data-name="${p.name}" data-team="${p.club}">${p.name}</option>`
-          ).join("")}
-        </select>
-      </div>
-      <div>
-        <label>Raridade</label>
-        <select id="jcNpcVitRarity"><option value="legend">Legend</option><option value="epic">Epic</option></select>
-      </div>
-      <div><label>Edição</label><select id="jcNpcVitEdition">${editionOpts}</select></div>
-    </div>
-    <div class="admin-actions" style="margin-top:8px">
-      <button class="btn-primary btn-sm" onclick="jcAdminAddNpcShowcaseCard()">Add carta na vitrine</button>
-      <button class="btn-gray btn-sm" onclick="jcAdminClearNpcShowcase()">Limpar vitrine</button>
-    </div>
+    <div class="jc-admin-tab-body">${body}</div>
   `;
 }
 
@@ -316,7 +361,7 @@ async function jcAdminSeed() {
   await ensureCardsSeeded();
   const n = await syncCardsCatalog();
   alert("Catálogo sincronizado (+" + n + " novas BASE)");
-  renderCardsAdmin();
+  renderCardsAdmin(window._jcAdminTab || "config");
 }
 
 async function jcAdminSaveConfig() {
@@ -630,6 +675,51 @@ async function jcAdminRemoveCard() {
   jcAdminLoadPlayerCards();
 }
 
+async function jcAdminAddHuman() {
+  const nick = document.getElementById("jcNewNick")?.value?.trim();
+  const team = document.getElementById("jcNewTeam")?.value?.trim() || (nick ? nick + " FC" : "");
+  let code = document.getElementById("jcNewCode")?.value?.trim();
+  if (!nick) return alert("Informe o nick");
+  if (!code) code = "JET-" + nick.toUpperCase().replace(/\s+/g, "").slice(0, 10);
+
+  // evita código duplicado
+  const parts = window.AppState.fantasy?.participants || {};
+  const dup = Object.values(parts).find(p => p && (p.inviteCode || "").toUpperCase() === code.toUpperCase());
+  if (dup) return alert("Código já existe: " + code + " (nick: " + (dup.displayName || "?") + ")");
+
+  const id = "human_" + Date.now();
+  const budget = (typeof fantasySettings === "function" ? fantasySettings().budgetInitial : null) || 5000000;
+  const payload = {
+    type: "human",
+    displayName: nick,
+    teamName: team,
+    inviteCode: code,
+    active: true,
+    budgetRemaining: budget,
+    squad: typeof emptySquad === "function" ? emptySquad() : { starters: [null, null, null, null, null], bench: null },
+    acquisitions: {},
+    strategy: null,
+    createdAt: new Date().toISOString()
+  };
+
+  try {
+    if (typeof saveFantasyParticipant === "function") {
+      await saveFantasyParticipant(id, payload);
+    } else {
+      await window.marketDb.ref("fantasy/participants/" + id).set(payload);
+    }
+    // espelha no estado local se o listener atrasar
+    if (!window.AppState.fantasy) window.AppState.fantasy = {};
+    if (!window.AppState.fantasy.participants) window.AppState.fantasy.participants = {};
+    window.AppState.fantasy.participants[id] = payload;
+    alert("Cadastrado! Nick: " + nick + " · Código: " + code);
+    renderCardsAdmin("jogadores");
+  } catch (err) {
+    console.error("jcAdminAddHuman", err);
+    alert("Erro ao cadastrar: " + (err?.message || err) + "\n\nConfira se você está logado como admin (auth com e-mail).");
+  }
+}
+
 window.renderCardsAdmin = renderCardsAdmin;
 window.jcAdminSeed = jcAdminSeed;
 window.jcAdminSaveConfig = jcAdminSaveConfig;
@@ -646,4 +736,5 @@ window.jcAdminClearNpcShowcase = jcAdminClearNpcShowcase;
 window.jcAdminCreateNpcVitrine = jcAdminCreateNpcVitrine;
 window.jcAdminLoadPlayerCards = jcAdminLoadPlayerCards;
 window.jcAdminRemoveCard = jcAdminRemoveCard;
+window.jcAdminAddHuman = jcAdminAddHuman;
 window.jcAdminToggleCodeType = jcAdminToggleCodeType;

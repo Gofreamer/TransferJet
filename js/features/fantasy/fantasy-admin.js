@@ -524,25 +524,39 @@ async function fxAdminRebuildNpcs() {
 
 async function fxAdminAddHuman() {
   const nick = document.getElementById("fxNewNick")?.value?.trim();
-  const team = document.getElementById("fxNewTeam")?.value?.trim() || nick + " FC";
+  const team = document.getElementById("fxNewTeam")?.value?.trim() || (nick ? nick + " FC" : "");
   let code = document.getElementById("fxNewCode")?.value?.trim();
   if (!nick) return alert("Informe o nick");
   if (!code) code = "JET-" + nick.toUpperCase().replace(/\s+/g, "").slice(0, 10);
+
+  const parts = window.AppState.fantasy?.participants || {};
+  const dup = Object.values(parts).find(p => p && (p.inviteCode || "").toUpperCase() === code.toUpperCase());
+  if (dup) return alert("Código já existe: " + code + " (nick: " + (dup.displayName || "?") + ")");
+
   const id = "human_" + Date.now();
   const budget = fantasySettings().budgetInitial || 5000000;
-  await saveFantasyParticipant(id, {
+  const payload = {
     type: "human",
     displayName: nick,
     teamName: team,
     inviteCode: code,
     active: true,
     budgetRemaining: budget,
-    squad: emptySquad(),
+    squad: typeof emptySquad === "function" ? emptySquad() : { starters: [null, null, null, null, null], bench: null },
     acquisitions: {},
-    strategy: null
-  });
-  alert("Cadastrado! Código: " + code);
-  renderFantasyAdmin();
+    strategy: null,
+    createdAt: new Date().toISOString()
+  };
+  try {
+    await saveFantasyParticipant(id, payload);
+    if (!window.AppState.fantasy.participants) window.AppState.fantasy.participants = {};
+    window.AppState.fantasy.participants[id] = payload;
+    alert("Cadastrado! Nick: " + nick + " · Código: " + code);
+    renderFantasyAdmin();
+  } catch (err) {
+    console.error("fxAdminAddHuman", err);
+    alert("Erro ao cadastrar: " + (err?.message || err) + "\n\nConfira se você está logado como admin (auth com e-mail).");
+  }
 }
 
 async function fxAdminDeletePart(id) {
