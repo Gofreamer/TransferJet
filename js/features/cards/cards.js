@@ -43,6 +43,8 @@ function renderCardsShell() {
   if (!shell || !window.AppState.cards?.active) return;
   const view = window.AppState.cards.ui.view || "hub";
   const name = window.AppState.cards.session.displayName || "Colecionador";
+  const primary = new Set(["hub", "packs", "inventory", "carddex"]);
+  const moreActive = !primary.has(view);
 
   shell.innerHTML = `
     <div class="jc-app">
@@ -52,9 +54,9 @@ function renderCardsShell() {
           <div class="jc-powered">Coleção oficial · Jet League</div>
         </div>
         <div class="jc-header-user">${name}</div>
-        <button class="jc-btn ghost" onclick="exitCardsMode()">← TransferJet</button>
+        <button class="jc-btn ghost jc-exit-btn" type="button" onclick="exitCardsMode()">← TransferJet</button>
       </header>
-      <nav class="jc-nav">
+      <nav class="jc-nav jc-nav-top" aria-label="Navegação Jet Cards">
         ${[
           ["hub", "Início"],
           ["packs", "Pacotes"],
@@ -63,9 +65,21 @@ function renderCardsShell() {
           ["showcase", "Vitrine"],
           ["npcs", "Cenas"],
           ["redeem", "Código"]
-        ].map(([v, l]) => `<button class="jc-nav-btn ${view===v?"active":""}" onclick="showCardsView('${v}')">${l}</button>`).join("")}
+        ].map(([v, l]) => `<button type="button" class="jc-nav-btn ${view===v?"active":""}" onclick="showCardsView('${v}')">${l}</button>`).join("")}
       </nav>
       <div class="jc-content" id="jcContent"></div>
+      <nav class="jc-bottom-nav" aria-label="Menu principal">
+        <button type="button" class="jc-bottom-btn ${view==="hub"?"active":""}" onclick="showCardsView('hub')"><span class="jc-bottom-ico">🏠</span><span>Início</span></button>
+        <button type="button" class="jc-bottom-btn ${view==="packs"?"active":""}" onclick="showCardsView('packs')"><span class="jc-bottom-ico">📦</span><span>Packs</span></button>
+        <button type="button" class="jc-bottom-btn ${view==="inventory"?"active":""}" onclick="showCardsView('inventory')"><span class="jc-bottom-ico">🃏</span><span>Inventário</span></button>
+        <button type="button" class="jc-bottom-btn ${view==="carddex"?"active":""}" onclick="showCardsView('carddex')"><span class="jc-bottom-ico">📚</span><span>Coleção</span></button>
+        <button type="button" class="jc-bottom-btn ${moreActive?"active":""}" onclick="cardsToggleMoreMenu(event)"><span class="jc-bottom-ico">⋯</span><span>Mais</span></button>
+      </nav>
+      <div id="jcMoreMenu" class="jc-more-menu hidden" role="menu">
+        <button type="button" role="menuitem" class="${view==="showcase"?"active":""}" onclick="showCardsView('showcase')">Vitrine</button>
+        <button type="button" role="menuitem" class="${view==="npcs"?"active":""}" onclick="showCardsView('npcs')">Cenas</button>
+        <button type="button" role="menuitem" class="${view==="redeem"?"active":""}" onclick="showCardsView('redeem')">Código</button>
+      </div>
     </div>
   `;
   const el = document.getElementById("jcContent");
@@ -77,7 +91,22 @@ function renderCardsShell() {
   else if (view === "showcase") renderCardsShowcase(el);
   else if (view === "npcs") renderCardsNpcs(el);
   else if (view === "redeem") renderCardsRedeem(el);
-  if (typeof cardsBindTilt === "function" && el) cardsBindTilt(el);
+  // Tilt só em detalhe/reveal — grade não recebe listeners
+}
+
+function cardsToggleMoreMenu(ev) {
+  ev?.stopPropagation?.();
+  const menu = document.getElementById("jcMoreMenu");
+  if (!menu) return;
+  menu.classList.toggle("hidden");
+  if (!menu.classList.contains("hidden")) {
+    const close = (e) => {
+      if (menu.contains(e.target)) return;
+      menu.classList.add("hidden");
+      document.removeEventListener("click", close);
+    };
+    setTimeout(() => document.addEventListener("click", close), 0);
+  }
 }
 
 function renderCardsLogin(container) {
@@ -446,13 +475,13 @@ function cardsRunRevealSequence(results, skipSave) {
   const stage = document.getElementById("jcPackStage");
   if (!stage) return;
   stage.classList.remove("hidden");
-  window._jcReveal = { results, index: -1, skip: false };
+  window._jcReveal = { results, index: -1, skip: false, busy: false };
   stage.innerHTML = `
     <div class="jc-open-anim">
-      <div class="jc-pack-box" id="jcPackBox">📦</div>
-      <p class="jc-hint">Toque para abrir</p>
-      <button class="jc-btn primary" id="jcRevealBtn" onclick="cardsRevealNext()">Abrir pacote</button>
-      <button class="jc-btn" onclick="cardsSkipReveal()">Pular tudo · ver cartas</button>
+      <div class="jc-pack-box" id="jcPackBox" role="button" tabindex="0" onclick="cardsRevealNext()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();cardsRevealNext();}">📦</div>
+      <p class="jc-hint jc-pack-tap-hint" onclick="cardsRevealNext()">Toque no pacote para abrir</p>
+      <button class="jc-btn primary" id="jcRevealBtn" type="button" onclick="cardsRevealNext()">Abrir pacote</button>
+      <button class="jc-btn" type="button" onclick="cardsSkipReveal()">Pular tudo · ver cartas</button>
       <div id="jcRevealFocus" class="jc-reveal-focus"></div>
       <div id="jcRevealDone" class="jc-reveal-done hidden"></div>
     </div>
@@ -462,6 +491,7 @@ function cardsRunRevealSequence(results, skipSave) {
 function cardsSkipReveal() {
   if (!window._jcReveal) return;
   window._jcReveal.skip = true;
+  window._jcReveal.busy = false;
   window._jcReveal.index = window._jcReveal.results.length - 1;
   cardsRevealNext(true);
 }
@@ -469,38 +499,54 @@ function cardsSkipReveal() {
 function cardsRevealNext(forceAll) {
   const st = window._jcReveal;
   if (!st) return;
+  // Evita spam / double-tap pulando cartas no celular
+  if (st.busy && !forceAll && !st.skip) return;
+
   const box = document.getElementById("jcPackBox");
   const focus = document.getElementById("jcRevealFocus");
   const btn = document.getElementById("jcRevealBtn");
   const done = document.getElementById("jcRevealDone");
+  const hint = document.querySelector(".jc-pack-tap-hint");
 
   if (st.index < 0) {
     st.index = 0;
     box?.classList.add("opening");
-    if (btn) btn.textContent = "Revelar carta";
+    if (btn) {
+      btn.textContent = "Revelar carta";
+      btn.disabled = false;
+    }
+    if (hint) hint.style.display = "none";
   }
 
   if (forceAll || st.skip) {
+    st.busy = false;
     if (focus) {
-      focus.innerHTML = `<div class="jc-reveal-row revealed">${st.results.map(r => collectibleCardHTML(r)).join("")}</div>`;
+      focus.innerHTML = `<div class="jc-reveal-row revealed">${st.results.map(r => collectibleCardHTML(r, { tilt: false })).join("")}</div>`;
     }
     if (done) {
       done.classList.remove("hidden");
-      done.innerHTML = `<button class="jc-btn primary" onclick="showCardsView('inventory')">Inventário</button>
-        <button class="jc-btn" onclick="showCardsView('carddex')">Álbum</button>`;
+      done.innerHTML = `<button class="jc-btn primary" type="button" onclick="showCardsView('inventory')">Inventário</button>
+        <button class="jc-btn" type="button" onclick="showCardsView('carddex')">Álbum</button>`;
     }
-    if (btn) btn.style.display = "none";
+    if (btn) {
+      btn.style.display = "none";
+      btn.disabled = false;
+    }
     box?.classList.add("opened");
     return;
   }
 
   if (st.index >= st.results.length) {
+    st.busy = false;
     if (done) {
       done.classList.remove("hidden");
-      done.innerHTML = `<button class="jc-btn primary" onclick="showCardsView('inventory')">Inventário</button>
-        <button class="jc-btn" onclick="showCardsView('carddex')">Álbum</button>`;
+      done.innerHTML = `<button class="jc-btn primary" type="button" onclick="showCardsView('inventory')">Inventário</button>
+        <button class="jc-btn" type="button" onclick="showCardsView('carddex')">Álbum</button>`;
     }
-    if (btn) btn.style.display = "none";
+    if (btn) {
+      btn.style.display = "none";
+      btn.disabled = false;
+    }
     return;
   }
 
@@ -508,6 +554,13 @@ function cardsRevealNext(forceAll) {
   const rarity = card.rarity || "common";
   const delays = { common: 400, rare: 700, epic: 1100, legend: 1600 };
   const delay = delays[rarity] || 500;
+
+  st.busy = true;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Revelando…";
+  }
+  if (box) box.style.pointerEvents = "none";
 
   if (focus) {
     focus.innerHTML = `
@@ -520,18 +573,25 @@ function cardsRevealNext(forceAll) {
   }
 
   setTimeout(() => {
-    if (!window._jcReveal || window._jcReveal.skip) return;
+    if (!window._jcReveal || window._jcReveal.skip) {
+      if (window._jcReveal) window._jcReveal.busy = false;
+      return;
+    }
     if (focus) {
       focus.innerHTML = `
         <div class="jc-reveal-one ${card.isNewDiscovery ? "new-discovery" : ""}">
           ${card.isNewDiscovery ? `<div class="jc-new-badge">NOVA CARTA DESCOBERTA</div>` : ""}
-          ${collectibleCardHTML(card)}
+          ${collectibleCardHTML(card, { tilt: true })}
           ${card.isNewDiscovery ? `<p class="jc-new-sub">Adicionada à coleção</p>` : ""}
         </div>
       `;
+      if (typeof cardsBindTilt === "function") cardsBindTilt(focus);
     }
     st.index++;
+    st.busy = false;
+    if (box) box.style.pointerEvents = "";
     if (btn) {
+      btn.disabled = false;
       btn.textContent = st.index >= st.results.length ? "Ver todas" : "Próxima carta";
       if (st.index >= st.results.length) {
         btn.onclick = () => cardsRevealNext(true);
@@ -644,7 +704,7 @@ function renderCardsCarddex(container) {
   `;
 }
 
-/* ========== DETALHE ========== */
+/* ========== DETALHE (viewer mobile-friendly + tilt) ========== */
 function cardsOpenDetail(cardId) {
   if (!cardId) return;
   const ownerId = getCardsOwnerId();
@@ -664,10 +724,10 @@ function cardsOpenDetail(cardId) {
   modal.className = "jc-modal-overlay";
   modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
   modal.innerHTML = `
-    <div class="jc-modal">
-      <button class="jc-modal-close" onclick="document.getElementById('jcCardModal').remove()">×</button>
+    <div class="jc-modal jc-modal-viewer" role="dialog" aria-modal="true">
+      <button type="button" class="jc-modal-close" aria-label="Fechar" onclick="document.getElementById('jcCardModal').remove()">×</button>
       <div class="jc-modal-card">
-        ${collectibleCardHTML(card)}
+        ${collectibleCardHTML(card, { tilt: true })}
       </div>
       <div class="jc-modal-info">
         <h2>${card.customName || resolved.playerName}</h2>
@@ -684,6 +744,7 @@ function cardsOpenDetail(cardId) {
     </div>
   `;
   document.body.appendChild(modal);
+  if (typeof cardsBindTilt === "function") cardsBindTilt(modal);
 }
 
 /* ========== VITRINE (edição) — Hall fica no Início ========== */
@@ -734,21 +795,21 @@ function renderCardsShowcase(container) {
           <h3 style="margin:0;font-size:0.95rem">Escolher cartas</h3>
         </div>
         <div class="jc-inv-filters jc-vit-filters">
-          <input type="search" class="jc-input jc-filter-search" placeholder="Buscar nome / time…"
+          <input type="search" class="jc-input jc-filter-search" id="jcVitSearchInput" placeholder="Buscar nome / time…"
             value="${(window._jcVitSearch || "").replace(/"/g, "&quot;")}"
-            oninput="window._jcVitSearch=this.value;renderCardsShell()"/>
-          <select onchange="window._jcVitRarity=this.value;renderCardsShell()">
+            oninput="cardsVitSearchDebounced(this.value)"/>
+          <select onchange="window._jcVitRarity=this.value;cardsRefreshShowcaseOnly()">
             <option value="">Raridade</option>
             ${["legend","epic","rare","common"].map(r =>
               `<option value="${r}" ${rarity===r?"selected":""}>${(window.CARDS.RARITY[r]||{}).label||r}</option>`
             ).join("")}
           </select>
-          <select onchange="window._jcVitFoil=this.value;renderCardsShell()">
+          <select onchange="window._jcVitFoil=this.value;cardsRefreshShowcaseOnly()">
             <option value="">Foil</option>
             <option value="holo" ${foil==="holo"?"selected":""}>Holo</option>
             <option value="normal" ${foil==="normal"?"selected":""}>Normal</option>
           </select>
-          <select onchange="window._jcVitEdition=this.value;renderCardsShell()">
+          <select onchange="window._jcVitEdition=this.value;cardsRefreshShowcaseOnly()">
             <option value="">Edição</option>
             ${editionKeys.map(ed =>
               `<option value="${ed}" ${edition===ed?"selected":""}>${(window.CARDS.EDITIONS[ed]||{}).label||ed}</option>`
@@ -756,7 +817,7 @@ function renderCardsShowcase(container) {
           </select>
         </div>
         <p class="jc-hint">${list.length} carta${list.length!==1?"s":""} · ${window._jcSlot!=null ? "slot "+(window._jcSlot+1)+" selecionado" : "escolha um slot acima"}</p>
-        <div class="jc-grid tc-grid">
+        <div class="jc-grid tc-grid" id="jcVitPickerGrid">
           ${list.map(c => collectibleCardHTML(c, {
             showCount: true, count: c.count,
             selected: (window._jcShowcaseDraft || []).includes(c.copies[0]),
@@ -764,11 +825,35 @@ function renderCardsShowcase(container) {
           })).join("") || "<p class='jc-hint'>Nenhuma carta com esses filtros.</p>"}
         </div>
         <div class="jc-vitrine-save-bottom">
-          <button class="jc-btn primary" onclick="cardsSaveShowcase()">Salvar vitrine</button>
+          <button class="jc-btn primary" type="button" onclick="cardsSaveShowcase()">Salvar vitrine</button>
         </div>
       </div>
     </div>
   `;
+}
+
+/** Atualiza só o conteúdo da vitrine (não destrói shell/nav/input focus). */
+function cardsRefreshShowcaseOnly() {
+  const el = document.getElementById("jcContent");
+  if (!el || (window.AppState.cards?.ui?.view !== "showcase")) return;
+  const search = document.getElementById("jcVitSearchInput");
+  const start = search?.selectionStart;
+  const end = search?.selectionEnd;
+  const hadFocus = document.activeElement === search;
+  renderCardsShowcase(el);
+  const again = document.getElementById("jcVitSearchInput");
+  if (again && hadFocus) {
+    again.focus();
+    if (typeof start === "number") {
+      try { again.setSelectionRange(start, end ?? start); } catch (_) {}
+    }
+  }
+}
+
+function cardsVitSearchDebounced(val) {
+  window._jcVitSearch = val;
+  clearTimeout(window._jcVitSearchT);
+  window._jcVitSearchT = setTimeout(() => cardsRefreshShowcaseOnly(), 200);
 }
 
 /** Prestígio da vitrine: legend×10 + epic×4 + rare×2 + holo×1 + slots preenchidos */
@@ -1006,3 +1091,6 @@ window.cardsAssignToSlot = cardsAssignToSlot;
 window.cardsSaveShowcase = cardsSaveShowcase;
 window.cardsClaimOffer = cardsClaimOffer;
 window.cardsRedeemCode = cardsRedeemCode;
+window.cardsToggleMoreMenu = cardsToggleMoreMenu;
+window.cardsRefreshShowcaseOnly = cardsRefreshShowcaseOnly;
+window.cardsVitSearchDebounced = cardsVitSearchDebounced;

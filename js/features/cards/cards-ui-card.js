@@ -57,8 +57,8 @@ function collectibleCardHTML(card, opts = {}) {
     ? `<div class="tc-count">×${opts.count}</div>`
     : "";
 
-  // tilt em todas (inclui small/vitrine) — mobile + desktop
-  const tiltClass = !opts.locked ? "tc-tilt" : "";
+  // Tilt só quando pedido (detalhe / reveal). Grade fica sem tilt = scroll livre no celular.
+  const tiltClass = (!opts.locked && opts.tilt) ? "tc-tilt" : "";
 
   return `
     <div class="tc-card rarity-${rarity} ${foil} ${opts.small ? "small" : ""} ${opts.selected ? "selected" : ""} ed-${edition.toLowerCase()} ${tiltClass}"
@@ -93,8 +93,11 @@ function collectibleCardHTML(card, opts = {}) {
   `;
 }
 
-/** Liga tilt 3D nas cartas .tc-tilt — mouse + touch (mobile). Só visual. */
+/** Liga tilt 3D só em .tc-tilt (detalhe/reveal). Respeita prefers-reduced-motion. */
 function cardsBindTilt(root) {
+  if (typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    return;
+  }
   const scope = root || document;
   scope.querySelectorAll(".tc-card.tc-tilt").forEach(card => {
     if (card.dataset.tiltBound === "1") return;
@@ -127,9 +130,12 @@ function cardsBindTilt(root) {
       if (glare) glare.style.opacity = "0";
     };
 
-    // pointer capture = funciona no celular (touch) e desktop
+    // Só pointer (mouse + touch controlado). Sem touch-action:none na grade — tilt fica no detalhe.
     card.addEventListener("pointerdown", e => {
-      try { card.setPointerCapture(e.pointerId); } catch (_) {}
+      if (e.pointerType === "touch") {
+        // No detalhe/reveal: permite tilt; não captura scroll da página fora do card
+        try { card.setPointerCapture(e.pointerId); } catch (_) {}
+      }
       onMove(e.clientX, e.clientY);
     });
     card.addEventListener("pointermove", e => {
@@ -140,13 +146,6 @@ function cardsBindTilt(root) {
     card.addEventListener("pointerup", reset);
     card.addEventListener("pointerleave", reset);
     card.addEventListener("pointercancel", reset);
-    // fallback touch explícito
-    card.addEventListener("touchmove", e => {
-      if (!e.touches?.[0]) return;
-      onMove(e.touches[0].clientX, e.touches[0].clientY);
-    }, { passive: true });
-    card.addEventListener("touchend", reset);
-    card.addEventListener("touchcancel", reset);
   });
 }
 
