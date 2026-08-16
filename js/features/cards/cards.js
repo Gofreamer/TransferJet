@@ -260,31 +260,149 @@ async function cardsOpenPacksBatch(n) {
   cardsShowBatchResults(allResults, count);
 }
 
-function cardsShowBatchResults(results, packCount) {
-  const stage = document.getElementById("jcPackStage");
-  if (!stage) return;
-  stage.classList.remove("hidden");
-
+function cardsBatchTally(results) {
   const counts = { common: 0, rare: 0, epic: 0, legend: 0, holo: 0, novo: 0 };
   results.forEach(r => {
     counts[r.rarity || "common"] = (counts[r.rarity || "common"] || 0) + 1;
     if (r.foil === "holo") counts.holo++;
     if (r.isNewDiscovery) counts.novo++;
   });
+  return counts;
+}
 
-  // Ordena: legend > epic > rare > common, holo primeiro
+function cardsBatchBestRarity(results) {
+  if (results.some(r => r.rarity === "legend")) return "legend";
+  if (results.some(r => r.rarity === "epic")) return "epic";
+  if (results.some(r => r.rarity === "rare")) return "rare";
+  return "common";
+}
+
+function cardsBatchSorted(results) {
   const order = { legend: 0, epic: 1, rare: 2, common: 3 };
-  const sorted = results.slice().sort((a, b) => {
+  return results.slice().sort((a, b) => {
     const ra = order[a.rarity] ?? 9;
     const rb = order[b.rarity] ?? 9;
     if (ra !== rb) return ra - rb;
     return (b.foil === "holo" ? 1 : 0) - (a.foil === "holo" ? 1 : 0);
   });
+}
+
+function cardsShowBatchResults(results, packCount) {
+  const stage = document.getElementById("jcPackStage");
+  if (!stage) return;
+  stage.classList.remove("hidden");
+
+  // limpa timers anteriores
+  if (window._jcBatchTimers) {
+    window._jcBatchTimers.forEach(clearTimeout);
+  }
+  window._jcBatchTimers = [];
+  window._jcBatch = { results, packCount, skip: false };
+
+  const packIcons = Array.from({ length: Math.min(packCount, 12) }, (_, i) =>
+    `<span class="jc-batch-pack-icon" style="--i:${i}">📦</span>`
+  ).join("");
 
   stage.innerHTML = `
-    <div class="jc-open-anim">
-      <h3 style="margin:0 0 8px">Resultado · ${packCount} pack${packCount > 1 ? "s" : ""} · ${results.length} cartas</h3>
-      <div class="jc-kpi-grid" style="margin-bottom:14px">
+    <div class="jc-batch-stage" id="jcBatchStage">
+      <button type="button" class="jc-btn ghost sm jc-batch-skip" onclick="cardsSkipBatchAnim()">Pular</button>
+      <div class="jc-batch-phase jc-batch-phase-charge" id="jcBatchPhase">
+        <div class="jc-batch-packs">${packIcons}</div>
+        <div class="jc-batch-charge-ring"></div>
+        <p class="jc-batch-title">Abrindo ${packCount} pack${packCount > 1 ? "s" : ""}…</p>
+        <div class="jc-batch-bar"><div class="jc-batch-bar-fill" id="jcBatchBar"></div></div>
+      </div>
+    </div>
+  `;
+
+  const t = (fn, ms) => {
+    const id = setTimeout(() => {
+      if (window._jcBatch?.skip) return;
+      fn();
+    }, ms);
+    window._jcBatchTimers.push(id);
+  };
+
+  // progresso da barra
+  t(() => {
+    const bar = document.getElementById("jcBatchBar");
+    if (bar) bar.style.width = "100%";
+  }, 50);
+
+  // fase shake
+  t(() => cardsBatchPhaseShake(packCount), 1100);
+  // burst
+  t(() => cardsBatchPhaseBurst(), 2200);
+  // tease
+  t(() => cardsBatchPhaseTease(results), 3000);
+  // reveal grid
+  t(() => cardsBatchPhaseReveal(results, packCount), results.some(r => r.rarity === "legend") ? 4800 : 4200);
+}
+
+function cardsSkipBatchAnim() {
+  if (!window._jcBatch) return;
+  window._jcBatch.skip = true;
+  if (window._jcBatchTimers) {
+    window._jcBatchTimers.forEach(clearTimeout);
+    window._jcBatchTimers = [];
+  }
+  cardsBatchPhaseReveal(window._jcBatch.results, window._jcBatch.packCount);
+}
+
+function cardsBatchPhaseShake(packCount) {
+  const phase = document.getElementById("jcBatchPhase");
+  if (!phase) return;
+  phase.className = "jc-batch-phase jc-batch-phase-shake";
+  phase.innerHTML = `
+    <div class="jc-batch-packs shaking">${Array.from({ length: Math.min(packCount, 12) }, (_, i) =>
+      `<span class="jc-batch-pack-icon" style="--i:${i}">📦</span>`
+    ).join("")}</div>
+    <p class="jc-batch-title">Concentrando energia…</p>
+  `;
+}
+
+function cardsBatchPhaseBurst() {
+  const phase = document.getElementById("jcBatchPhase");
+  if (!phase) return;
+  phase.className = "jc-batch-phase jc-batch-phase-burst";
+  phase.innerHTML = `
+    <div class="jc-batch-burst-flash"></div>
+    <div class="jc-batch-particles">
+      ${Array.from({ length: 18 }, (_, i) => `<span class="jc-batch-particle" style="--i:${i}"></span>`).join("")}
+    </div>
+    <p class="jc-batch-title jc-batch-title-burst">BOOM</p>
+  `;
+}
+
+function cardsBatchPhaseTease(results) {
+  const phase = document.getElementById("jcBatchPhase");
+  if (!phase) return;
+  const best = cardsBatchBestRarity(results);
+  const labels = {
+    legend: "LEGEND PULL",
+    epic: "EPIC PULL",
+    rare: "RARE HIT",
+    common: "PACK OPEN"
+  };
+  phase.className = `jc-batch-phase jc-batch-phase-tease rarity-${best}`;
+  phase.innerHTML = `
+    <div class="jc-batch-tease-glow"></div>
+    <div class="jc-batch-tease-badge">${labels[best] || "PACK OPEN"}</div>
+    <p class="jc-batch-tease-sub">${best === "legend" ? "Algo lendário veio no lote" : best === "epic" ? "Energia épica detectada" : "Revelando cartas…"}</p>
+  `;
+}
+
+function cardsBatchPhaseReveal(results, packCount) {
+  const stage = document.getElementById("jcPackStage") || document.getElementById("jcBatchStage")?.parentElement;
+  if (!stage) return;
+  const counts = cardsBatchTally(results);
+  const sorted = cardsBatchSorted(results);
+
+  stage.classList.remove("hidden");
+  stage.innerHTML = `
+    <div class="jc-batch-stage jc-batch-done rarity-${cardsBatchBestRarity(results)}">
+      <h3 class="jc-batch-done-title">Resultado · ${packCount} pack${packCount > 1 ? "s" : ""} · ${results.length} cartas</h3>
+      <div class="jc-kpi-grid jc-batch-kpis">
         <div class="jc-kpi"><div class="jc-kpi-label">Legend</div><div class="jc-kpi-value gold">${counts.legend}</div></div>
         <div class="jc-kpi"><div class="jc-kpi-label">Epic</div><div class="jc-kpi-value">${counts.epic}</div></div>
         <div class="jc-kpi"><div class="jc-kpi-label">Rare</div><div class="jc-kpi-value">${counts.rare}</div></div>
@@ -292,10 +410,14 @@ function cardsShowBatchResults(results, packCount) {
         <div class="jc-kpi"><div class="jc-kpi-label">Holo</div><div class="jc-kpi-value">${counts.holo}</div></div>
         <div class="jc-kpi"><div class="jc-kpi-label">Novas</div><div class="jc-kpi-value">${counts.novo}</div></div>
       </div>
-      <div class="jc-reveal-row revealed" style="display:flex;flex-wrap:wrap;gap:10px;max-height:50vh;overflow:auto">
-        ${sorted.map(r => collectibleCardHTML(r, { small: true })).join("")}
+      <div class="jc-batch-grid" id="jcBatchGrid">
+        ${sorted.map((r, i) => `
+          <div class="jc-batch-card-wrap ${r.isNewDiscovery ? "is-new" : ""}" style="--delay:${Math.min(i * 0.05, 1.6)}s">
+            ${collectibleCardHTML(r, { small: true })}
+          </div>
+        `).join("")}
       </div>
-      <div class="jc-actions-row" style="margin-top:14px">
+      <div class="jc-actions-row" style="margin-top:16px">
         <button class="jc-btn primary" onclick="showCardsView('inventory')">Inventário</button>
         <button class="jc-btn" onclick="showCardsView('carddex')">Álbum</button>
         <button class="jc-btn ghost" onclick="showCardsView('packs')">Voltar aos packs</button>
@@ -767,6 +889,8 @@ window.cardsDoLogin = cardsDoLogin;
 window.cardsOpenPack = cardsOpenPack;
 window.cardsOpenPacksBatch = cardsOpenPacksBatch;
 window.cardsShowBatchResults = cardsShowBatchResults;
+window.cardsSkipBatchAnim = cardsSkipBatchAnim;
+window.cardsBatchPhaseReveal = cardsBatchPhaseReveal;
 window.cardsReplayPack = cardsReplayPack;
 window.cardsRevealNext = cardsRevealNext;
 window.cardsSkipReveal = cardsSkipReveal;
