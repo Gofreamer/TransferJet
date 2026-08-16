@@ -484,19 +484,60 @@ function renderCardsShowcase(container) {
     </div>
     <div class="jc-section">
       <h2>Hall de colecionadores</h2>
-      ${Object.entries(window.AppState.cards.showcases || {}).filter(([,s]) => s.type === "npc").map(([, s]) => `
-        <div class="jc-npc-vitrine">
-          <div class="jc-npc-head">${s.avatar || "🎴"} <strong>${s.name}</strong> · ${s.title || ""}</div>
-          <div class="jc-showcase-row">
-            ${(s.slots || []).map(slot => {
-              if (typeof slot === "object" && slot?.playerKey) return collectibleCardHTML(slot, { small: true });
-              return "";
-            }).join("") || "<span class='jc-hint'>Em montagem</span>"}
-          </div>
-        </div>
-      `).join("")}
+      <p class="jc-hint">Vitrines dos jogadores cadastrados e dos personagens / NPCs.</p>
+      ${renderHallCollectorsHTML(ownerId)}
     </div>
   `;
+}
+
+/** Monta HTML do hall: humanos + NPCs/personagens */
+function renderHallCollectorsHTML(excludeOwnerId) {
+  const all = Object.entries(window.AppState.cards.showcases || {});
+  const humans = all.filter(([id, s]) => s && s.type !== "npc" && id !== excludeOwnerId);
+  const npcs = all.filter(([, s]) => s && s.type === "npc");
+
+  const resolveHumanSlots = (sid, s) => {
+    const inv = (window.AppState.cards.inventory || {})[sid] || {};
+    return (s.slots || []).filter(Boolean).map(slot => {
+      if (typeof slot === "object" && slot?.playerKey) return collectibleCardHTML(slot, { small: true });
+      const c = inv[slot];
+      if (c) return collectibleCardHTML({ cardId: slot, ...c }, { small: true });
+      return "";
+    }).filter(Boolean).join("") || "<span class='jc-hint'>Vitrine vazia</span>";
+  };
+
+  const resolveNpcSlots = (s) => {
+    return (s.slots || []).map(slot => {
+      if (typeof slot === "object" && slot?.playerKey) return collectibleCardHTML(slot, { small: true });
+      return "";
+    }).filter(Boolean).join("") || "<span class='jc-hint'>Em montagem</span>";
+  };
+
+  let html = "";
+
+  if (humans.length) {
+    html += `<h3 class="jc-hall-subtitle">Jogadores</h3>`;
+    html += humans.map(([id, s]) => `
+      <div class="jc-npc-vitrine jc-human-vitrine">
+        <div class="jc-npc-head">👤 <strong>${s.name || "Colecionador"}</strong>${s.title ? " · " + s.title : ""}</div>
+        <div class="jc-showcase-row">${resolveHumanSlots(id, s)}</div>
+      </div>
+    `).join("");
+  } else {
+    html += `<p class="jc-hint">Nenhum outro colecionador com vitrine ainda.</p>`;
+  }
+
+  if (npcs.length) {
+    html += `<h3 class="jc-hall-subtitle" style="margin-top:18px">Personagens & NPCs</h3>`;
+    html += npcs.map(([, s]) => `
+      <div class="jc-npc-vitrine">
+        <div class="jc-npc-head">${s.avatar || "🎴"} <strong>${s.name || "NPC"}</strong>${s.title ? " · " + s.title : ""}</div>
+        <div class="jc-showcase-row">${resolveNpcSlots(s)}</div>
+      </div>
+    `).join("");
+  }
+
+  return html;
 }
 
 function cardsPickSlot(i) {

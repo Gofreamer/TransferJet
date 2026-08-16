@@ -299,7 +299,18 @@ body.cards-mode main.jc-hide-official > [id^="view-"] { display: none !important
   margin-bottom: 14px; padding: 12px; border-radius: 12px;
   border: 1px solid var(--jc-border); background: rgba(0,0,0,0.22);
 }
+.jc-human-vitrine {
+  border-color: rgba(124, 58, 237, 0.35);
+  background: rgba(124, 58, 237, 0.08);
+}
 .jc-npc-head { margin-bottom: 8px; font-size: 0.88rem; }
+.jc-hall-subtitle {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin: 8px 0 10px;
+  color: var(--jc-gold, #fbbf24);
+  letter-spacing: 0.02em;
+}
 .jc-redeem { max-width: 380px; }
 .jc-entry-btn {
   background: linear-gradient(135deg, #7c3aed, #b45309) !important;
