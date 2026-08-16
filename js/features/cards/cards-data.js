@@ -30,28 +30,11 @@ function startCardsListeners() {
     refresh();
   });
 
-  // Inventário só do jogador logado (economiza download no free tier)
-  window._jcInvOwnerBound = null;
-  window._jcInvRef = null;
-  const bindOwnInventory = () => {
-    const ownerId = typeof getCardsOwnerId === "function" ? getCardsOwnerId() : null;
-    if (ownerId === window._jcInvOwnerBound) return;
-    if (window._jcInvRef) {
-      try { window._jcInvRef.off(); } catch (_) {}
-      window._jcInvRef = null;
-    }
-    window._jcInvOwnerBound = ownerId;
-    if (!ownerId) return;
-    window._jcInvRef = window.marketDb.ref("cards/inventory/" + ownerId);
-    window._jcInvRef.on("value", snap => {
-      const all = ensureCardsState().inventory || {};
-      all[ownerId] = snap.val() || {};
-      ensureCardsState().inventory = all;
-      refresh();
-    });
-  };
-  bindOwnInventory();
-  window.cardsRebindInventoryListener = bindOwnInventory;
+  // Inventário completo de todos (como antes) — evita sumir carta na UI
+  window.marketDb.ref("cards/inventory").on("value", snap => {
+    ensureCardsState().inventory = snap.val() || {};
+    refresh();
+  });
 
   window.marketDb.ref("cards/codes").on("value", snap => {
     ensureCardsState().codes = snap.val() || {};
