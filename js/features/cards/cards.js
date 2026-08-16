@@ -160,10 +160,20 @@ function renderCardsPacks(container) {
     .filter(([, p]) => p.ownerId === ownerId && p.status === "sealed")
     .sort((a, b) => (b[1].grantedAt || "").localeCompare(a[1].grantedAt || ""));
 
+  const batchBtn = packs.length >= 10
+    ? `<button class="jc-btn primary" onclick="cardsOpenPacksBatch(10)">Abrir 10 packs</button>`
+    : "";
+  const allBtn = packs.length >= 2 && packs.length < 10
+    ? `<button class="jc-btn" onclick="cardsOpenPacksBatch(${packs.length})">Abrir todos (${packs.length})</button>`
+    : packs.length > 10
+      ? `<button class="jc-btn" onclick="cardsOpenPacksBatch(${packs.length})">Abrir todos (${packs.length})</button>`
+      : "";
+
   container.innerHTML = `
     <div class="jc-section">
-      <h2>Pacotes</h2>
+      <h2>Pacotes ${packs.length ? `<span class="jc-hint" style="font-weight:400">· ${packs.length} lacrado${packs.length > 1 ? "s" : ""}</span>` : ""}</h2>
       <p class="jc-hint">Revelação carta a carta. Depois de abrir, o pack some daqui — as cartas ficam no inventário.</p>
+      ${packs.length >= 2 ? `<div class="jc-actions-row" style="margin-bottom:12px">${batchBtn}${allBtn}</div>` : ""}
       <div class="jc-pack-list">
         ${packs.map(([id, p]) => `
           <div class="jc-pack-item status-sealed">
@@ -190,26 +200,17 @@ async function cardsOpenPack(packId) {
   const before = discoveredDefIds(ownerId);
   const results = openPackResults(cardsSettings().packSize, cardsSettings().rates);
 
-  // marca descobertas novas (client)
   results.forEach(r => {
     const defId = r.defId || catalogDefId(r.playerKey, r.edition || "BASE");
     r.isNewDiscovery = !before.has(defId);
   });
 
-  const invUpdates = {};
-  results.forEach(r => {
-    invUpdates[r.cardId] = buildCardRecord(r, packId);
-  });
   const updates = {};
-  updates["cards/packs/" + packId + "/status"] = "opened";
-  updates["cards/packs/" + packId + "/openedAt"] = new Date().toISOString();
-  updates["cards/packs/" + packId + "/results"] = results.map(r => {
-    const { isNewDiscovery, ...rest } = r;
-    return rest;
+  results.forEach(r => {
+    updates["cards/inventory/" + ownerId + "/" + r.cardId] = buildCardRecord(r, packId);
   });
-  Object.entries(invUpdates).forEach(([cid, data]) => {
-    updates["cards/inventory/" + ownerId + "/" + cid] = data;
-  });
+  // Remove o pack do Firebase (cartas já estão no inventário — não mexe no que o jogador tem)
+  updates["cards/packs/" + packId] = null;
 
   try {
     await window.marketDb.ref().update(updates);
@@ -218,6 +219,89 @@ async function cardsOpenPack(packId) {
   }
 
   cardsRunRevealSequence(results, false);
+}
+
+/** Abre N packs de uma vez (ex.: 10). Junta todas as cartas e mostra o resultado. */
+async function cardsOpenPacksBatch(n) {
+  const ownerId = getCardsOwnerId();
+  const sealed = Object.entries(window.AppState.cards.packs || {})
+    .filter(([, p]) => p.ownerId === ownerId && p.status === "sealed")
+    .sort((a, b) => (a[1].grantedAt || "").localeCompare(b[1].grantedAt || ""));
+
+  const count = Math.min(Math.max(1, n || 10), sealed.length);
+  if (count < 1) return alert("Nenhum pack lacrado");
+  if (!confirm(`Abrir ${count} pack${count > 1 ? "s" : ""} de uma vez?`)) return;
+
+  const before = discoveredDefIds(ownerId);
+  const seen = new Set(before);
+  const allResults = [];
+  const updates = {};
+  const now = new Date().toISOString();
+
+  for (let i = 0; i < count; i++) {
+    const [packId] = sealed[i];
+    const results = openPackResults(cardsSettings().packSize, cardsSettings().rates);
+    results.forEach(r => {
+      const defId = r.defId || catalogDefId(r.playerKey, r.edition || "BASE");
+      r.isNewDiscovery = !seen.has(defId);
+      if (r.isNewDiscovery) seen.add(defId);
+      allResults.push(r);
+      updates["cards/inventory/" + ownerId + "/" + r.cardId] = buildCardRecord(r, packId);
+    });
+    updates["cards/packs/" + packId] = null;
+  }
+
+  try {
+    await window.marketDb.ref().update(updates);
+  } catch (e) {
+    return alert("Erro ao salvar: " + (e.message || e));
+  }
+
+  cardsShowBatchResults(allResults, count);
+}
+
+function cardsShowBatchResults(results, packCount) {
+  const stage = document.getElementById("jcPackStage");
+  if (!stage) return;
+  stage.classList.remove("hidden");
+
+  const counts = { common: 0, rare: 0, epic: 0, legend: 0, holo: 0, novo: 0 };
+  results.forEach(r => {
+    counts[r.rarity || "common"] = (counts[r.rarity || "common"] || 0) + 1;
+    if (r.foil === "holo") counts.holo++;
+    if (r.isNewDiscovery) counts.novo++;
+  });
+
+  // Ordena: legend > epic > rare > common, holo primeiro
+  const order = { legend: 0, epic: 1, rare: 2, common: 3 };
+  const sorted = results.slice().sort((a, b) => {
+    const ra = order[a.rarity] ?? 9;
+    const rb = order[b.rarity] ?? 9;
+    if (ra !== rb) return ra - rb;
+    return (b.foil === "holo" ? 1 : 0) - (a.foil === "holo" ? 1 : 0);
+  });
+
+  stage.innerHTML = `
+    <div class="jc-open-anim">
+      <h3 style="margin:0 0 8px">Resultado · ${packCount} pack${packCount > 1 ? "s" : ""} · ${results.length} cartas</h3>
+      <div class="jc-kpi-grid" style="margin-bottom:14px">
+        <div class="jc-kpi"><div class="jc-kpi-label">Legend</div><div class="jc-kpi-value gold">${counts.legend}</div></div>
+        <div class="jc-kpi"><div class="jc-kpi-label">Epic</div><div class="jc-kpi-value">${counts.epic}</div></div>
+        <div class="jc-kpi"><div class="jc-kpi-label">Rare</div><div class="jc-kpi-value">${counts.rare}</div></div>
+        <div class="jc-kpi"><div class="jc-kpi-label">Common</div><div class="jc-kpi-value">${counts.common}</div></div>
+        <div class="jc-kpi"><div class="jc-kpi-label">Holo</div><div class="jc-kpi-value">${counts.holo}</div></div>
+        <div class="jc-kpi"><div class="jc-kpi-label">Novas</div><div class="jc-kpi-value">${counts.novo}</div></div>
+      </div>
+      <div class="jc-reveal-row revealed" style="display:flex;flex-wrap:wrap;gap:10px;max-height:50vh;overflow:auto">
+        ${sorted.map(r => collectibleCardHTML(r, { small: true })).join("")}
+      </div>
+      <div class="jc-actions-row" style="margin-top:14px">
+        <button class="jc-btn primary" onclick="showCardsView('inventory')">Inventário</button>
+        <button class="jc-btn" onclick="showCardsView('carddex')">Álbum</button>
+        <button class="jc-btn ghost" onclick="showCardsView('packs')">Voltar aos packs</button>
+      </div>
+    </div>
+  `;
 }
 
 function cardsReplayPack(packId) {
@@ -681,6 +765,8 @@ window.showCardsView = showCardsView;
 window.renderCardsShell = renderCardsShell;
 window.cardsDoLogin = cardsDoLogin;
 window.cardsOpenPack = cardsOpenPack;
+window.cardsOpenPacksBatch = cardsOpenPacksBatch;
+window.cardsShowBatchResults = cardsShowBatchResults;
 window.cardsReplayPack = cardsReplayPack;
 window.cardsRevealNext = cardsRevealNext;
 window.cardsSkipReveal = cardsSkipReveal;
