@@ -75,9 +75,11 @@ function openPackResults(count, rates) {
 
   for (let i = 0; i < n; i++) {
     let def = null;
+    let fromSpecial = false;
     // ~8% chance de especial se houver no pool
     if (specialPool.length && Math.random() < 0.08) {
       def = specialPool[Math.floor(Math.random() * specialPool.length)];
+      fromSpecial = true;
     } else if (pool && pool.length) {
       def = pool[Math.floor(Math.random() * pool.length)];
     } else {
@@ -94,8 +96,21 @@ function openPackResults(count, rates) {
       };
     }
 
-    const rarity = rollRarity(rates);
-    const foil = rollHolo(rarity) ? "holo" : "normal";
+    // Especial no pool: raridade e foil fixos do cadastro (defaultRarity / defaultFoil)
+    // BASE: continua sorteando pelas rates globais
+    let rarity;
+    let foil;
+    if (fromSpecial) {
+      const allowed = { common: 1, rare: 1, epic: 1, legend: 1 };
+      const dr = String(def.defaultRarity || def.rarity || "epic").toLowerCase();
+      rarity = allowed[dr] ? dr : "epic";
+      const df = String(def.defaultFoil || def.foil || "normal").toLowerCase();
+      foil = df === "holo" ? "holo" : "normal";
+    } else {
+      rarity = rollRarity(rates);
+      foil = rollHolo(rarity) ? "holo" : "normal";
+    }
+
     const resolved = resolveCardDef(def);
     results.push({
       cardId: newCardId(),
