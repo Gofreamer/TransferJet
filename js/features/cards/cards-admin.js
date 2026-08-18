@@ -50,7 +50,10 @@ function renderCardsAdmin(subTab) {
       <p class="admin-sub">Catálogo base: <strong>${catalogCount}</strong> cartas · rates, ciclo e slots.</p>
       <div class="admin-actions" style="flex-wrap:wrap;gap:8px;margin-bottom:14px">
         <button class="btn-primary btn-sm" onclick="jcAdminSeed()">Seed / sync catálogo</button>
+        <button class="btn-gray btn-sm" onclick="jcAdminPurgeOpenedPacks()">Limpar packs abertos</button>
+        <button class="btn-gray btn-sm" onclick="jcAdminConsolidateInventories()">Empilhar inventários (consolidar)</button>
       </div>
+      <p class="admin-sub" style="margin-top:-6px">Limpar packs abertos e empilhar <strong>não apagam</strong> cartas do jogador — só reduzem peso no Firebase.</p>
       <h3 class="admin-section-title">Config</h3>
       <div class="admin-form-grid">
         <div><label>Cartas/pack</label><input type="number" id="jcPackSize" min="1" max="5" value="${s.packSize ?? 3}"></div>
@@ -248,10 +251,11 @@ function renderCardsAdmin(subTab) {
       </div>
 
       <h3 class="admin-section-title" style="margin-top:22px">Vitrine NPC / Personagem</h3>
+      <p class="admin-sub">Adicione cartas (novas ou a partir do inventário de um jogador) e remova uma a uma.</p>
       <div class="admin-form-grid">
         <div>
           <label>Vitrine</label>
-          <select id="jcNpcVitrine">${npcVitOpts}</select>
+          <select id="jcNpcVitrine" onchange="jcAdminRefreshNpcSlots()">${npcVitOpts}</select>
         </div>
         <div>
           <label>Agente</label>
@@ -259,14 +263,41 @@ function renderCardsAdmin(subTab) {
         </div>
         <div>
           <label>Raridade</label>
-          <select id="jcNpcVitRarity"><option value="legend">Legend</option><option value="epic">Epic</option></select>
+          <select id="jcNpcVitRarity">
+            <option value="legend">Legend</option>
+            <option value="epic">Epic</option>
+            <option value="rare">Rare</option>
+            <option value="common">Common</option>
+          </select>
         </div>
         <div><label>Edição</label><select id="jcNpcVitEdition">${editionOpts}</select></div>
+        <div>
+          <label>Foil</label>
+          <select id="jcNpcVitFoil"><option value="holo">Holo</option><option value="normal">Normal</option></select>
+        </div>
+        <div class="full"><label>Imagem URL (opcional — senão usa especial/foto do agente)</label><input type="url" id="jcNpcVitImg" placeholder="https://..."></div>
       </div>
       <div class="admin-actions" style="margin-top:8px">
         <button class="btn-primary btn-sm" onclick="jcAdminAddNpcShowcaseCard()">Add carta na vitrine</button>
-        <button class="btn-gray btn-sm" onclick="jcAdminClearNpcShowcase()">Limpar vitrine</button>
+        <button class="btn-gray btn-sm" onclick="jcAdminClearNpcShowcase()">Limpar vitrine inteira</button>
       </div>
+
+      <h4 style="margin-top:18px;font-size:0.9rem">Copiar carta existente do inventário de um jogador</h4>
+      <div class="admin-form-grid">
+        <div>
+          <label>Jogador dono</label>
+          <select id="jcNpcCopyOwner" onchange="jcAdminLoadNpcCopyCards()">${humanOpts}</select>
+        </div>
+        <div>
+          <label>Carta existente</label>
+          <select id="jcNpcCopyCard"><option value="">— selecione o jogador —</option></select>
+        </div>
+      </div>
+      <div class="admin-actions" style="margin-top:8px">
+        <button class="btn-primary btn-sm" onclick="jcAdminCopyExistingToNpc()">Add carta existente na vitrine NPC</button>
+      </div>
+
+      <div id="jcNpcSlotsList" style="margin-top:14px"></div>
     `;
   } else if (tab === "cenas") {
     body = `
@@ -349,6 +380,9 @@ function renderCardsAdmin(subTab) {
     </div>
     <div class="jc-admin-tab-body">${body}</div>
   `;
+  if (tab === "vitrines" && typeof jcAdminRefreshNpcSlots === "function") {
+    setTimeout(() => jcAdminRefreshNpcSlots(), 0);
+  }
 }
 
 function jcAdminToggleCodeType() {
@@ -550,8 +584,12 @@ async function jcAdminGrantCard() {
   const sel = document.getElementById("jcGrantPlayer");
   const opt = sel?.selectedOptions?.[0];
   if (!ownerId || !opt?.value) return alert("Preencha");
-  const cardId = newCardId();
-  await window.marketDb.ref("cards/inventory/" + ownerId + "/" + cardId).set(buildCardRecord({
+  // Garante inventário do dono em memória
+  if (!(window.AppState.cards.inventory || {})[ownerId] && typeof cardsFetchInventoryOnce === "function") {
+    await cardsFetchInventoryOnce(ownerId);
+  }
+  const updates = {};
+  applyStackedCardGains(ownerId, [{
     playerKey: opt.value,
     playerName: opt.dataset.name,
     team: opt.dataset.team,
@@ -561,8 +599,9 @@ async function jcAdminGrantCard() {
     foil: document.getElementById("jcGrantFoil")?.value || "holo",
     specialImageUrl: document.getElementById("jcGrantImg")?.value || null,
     source: "admin"
-  }));
-  alert("Carta concedida");
+  }], updates);
+  await window.marketDb.ref().update(updates);
+  alert("Carta concedida (empilhada)");
   renderCardsAdmin();
 }
 
@@ -570,21 +609,35 @@ async function jcAdminAddNpcShowcaseCard() {
   const vid = document.getElementById("jcNpcVitrine")?.value;
   const sel = document.getElementById("jcNpcVitPlayer");
   const opt = sel?.selectedOptions?.[0];
-  if (!vid || !opt?.value) return;
+  if (!vid || !opt?.value) return alert("Selecione vitrine e agente");
   const snap = await window.marketDb.ref("cards/showcases/" + vid).once("value");
   const cur = snap.val() || { type: "npc", slots: [] };
   const slots = Array.isArray(cur.slots) ? cur.slots.slice() : [];
   const edition = document.getElementById("jcNpcVitEdition")?.value || "BASE";
   const rarity = document.getElementById("jcNpcVitRarity")?.value || "legend";
-  slots.push(buildCardRecord({
+  const foil = document.getElementById("jcNpcVitFoil")?.value || "holo";
+  const img = (document.getElementById("jcNpcVitImg")?.value || "").trim() || null;
+  const partial = {
     playerKey: opt.value,
     playerName: opt.dataset.name,
     team: opt.dataset.team,
+    rank: opt.dataset.rank,
     edition,
     rarity,
-    foil: "holo",
+    foil,
+    specialImageUrl: img,
     source: "npc_showcase"
-  }));
+  };
+  // Puxa número JL + arte especial do catálogo/specials quando existir
+  const resolved = typeof resolveCardDef === "function" ? resolveCardDef(partial) : partial;
+  const record = buildCardRecord({
+    ...partial,
+    number: resolved.number,
+    cardNumber: resolved.cardNumber,
+    specialImageUrl: img || resolved.specialImageUrl || null,
+    rank: resolved.rank || partial.rank
+  });
+  slots.push(record);
   const meta = (window.CARDS.NPC_VITRINES || []).find(n => n.id === vid) || {};
   await window.marketDb.ref("cards/showcases/" + vid).set({
     type: "npc",
@@ -593,15 +646,128 @@ async function jcAdminAddNpcShowcaseCard() {
     avatar: cur.avatar || meta.avatar || "🎴",
     slots
   });
-  alert("Vitrine atualizada");
-  renderCardsAdmin();
+  alert("Carta adicionada na vitrine");
+  jcAdminRefreshNpcSlots();
 }
 
 async function jcAdminClearNpcShowcase() {
   const vid = document.getElementById("jcNpcVitrine")?.value;
-  if (!vid || !confirm("Limpar?")) return;
+  if (!vid || !confirm("Limpar toda a vitrine NPC?")) return;
   await window.marketDb.ref("cards/showcases/" + vid + "/slots").set([]);
-  renderCardsAdmin();
+  jcAdminRefreshNpcSlots();
+}
+
+function jcAdminRefreshNpcSlots() {
+  const box = document.getElementById("jcNpcSlotsList");
+  const vid = document.getElementById("jcNpcVitrine")?.value;
+  if (!box) return;
+  if (!vid) {
+    box.innerHTML = "";
+    return;
+  }
+  const sc = (window.AppState.cards.showcases || {})[vid] || {};
+  const slots = Array.isArray(sc.slots) ? sc.slots : [];
+  if (!slots.length) {
+    box.innerHTML = `<p class="admin-sub" style="margin:0">Vitrine vazia · ${sc.name || vid}</p>`;
+    return;
+  }
+  box.innerHTML = `
+    <p class="admin-sub" style="margin:0 0 8px"><strong>${sc.name || vid}</strong> · ${slots.length} carta(s) · clique em Remover para tirar só uma</p>
+    <div class="admin-table-wrap" style="max-height:240px;overflow:auto">
+      <table class="admin-table">
+        <thead><tr><th>#</th><th>Agente</th><th>Edição</th><th>Raridade</th><th>Foil</th><th></th></tr></thead>
+        <tbody>
+          ${slots.map((c, i) => {
+            if (!c || typeof c !== "object") return `<tr><td>${i + 1}</td><td colspan="4">slot inválido</td><td><button class="btn-gray btn-sm" onclick="jcAdminRemoveNpcSlot(${i})">Remover</button></td></tr>`;
+            return `<tr>
+              <td>${i + 1}</td>
+              <td>${c.playerName || c.playerKey || "—"}</td>
+              <td>${c.edition || "BASE"}</td>
+              <td>${c.rarity || "—"}</td>
+              <td>${c.foil || "normal"}</td>
+              <td><button class="btn-gray btn-sm" onclick="jcAdminRemoveNpcSlot(${i})">Remover</button></td>
+            </tr>`;
+          }).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+async function jcAdminRemoveNpcSlot(index) {
+  const vid = document.getElementById("jcNpcVitrine")?.value;
+  if (!vid) return;
+  const snap = await window.marketDb.ref("cards/showcases/" + vid).once("value");
+  const cur = snap.val() || {};
+  const slots = Array.isArray(cur.slots) ? cur.slots.slice() : [];
+  if (index < 0 || index >= slots.length) return;
+  const label = slots[index]?.playerName || slots[index]?.playerKey || ("#" + (index + 1));
+  if (!confirm(`Remover "${label}" desta vitrine NPC?`)) return;
+  slots.splice(index, 1);
+  await window.marketDb.ref("cards/showcases/" + vid + "/slots").set(slots);
+  jcAdminRefreshNpcSlots();
+}
+
+function jcAdminLoadNpcCopyCards() {
+  const ownerId = document.getElementById("jcNpcCopyOwner")?.value;
+  const sel = document.getElementById("jcNpcCopyCard");
+  if (!sel) return;
+  if (!ownerId) {
+    sel.innerHTML = "<option value=''>— selecione o jogador —</option>";
+    return;
+  }
+  // Garante inventário em memória
+  if (!(window.AppState.cards.inventory || {})[ownerId] && typeof cardsFetchInventoryOnce === "function") {
+    cardsFetchInventoryOnce(ownerId).then(() => jcAdminLoadNpcCopyCards());
+  }
+  const inv = (window.AppState.cards.inventory || {})[ownerId] || {};
+  const entries = Object.entries(inv);
+  if (!entries.length) {
+    sel.innerHTML = "<option value=''>Nenhuma carta na coleção</option>";
+    return;
+  }
+  const rarityOrder = { legend: 0, epic: 1, rare: 2, common: 3 };
+  entries.sort((a, b) => {
+    const ra = rarityOrder[a[1].rarity] ?? 9;
+    const rb = rarityOrder[b[1].rarity] ?? 9;
+    return ra - rb || (a[1].playerName || "").localeCompare(b[1].playerName || "");
+  });
+  sel.innerHTML = entries.map(([cid, c]) => {
+    const n = Math.max(1, Number(c.count) || 1);
+    const label = `${c.playerName || c.playerKey} · ${c.rarity || "?"} · ${(c.edition || "BASE")} · ${c.foil || "normal"}${n > 1 ? " · ×" + n : ""}`;
+    return `<option value="${cid}">${label}</option>`;
+  }).join("");
+}
+
+async function jcAdminCopyExistingToNpc() {
+  const vid = document.getElementById("jcNpcVitrine")?.value;
+  const ownerId = document.getElementById("jcNpcCopyOwner")?.value;
+  const cardId = document.getElementById("jcNpcCopyCard")?.value;
+  if (!vid || !ownerId || !cardId) return alert("Selecione vitrine, jogador e carta");
+  const inv = (window.AppState.cards.inventory || {})[ownerId] || {};
+  const card = inv[cardId];
+  if (!card) return alert("Carta não encontrada no inventário");
+  const snap = await window.marketDb.ref("cards/showcases/" + vid).once("value");
+  const cur = snap.val() || { type: "npc", slots: [] };
+  const slots = Array.isArray(cur.slots) ? cur.slots.slice() : [];
+  // Cópia para a vitrine NPC (não remove do jogador)
+  const copy = {
+    ...card,
+    cardId: cardId,
+    source: "npc_showcase_copy",
+    copiedFrom: ownerId
+  };
+  slots.push(copy);
+  const meta = (window.CARDS.NPC_VITRINES || []).find(n => n.id === vid) || {};
+  await window.marketDb.ref("cards/showcases/" + vid).set({
+    type: "npc",
+    name: cur.name || meta.name || "NPC",
+    title: cur.title || meta.title || "",
+    avatar: cur.avatar || meta.avatar || "🎴",
+    slots
+  });
+  alert("Carta existente copiada para a vitrine NPC");
+  jcAdminRefreshNpcSlots();
 }
 
 async function jcAdminCreateNpcVitrine() {
@@ -647,7 +813,8 @@ function jcAdminLoadPlayerCards() {
     return ra - rb || (a[1].playerName || "").localeCompare(b[1].playerName || "");
   });
   sel.innerHTML = entries.map(([cid, c]) => {
-    const label = `${c.playerName || c.playerKey} · ${c.rarity || "?"} · ${(c.edition || "BASE")} · ${c.foil || "normal"}`;
+    const n = Math.max(1, Number(c.count) || 1);
+    const label = `${c.playerName || c.playerKey} · ${c.rarity || "?"} · ${(c.edition || "BASE")} · ${c.foil || "normal"}${n > 1 ? " · ×" + n : ""}`;
     return `<option value="${cid}">${label}</option>`;
   }).join("");
 }
@@ -656,23 +823,57 @@ async function jcAdminRemoveCard() {
   const ownerId = document.getElementById("jcRemoveOwner")?.value;
   const cardId = document.getElementById("jcRemoveCard")?.value;
   if (!ownerId || !cardId) return alert("Selecione jogador e carta");
+  if (!(window.AppState.cards.inventory || {})[ownerId] && typeof cardsFetchInventoryOnce === "function") {
+    await cardsFetchInventoryOnce(ownerId);
+  }
   const inv = (window.AppState.cards.inventory || {})[ownerId] || {};
   const card = inv[cardId];
   if (!card) return alert("Carta não encontrada");
-  const label = `${card.playerName || card.playerKey} (${card.rarity || "?"})`;
-  if (!confirm(`Remover "${label}" da coleção deste jogador?`)) return;
+  const cnt = Math.max(1, Number(card.count) || 1);
+  const label = `${card.playerName || card.playerKey} (${card.rarity || "?"}) ×${cnt}`;
+  if (!confirm(`Remover 1× de "${label}" da coleção deste jogador?`)) return;
 
-  await window.marketDb.ref("cards/inventory/" + ownerId + "/" + cardId).remove();
-
-  // Limpa da vitrine se estiver nos slots
-  const sc = (window.AppState.cards.showcases || {})[ownerId];
-  if (sc && Array.isArray(sc.slots) && sc.slots.includes(cardId)) {
-    const newSlots = sc.slots.map(s => s === cardId ? null : s);
-    await window.marketDb.ref("cards/showcases/" + ownerId + "/slots").set(newSlots);
+  if (cnt > 1) {
+    await window.marketDb.ref("cards/inventory/" + ownerId + "/" + cardId).update({
+      count: cnt - 1,
+      stacked: true
+    });
+  } else {
+    await window.marketDb.ref("cards/inventory/" + ownerId + "/" + cardId).remove();
+    const sc = (window.AppState.cards.showcases || {})[ownerId];
+    if (sc && Array.isArray(sc.slots) && sc.slots.includes(cardId)) {
+      const newSlots = sc.slots.map(s => s === cardId ? null : s);
+      await window.marketDb.ref("cards/showcases/" + ownerId + "/slots").set(newSlots);
+    }
   }
 
-  alert("Carta removida: " + label);
+  alert("Removido 1×: " + label);
+  // refresh local cache
+  if (typeof cardsFetchInventoryOnce === "function") {
+    const all = window.AppState.cards.inventory || {};
+    delete all[ownerId];
+    await cardsFetchInventoryOnce(ownerId);
+  }
   jcAdminLoadPlayerCards();
+}
+
+async function jcAdminPurgeOpenedPacks() {
+  if (!confirm("Apagar apenas packs com status OPENED?\nAs cartas no inventário NÃO serão apagadas.")) return;
+  const n = await cardsPurgeOpenedPacks();
+  alert(n ? `${n} pack(s) aberto(s) removido(s).` : "Nenhum pack aberto encontrado.");
+}
+
+async function jcAdminConsolidateInventories() {
+  if (!confirm("Empilhar inventários de todos os jogadores?\nJunta cópias iguais em uma pilha (count). Total de cartas se mantém.")) return;
+  const snap = await window.marketDb.ref("cards/inventory").once("value");
+  const all = snap.val() || {};
+  let totalStacks = 0, totalRemoved = 0;
+  for (const ownerId of Object.keys(all)) {
+    const r = await consolidateOwnerInventory(ownerId);
+    totalStacks += r.stacks || 0;
+    totalRemoved += r.removed || 0;
+  }
+  alert(`Consolidado.\nPilhas: ${totalStacks}\nRegistros soltos removidos: ${totalRemoved}\n(Quantidade total de cartas preservada.)`);
 }
 
 async function jcAdminAddHuman() {
@@ -733,8 +934,14 @@ window.jcAdminCreateOffer = jcAdminCreateOffer;
 window.jcAdminGrantCard = jcAdminGrantCard;
 window.jcAdminAddNpcShowcaseCard = jcAdminAddNpcShowcaseCard;
 window.jcAdminClearNpcShowcase = jcAdminClearNpcShowcase;
+window.jcAdminRefreshNpcSlots = jcAdminRefreshNpcSlots;
+window.jcAdminRemoveNpcSlot = jcAdminRemoveNpcSlot;
+window.jcAdminLoadNpcCopyCards = jcAdminLoadNpcCopyCards;
+window.jcAdminCopyExistingToNpc = jcAdminCopyExistingToNpc;
 window.jcAdminCreateNpcVitrine = jcAdminCreateNpcVitrine;
 window.jcAdminLoadPlayerCards = jcAdminLoadPlayerCards;
 window.jcAdminRemoveCard = jcAdminRemoveCard;
 window.jcAdminAddHuman = jcAdminAddHuman;
 window.jcAdminToggleCodeType = jcAdminToggleCodeType;
+window.jcAdminPurgeOpenedPacks = jcAdminPurgeOpenedPacks;
+window.jcAdminConsolidateInventories = jcAdminConsolidateInventories;

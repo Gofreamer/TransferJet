@@ -1,4 +1,4 @@
-/* Jet Cards 2.0 — Firebase (listeners enxutos) */
+/* Jet Cards 2.0 — Firebase (listeners enxutos por dono) */
 window.CARDS = window.CARDS || {};
 
 function startCardsListeners() {
@@ -25,17 +25,6 @@ function startCardsListeners() {
     refresh();
   });
 
-  window.marketDb.ref("cards/packs").on("value", snap => {
-    ensureCardsState().packs = snap.val() || {};
-    refresh();
-  });
-
-  // Inventário completo de todos (como antes) — evita sumir carta na UI
-  window.marketDb.ref("cards/inventory").on("value", snap => {
-    ensureCardsState().inventory = snap.val() || {};
-    refresh();
-  });
-
   window.marketDb.ref("cards/codes").on("value", snap => {
     ensureCardsState().codes = snap.val() || {};
   });
@@ -49,6 +38,57 @@ function startCardsListeners() {
     ensureCardsState().showcases = snap.val() || {};
     refresh();
   });
+
+  // Inventário e packs: só do jogador logado (re-bind no login)
+  cardsRebindOwnerListeners();
+}
+
+/** Cancela listeners anteriores e escuta só inventory/packs do owner atual */
+function cardsRebindOwnerListeners() {
+  if (!window.marketDb) return;
+
+  if (window._jcInvRef && window._jcInvHandler) {
+    window._jcInvRef.off("value", window._jcInvHandler);
+  }
+  if (window._jcPacksRef && window._jcPacksHandler) {
+    window._jcPacksRef.off("value", window._jcPacksHandler);
+  }
+
+  const ownerId = typeof getCardsOwnerId === "function" ? getCardsOwnerId() : null;
+  const refresh = () => {
+    document.dispatchEvent(new CustomEvent("cards:updated"));
+    if (window.AppState.cards.active && typeof renderCardsShell === "function") renderCardsShell();
+  };
+
+  if (!ownerId) {
+    ensureCardsState().packs = ensureCardsState().packs || {};
+    return;
+  }
+
+  window._jcInvRef = window.marketDb.ref("cards/inventory/" + ownerId);
+  window._jcInvHandler = snap => {
+    const all = ensureCardsState().inventory || {};
+    all[ownerId] = snap.val() || {};
+    ensureCardsState().inventory = all;
+    refresh();
+  };
+  window._jcInvRef.on("value", window._jcInvHandler);
+
+  try {
+    window._jcPacksRef = window.marketDb.ref("cards/packs").orderByChild("ownerId").equalTo(ownerId);
+  } catch (e) {
+    window._jcPacksRef = window.marketDb.ref("cards/packs");
+  }
+  window._jcPacksHandler = snap => {
+    const raw = snap.val() || {};
+    const filtered = {};
+    Object.entries(raw).forEach(([id, p]) => {
+      if (p && p.ownerId === ownerId) filtered[id] = p;
+    });
+    ensureCardsState().packs = filtered;
+    refresh();
+  };
+  window._jcPacksRef.on("value", window._jcPacksHandler);
 }
 
 async function ensureCardsSeeded() {
@@ -83,7 +123,6 @@ function saveCardsSettings(partial) {
   return window.marketDb.ref("cards/settings").update(partial);
 }
 
-/** Sincroniza catálogo BASE com agentes atuais (só adiciona novos) */
 async function syncCardsCatalog() {
   const snap = await window.marketDb.ref("cards/catalog").once("value");
   const updates = buildBaseCatalogEntries(snap.val() || {});
@@ -93,7 +132,6 @@ async function syncCardsCatalog() {
   return Object.keys(updates).length;
 }
 
-/** Carrega inventário de outro jogador uma vez (ex.: hall). Não escuta em tempo real. */
 async function cardsFetchInventoryOnce(ownerId) {
   if (!ownerId || !window.marketDb) return null;
   if ((window.AppState.cards?.inventory || {})[ownerId]) return window.AppState.cards.inventory[ownerId];
@@ -105,8 +143,8 @@ async function cardsFetchInventoryOnce(ownerId) {
     ensureCardsState().inventory = all;
     delete window._jcInvFetching[ownerId];
     if (window.AppState.cards.active && typeof renderCardsShell === "function") {
-      // re-render leve se estiver no hall
-      if ((window.AppState.cards.ui || {}).view === "showcase") renderCardsShell();
+      const view = (window.AppState.cards.ui || {}).view;
+      if (view === "showcase" || view === "hub") renderCardsShell();
     }
     return all[ownerId];
   }).catch(() => {
@@ -116,8 +154,27 @@ async function cardsFetchInventoryOnce(ownerId) {
   return window._jcInvFetching[ownerId];
 }
 
+/** Remove packs já abertos do Firebase (cartas no inventário não são tocadas) */
+async function cardsPurgeOpenedPacks() {
+  if (!window.marketDb) return 0;
+  const snap = await window.marketDb.ref("cards/packs").once("value");
+  const packs = snap.val() || {};
+  const updates = {};
+  let n = 0;
+  Object.entries(packs).forEach(([id, p]) => {
+    if (p && p.status === "opened") {
+      updates["cards/packs/" + id] = null;
+      n++;
+    }
+  });
+  if (n) await window.marketDb.ref().update(updates);
+  return n;
+}
+
 window.startCardsListeners = startCardsListeners;
+window.cardsRebindOwnerListeners = cardsRebindOwnerListeners;
 window.ensureCardsSeeded = ensureCardsSeeded;
 window.saveCardsSettings = saveCardsSettings;
 window.syncCardsCatalog = syncCardsCatalog;
 window.cardsFetchInventoryOnce = cardsFetchInventoryOnce;
+window.cardsPurgeOpenedPacks = cardsPurgeOpenedPacks;

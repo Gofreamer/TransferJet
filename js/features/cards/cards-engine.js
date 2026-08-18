@@ -145,22 +145,141 @@ function buildCardRecord(partial, packId) {
   };
 }
 
-function inventoryList(ownerId) {
-  const inv = (window.AppState.cards?.inventory || {})[ownerId] || {};
-  return Object.entries(inv).map(([id, c]) => ({ cardId: id, ...c }));
+/** Chave estável de pilha: mesma def + raridade + foil = mesma stack no Firebase */
+function cardStackKey(partial) {
+  const defId = partial.defId || catalogDefId(partial.playerKey, partial.edition || "BASE");
+  const rarity = (partial.rarity || "common").toLowerCase();
+  const foil = (partial.foil === "holo" ? "holo" : "normal");
+  return defId + "|" + rarity + "|" + foil;
 }
 
-/** Agrupa cópias por defId + rarity + foil (exibição inventário) */
+/** ID de armazenamento da pilha (estável, sem card_ aleatório) */
+function cardStackId(partial) {
+  const key = cardStackKey(partial);
+  // slug seguro para path Firebase
+  return "stack_" + key.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 120);
+}
+
+/**
+ * Soma cartas no inventário empilhando no banco.
+ * Escreve em `updates` paths Firebase: cards/inventory/{ownerId}/{stackId}
+ * Não apaga cartas — só cria/atualiza pilhas.
+ */
+function applyStackedCardGains(ownerId, cardPartials, updates, packId) {
+  if (!ownerId || !cardPartials || !cardPartials.length) return;
+  const inv = { ...((window.AppState.cards?.inventory || {})[ownerId] || {}) };
+  // também considera o que já está neste mesmo batch de updates
+  Object.keys(updates || {}).forEach(path => {
+    const prefix = "cards/inventory/" + ownerId + "/";
+    if (path.startsWith(prefix) && updates[path]) {
+      inv[path.slice(prefix.length)] = updates[path];
+    }
+  });
+
+  cardPartials.forEach(partial => {
+    const record = buildCardRecord(partial, packId || partial.packId);
+    const sid = cardStackId(record);
+    const prev = inv[sid];
+    const add = Math.max(1, Number(partial._addCount) || 1);
+    if (prev && (prev.stacked || prev.count != null || prev.defId === record.defId)) {
+      const next = {
+        ...prev,
+        ...record,
+        count: (Number(prev.count) || 1) + add,
+        stacked: true,
+        obtainedAt: record.obtainedAt || prev.obtainedAt
+      };
+      inv[sid] = next;
+      updates["cards/inventory/" + ownerId + "/" + sid] = next;
+    } else {
+      const next = { ...record, count: add, stacked: true };
+      inv[sid] = next;
+      updates["cards/inventory/" + ownerId + "/" + sid] = next;
+    }
+  });
+}
+
+/**
+ * Consolida inventário solto (card_xxx) em pilhas stack_*.
+ * Seguro: não reduz quantidade total; só junta iguais.
+ * Atualiza slots de vitrine que apontavam para cardIds antigos.
+ */
+async function consolidateOwnerInventory(ownerId) {
+  if (!ownerId || !window.marketDb) return { stacks: 0, removed: 0 };
+  const snap = await window.marketDb.ref("cards/inventory/" + ownerId).once("value");
+  const inv = snap.val() || {};
+  const groups = {};
+  Object.entries(inv).forEach(([id, c]) => {
+    if (!c || typeof c !== "object") return;
+    const key = cardStackKey(c);
+    if (!groups[key]) groups[key] = { ids: [], sample: c, count: 0 };
+    groups[key].ids.push(id);
+    groups[key].count += Math.max(1, Number(c.count) || 1);
+    // preferir sample que já é stack / tem mais dados
+    if (c.stacked || (c.specialImageUrl && !groups[key].sample.specialImageUrl)) {
+      groups[key].sample = c;
+    }
+  });
+
+  const updates = {};
+  let removed = 0;
+  const idMap = {}; // oldCardId -> stackId
+
+  Object.entries(groups).forEach(([key, g]) => {
+    const sid = cardStackId(g.sample);
+    const record = {
+      ...buildCardRecord(g.sample),
+      count: g.count,
+      stacked: true,
+      obtainedAt: g.sample.obtainedAt || new Date().toISOString()
+    };
+    updates["cards/inventory/" + ownerId + "/" + sid] = record;
+    g.ids.forEach(oldId => {
+      idMap[oldId] = sid;
+      if (oldId !== sid) {
+        updates["cards/inventory/" + ownerId + "/" + oldId] = null;
+        removed++;
+      }
+    });
+  });
+
+  // Vitrine humana: trocar cardIds antigos pelo stackId
+  const scSnap = await window.marketDb.ref("cards/showcases/" + ownerId).once("value");
+  const sc = scSnap.val();
+  if (sc && Array.isArray(sc.slots)) {
+    const newSlots = sc.slots.map(slot => {
+      if (!slot) return null;
+      if (typeof slot === "string" && idMap[slot]) return idMap[slot];
+      return slot;
+    });
+    updates["cards/showcases/" + ownerId + "/slots"] = newSlots;
+  }
+
+  await window.marketDb.ref().update(updates);
+  return { stacks: Object.keys(groups).length, removed };
+}
+
+function inventoryList(ownerId) {
+  const inv = (window.AppState.cards?.inventory || {})[ownerId] || {};
+  return Object.entries(inv).map(([id, c]) => ({
+    cardId: id,
+    ...c,
+    count: Math.max(1, Number(c.count) || 1)
+  }));
+}
+
+/** Agrupa cópias por defId + rarity + foil (exibição inventário) — respeita count das pilhas */
 function inventoryGrouped(ownerId) {
   const list = inventoryList(ownerId);
   const map = {};
   list.forEach(c => {
     const defId = c.defId || catalogDefId(c.playerKey, c.edition || "BASE");
     const key = defId + "|" + (c.rarity || "common") + "|" + (c.foil || "normal");
+    const n = Math.max(1, Number(c.count) || 1);
     if (!map[key]) {
       map[key] = { ...c, defId, count: 0, copies: [] };
     }
-    map[key].count++;
+    map[key].count += n;
     map[key].copies.push(c.cardId);
   });
   return Object.values(map).sort((a, b) => {
@@ -173,7 +292,8 @@ function inventoryGrouped(ownerId) {
 function countByRarity(cards) {
   const out = { common: 0, rare: 0, epic: 0, legend: 0 };
   (cards || []).forEach(c => {
-    if (out[c.rarity] != null) out[c.rarity]++;
+    const n = Math.max(1, Number(c.count) || 1);
+    if (out[c.rarity] != null) out[c.rarity] += n;
   });
   return out;
 }
@@ -269,6 +389,10 @@ window.getSpecialsMap = getSpecialsMap;
 window.resolveCardDef = resolveCardDef;
 window.openPackResults = openPackResults;
 window.buildCardRecord = buildCardRecord;
+window.cardStackKey = cardStackKey;
+window.cardStackId = cardStackId;
+window.applyStackedCardGains = applyStackedCardGains;
+window.consolidateOwnerInventory = consolidateOwnerInventory;
 window.inventoryList = inventoryList;
 window.inventoryGrouped = inventoryGrouped;
 window.countByRarity = countByRarity;

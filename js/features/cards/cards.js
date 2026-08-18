@@ -7,6 +7,9 @@ function enterCardsMode() {
   if (!c.session.ownerId && localStorage.getItem("fantasyParticipantId")) {
     setCardsSession(localStorage.getItem("fantasyParticipantId"), localStorage.getItem("fantasyDisplayName"));
   }
+  if (!c.session.ownerId && localStorage.getItem("cardsOwnerId")) {
+    setCardsSession(localStorage.getItem("cardsOwnerId"), localStorage.getItem("cardsDisplayName") || "");
+  }
   c.active = true;
   document.body.classList.add("cards-mode");
   document.getElementById("cardsShell")?.classList.remove("hidden");
@@ -18,6 +21,7 @@ function enterCardsMode() {
   if (window.AppState.fantasy) window.AppState.fantasy.active = false;
   document.body.classList.remove("fantasy-mode", "market-open", "market-locked", "round-processed");
   ensureCardsSeeded().catch(() => {});
+  if (typeof cardsRebindOwnerListeners === "function") cardsRebindOwnerListeners();
   renderCardsShell();
 }
 
@@ -107,13 +111,13 @@ function cardsDoLogin() {
   }
   if (!found && raw.trim()) {
     setCardsSession("human_" + raw.trim().toLowerCase().replace(/\s+/g, "_"), raw.trim());
-    if (typeof cardsRebindInventoryListener === "function") cardsRebindInventoryListener();
+    if (typeof cardsRebindOwnerListeners === "function") cardsRebindOwnerListeners();
     renderCardsShell();
     return;
   }
   if (!found) return alert("Não encontrado.");
   setCardsSession(found.id, found.displayName);
-  if (typeof cardsRebindInventoryListener === "function") cardsRebindInventoryListener();
+  if (typeof cardsRebindOwnerListeners === "function") cardsRebindOwnerListeners();
   renderCardsShell();
 }
 
@@ -214,10 +218,7 @@ async function cardsOpenPack(packId) {
   });
 
   const updates = {};
-  results.forEach(r => {
-    updates["cards/inventory/" + ownerId + "/" + r.cardId] = buildCardRecord(r, packId);
-  });
-  // Remove o pack do Firebase (cartas já estão no inventário — não mexe no que o jogador tem)
+  applyStackedCardGains(ownerId, results, updates, packId);
   updates["cards/packs/" + packId] = null;
 
   try {
@@ -244,7 +245,6 @@ async function cardsOpenPacksBatch(n) {
   const seen = new Set(before);
   const allResults = [];
   const updates = {};
-  const now = new Date().toISOString();
 
   for (let i = 0; i < count; i++) {
     const [packId] = sealed[i];
@@ -254,8 +254,8 @@ async function cardsOpenPacksBatch(n) {
       r.isNewDiscovery = !seen.has(defId);
       if (r.isNewDiscovery) seen.add(defId);
       allResults.push(r);
-      updates["cards/inventory/" + ownerId + "/" + r.cardId] = buildCardRecord(r, packId);
     });
+    applyStackedCardGains(ownerId, results, updates, packId);
     updates["cards/packs/" + packId] = null;
   }
 
@@ -872,9 +872,12 @@ function renderHallCollectorsHTML(excludeOwnerId) {
     html += `<h3 class="jc-hall-subtitle">Jogadores · por prestígio</h3>`;
     html += humans.map(([id, s]) => {
       const prest = Math.floor(cardsShowcasePrestige(id, s));
+      // Preferir teamName salvo / do Fantasy; nunca mostrar o placeholder antigo "Minha vitrine"
+      let teamLabel = s.teamName || (typeof cardsOwnerTeamName === "function" ? cardsOwnerTeamName(id) : "");
+      if (!teamLabel && s.title && s.title !== "Minha vitrine") teamLabel = s.title;
       return `
       <div class="jc-npc-vitrine jc-human-vitrine">
-        <div class="jc-npc-head">👤 <strong>${s.name || "Colecionador"}</strong>${s.title ? " · " + s.title : ""} <span class="jc-hint">· prestígio ${prest}</span></div>
+        <div class="jc-npc-head">👤 <strong>${s.name || "Colecionador"}</strong>${teamLabel ? " · " + teamLabel : ""} <span class="jc-hint">· prestígio ${prest}</span></div>
         <div class="jc-showcase-row">${resolveHumanSlots(id, s)}</div>
       </div>`;
     }).join("");
@@ -913,13 +916,25 @@ function cardsAssignToSlot(cardId) {
   renderCardsShell();
 }
 
+function cardsOwnerTeamName(ownerId) {
+  if (!ownerId) return "";
+  const parts = window.AppState.fantasy?.participants || {};
+  const p = parts[ownerId];
+  if (p?.teamName) return String(p.teamName).trim();
+  const sc = (window.AppState.cards.showcases || {})[ownerId];
+  if (sc?.teamName) return String(sc.teamName).trim();
+  return "";
+}
+
 async function cardsSaveShowcase() {
   const ownerId = getCardsOwnerId();
   const slots = (window._jcShowcaseDraft || []).slice(0, cardsSettings().showcaseSlots || 6);
+  const teamName = cardsOwnerTeamName(ownerId);
   await window.marketDb.ref("cards/showcases/" + ownerId).update({
     type: "human",
     name: window.AppState.cards.session.displayName || "Colecionador",
-    title: "Minha vitrine",
+    teamName: teamName || null,
+    title: teamName || "Colecionador",
     slots,
     updatedAt: new Date().toISOString()
   });
@@ -959,18 +974,17 @@ async function cardsClaimOffer(offerId) {
   if (!o || o.claimedBy) return alert("Indisponível");
   const ownerId = getCardsOwnerId();
   if (o.ownerId && o.ownerId !== ownerId) return alert("Oferta de outro colecionador");
-  const cardId = newCardId();
-  const record = buildCardRecord({
+  const updates = {
+    ["cards/offers/" + offerId + "/claimedBy"]: ownerId,
+    ["cards/offers/" + offerId + "/claimedAt"]: new Date().toISOString()
+  };
+  applyStackedCardGains(ownerId, [{
     playerKey: o.playerKey, playerName: o.playerName, team: o.team,
     rarity: o.rarity || "rare", foil: o.foil || "normal",
     edition: o.edition || "BASE", specialImageUrl: o.specialImageUrl,
     description: o.description, source: "npc_offer"
-  });
-  await window.marketDb.ref().update({
-    ["cards/inventory/" + ownerId + "/" + cardId]: record,
-    ["cards/offers/" + offerId + "/claimedBy"]: ownerId,
-    ["cards/offers/" + offerId + "/claimedAt"]: new Date().toISOString()
-  });
+  }], updates);
+  await window.marketDb.ref().update(updates);
   alert("Carta adquirida!");
   showCardsView("inventory");
 }
@@ -1016,13 +1030,12 @@ async function cardsRedeemCode() {
     return;
   }
   if (entry.type === "card") {
-    const cardId = newCardId();
-    updates["cards/inventory/" + ownerId + "/" + cardId] = buildCardRecord({
+    applyStackedCardGains(ownerId, [{
       playerKey: entry.playerKey, playerName: entry.playerName, team: entry.team,
       rarity: entry.rarity || "rare", foil: entry.foil || "normal",
       edition: entry.edition || "BASE", specialImageUrl: entry.specialImageUrl,
       description: entry.description, source: "code"
-    });
+    }], updates);
     await window.marketDb.ref().update(updates);
     if (status) status.textContent = "Carta adicionada!";
     showCardsView("inventory");
@@ -1050,5 +1063,6 @@ window.cardsRefreshShowcaseOnly = cardsRefreshShowcaseOnly;
 window.cardsPickSlot = cardsPickSlot;
 window.cardsAssignToSlot = cardsAssignToSlot;
 window.cardsSaveShowcase = cardsSaveShowcase;
+window.cardsOwnerTeamName = cardsOwnerTeamName;
 window.cardsClaimOffer = cardsClaimOffer;
 window.cardsRedeemCode = cardsRedeemCode;
