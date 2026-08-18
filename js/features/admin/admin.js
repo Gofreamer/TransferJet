@@ -152,7 +152,7 @@ function renderAdminImport() {
 
     <h3 class="admin-section-title" style="margin-top:32px">Sincronizar stats da Jet League</h3>
     <p class="admin-sub">
-      Lê as partidas oficiais (<code>liga/matches</code>), identifica quem lutou pelo <strong>nome</strong> e soma P / V / D.
+      Lê as partidas oficiais (<code>liga/matches</code>), identifica quem lutou pelo <strong>nome</strong>, soma P / V / D e registra MVP da série / Destaque da Rodada.
       Sempre passa por <strong>revisão</strong> antes de gravar. Partidas já sincronizadas aparecem marcadas (não somam de novo, salvo se forçar).
     </p>
     <div class="admin-form-grid">
@@ -172,8 +172,12 @@ function renderAdminImport() {
     <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:0.85rem;color:var(--text-muted)">
       <input type="checkbox" id="syncForceResync"> Forçar reprocessar partidas já sincronizadas
     </label>
+    <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:0.85rem;color:var(--text-muted)">
+      <input type="checkbox" id="syncIgnoreAwards"> Ignorar bônus de MVP / Destaque nesta sync
+    </label>
     <div class="admin-actions" style="margin-top:14px;gap:10px;display:flex;flex-wrap:wrap">
       <button class="btn-primary" onclick="previewJetLeagueSync()">Analisar rodada e revisar</button>
+      <button class="btn-gray" onclick="exportMarketSnapshot()">Exportar snapshot (planilha)</button>
     </div>
     <p id="syncStatus" style="margin-top:12px;font-size:0.85rem;color:var(--text-muted)"></p>
     <div id="syncMatchList" style="margin-top:8px;font-size:0.8rem;color:var(--text-muted)"></div>
@@ -1422,6 +1426,7 @@ function confirmAIReview() {
     const matchIds = window._aiReviewData.matchIdsToMark || [];
     const season = window._aiReviewData.season || "";
     const round = window._aiReviewData.round;
+    const ignoreAwards = !!window._aiReviewData.ignoreAwards;
     const updates = {};
     const seasonLabel = window.AppState.jet.currentSeason || season || "Temporada 1";
     const inputs = document.querySelectorAll(".sync-val");
@@ -1449,6 +1454,14 @@ function confirmAIReview() {
         ? window.VALUATION.totalTitles(titles, r.trophy)
         : (r.trophy || 0);
 
+      // Contadores de prêmios: só sobem se não estiver ignorando
+      const mvpCount = ignoreAwards
+        ? (Number(existing.mvpCount) || 0)
+        : (r.mvpCount != null ? r.mvpCount : (Number(existing.mvpCount) || 0));
+      const destaqueCount = ignoreAwards
+        ? (Number(existing.destaqueCount) || 0)
+        : (r.destaqueCount != null ? r.destaqueCount : (Number(existing.destaqueCount) || 0));
+
       const payload = {
         ...existing,
         name: r.name,
@@ -1458,6 +1471,8 @@ function confirmAIReview() {
         trophy: trophyTotal,
         titles,
         stats: { P: r.P, V: r.V, D: r.D, winRate: r.wr },
+        mvpCount,
+        destaqueCount,
         statsRound: `Sync Jet · ${season} · Rodada ${round}`,
         nationality: r.nationality || existing.nationality || "Brasil",
         age: r.age || existing.age || 24,
@@ -1639,6 +1654,7 @@ function previewJetLeagueSync() {
   const round = Number(document.getElementById("syncRound")?.value);
   const mode = document.querySelector('input[name="syncMode"]:checked')?.value || "full";
   const force = !!document.getElementById("syncForceResync")?.checked;
+  const ignoreAwards = !!document.getElementById("syncIgnoreAwards")?.checked;
 
   if (!season && season !== "") {
     if (status) status.textContent = "Selecione temporada e rodada.";
@@ -1691,12 +1707,22 @@ function previewJetLeagueSync() {
     const winnerTeam = (Number(m.scoreA) > Number(m.scoreB)) ? m.timeA
       : (Number(m.scoreB) > Number(m.scoreA)) ? m.timeB : null;
 
+    // MVP da série e Destaque da Rodada (campos já gravados na Jet League)
+    const mvpName = (m.seriesMvp && m.seriesMvp.agent) || m.mvp || "";
+    const destaqueName = m.destaqueRodada || "";
+    const mvpKey = mvpName ? normalizeAgentName(mvpName) : "";
+    const destaqueKey = destaqueName ? normalizeAgentName(destaqueName) : "";
+
+    const awardBits = [];
+    if (mvpName) awardBits.push(`⭐ MVP: ${mvpName}`);
+    if (destaqueName) awardBits.push(`🌟 Destaque: ${destaqueName}`);
+
     matchIdsToMark.push(m.id);
     matchSummaries.push({
       id: m.id,
       label: `${m.timeA} ${m.scoreA}×${m.scoreB} ${m.timeB}`,
       status: already ? "resync" : "ok",
-      reason: `${participants.size} agente(s)`,
+      reason: `${participants.size} agente(s)${awardBits.length ? " · " + awardBits.join(" · ") : ""}`,
       already
     });
 
@@ -1722,9 +1748,13 @@ function previewJetLeagueSync() {
           oldP: Number(st.P) || 0,
           oldV: Number(st.V) || 0,
           oldD: Number(st.D) || 0,
+          oldMvp: Number(existing.mvpCount) || 0,
+          oldDestaque: Number(existing.destaqueCount) || 0,
           addP: 0,
           addV: 0,
           addD: 0,
+          addMvp: 0,
+          addDestaque: 0,
           matches: [],
           oldValue: existing.marketValue ?? null,
           nationality: existing.nationality || "Brasil",
@@ -1740,6 +1770,9 @@ function previewJetLeagueSync() {
       else if (winnerTeam) row.addD += 1;
       // empate de série (raro na liga) → só P
       row.matches.push(m.id || matchSummaries[matchSummaries.length - 1].label);
+
+      if (mvpKey && nameKey === mvpKey) row.addMvp += 1;
+      if (destaqueKey && nameKey === destaqueKey) row.addDestaque += 1;
     });
   });
 
@@ -1747,6 +1780,9 @@ function previewJetLeagueSync() {
     const P = r.oldP + r.addP;
     const V = r.oldV + r.addV;
     const D = r.oldD + r.addD;
+    // Se ignorar prêmios: não incrementa contadores nem aplica bônus novo
+    const mvpCount = ignoreAwards ? r.oldMvp : (r.oldMvp + r.addMvp);
+    const destaqueCount = ignoreAwards ? r.oldDestaque : (r.oldDestaque + r.addDestaque);
     const calc = window.VALUATION.calculate({
       rank: r.rank,
       func: r.func,
@@ -1754,11 +1790,16 @@ function previewJetLeagueSync() {
       trophy: r.trophy,
       titles: r.titles,
       P, V, D,
-      team: r.team
+      team: r.team,
+      mvpCount,
+      destaqueCount
     });
     return {
       ...r,
       P, V, D,
+      mvpCount,
+      destaqueCount,
+      applyAwards: !ignoreAwards,
       wr: calc.wr,
       newValue: calc.value,
       peak: calc.peak
@@ -1766,7 +1807,8 @@ function previewJetLeagueSync() {
   }).sort((a, b) => b.addP - a.addP || a.name.localeCompare(b.name));
 
   if (status) {
-    status.textContent = `${rows.length} agentes com delta · ${matchIdsToMark.length} partida(s) a sincronizar · ${skippedSynced} já sync ignorada(s)`;
+    const awardsNote = ignoreAwards ? " · prêmios ignorados" : "";
+    status.textContent = `${rows.length} agentes com delta · ${matchIdsToMark.length} partida(s) a sincronizar · ${skippedSynced} já sync ignorada(s)${awardsNote}`;
   }
 
   showSyncReviewModal({
@@ -1777,12 +1819,13 @@ function previewJetLeagueSync() {
     mode,
     season,
     round,
-    force
+    force,
+    ignoreAwards
   });
 }
 
 function showSyncReviewModal(payload) {
-  const { rows, unmatched, matchSummaries, matchIdsToMark, mode, season, round } = payload;
+  const { rows, unmatched, matchSummaries, matchIdsToMark, mode, season, round, ignoreAwards } = payload;
   const overlay = document.getElementById("aiReviewOverlay");
   const body = document.getElementById("aiReviewBody");
   const title = document.getElementById("aiReviewTitle");
@@ -1794,10 +1837,14 @@ function showSyncReviewModal(payload) {
     mode,
     matchIdsToMark,
     season,
-    round
+    round,
+    ignoreAwards: !!ignoreAwards
   };
 
   title.textContent = `Revisar sync Jet League · ${season} · Rodada ${round}`;
+
+  const mvpTotal = rows.reduce((s, r) => s + (r.addMvp || 0), 0);
+  const destTotal = rows.reduce((s, r) => s + (r.addDestaque || 0), 0);
 
   body.innerHTML = `
     <div class="import-summary">
@@ -1809,6 +1856,10 @@ function showSyncReviewModal(payload) {
     <p style="font-size:0.85rem;color:var(--cyan);margin-bottom:10px">
       Modo: <strong>${statsOnly ? "somente stats" : "stats + recalcular valor"}</strong>.
       P/V/D são <strong>somados</strong> ao que já está no perfil (não substituem a temporada inteira).
+      ${ignoreAwards
+        ? `<br><span style="color:var(--orange)">Bônus de MVP/Destaque <strong>ignorados</strong> nesta sync (contadores não sobem).</span>`
+        : `<br>Prêmios detectados nesta rodada: <strong>⭐ ${mvpTotal} MVP</strong> · <strong>🌟 ${destTotal} Destaque</strong> (+4% / +7% no valor).`
+      }
     </p>
     <div class="rumor-card" style="margin-bottom:12px">
       <strong>Partidas</strong>
@@ -1835,6 +1886,7 @@ function showSyncReviewModal(payload) {
           <tr>
             <th>Agente</th><th>Time</th>
             <th>ΔP</th><th>ΔV</th><th>ΔD</th>
+            <th>⭐</th><th>🌟</th>
             <th>P-V-D final</th>
             <th>Valor atual</th>
             <th>Novo valor</th>
@@ -1848,6 +1900,8 @@ function showSyncReviewModal(payload) {
               <td style="color:var(--cyan)">+${r.addP}</td>
               <td style="color:var(--green)">+${r.addV}</td>
               <td style="color:var(--red)">+${r.addD}</td>
+              <td style="color:var(--cyan)">${r.addMvp ? "+" + r.addMvp : "—"}</td>
+              <td style="color:var(--cyan)">${r.addDestaque ? "+" + r.addDestaque : "—"}</td>
               <td>${r.P}-${r.V}-${r.D}</td>
               <td style="color:var(--text-muted)">${r.oldValue != null ? formatUSD(r.oldValue, true) : "—"}</td>
               <td>${statsOnly
@@ -1863,6 +1917,50 @@ function showSyncReviewModal(payload) {
   overlay.classList.add("open");
 }
 
+
+/** Exporta snapshot atual do Market (P/V/D, valores, prêmios) em planilha .xlsx */
+function exportMarketSnapshot() {
+  if (typeof XLSX === "undefined") {
+    alert("Biblioteca XLSX não carregada. Recarregue a página e tente de novo.");
+    return;
+  }
+  const players = window.AppState.market.players || {};
+  const rows = Object.entries(players).map(([key, p]) => {
+    const st = p.stats || {};
+    return {
+      key,
+      name: p.name || key.split("_").slice(1).join("_"),
+      team: p.team || key.split("_")[0] || "",
+      rank: p.rank || "",
+      functionRole: p.functionRole || "",
+      P: Number(st.P) || 0,
+      V: Number(st.V) || 0,
+      D: Number(st.D) || 0,
+      winRate: st.winRate != null ? st.winRate : (st.P > 0 ? +(st.V / st.P).toFixed(3) : ""),
+      marketValue: p.marketValue ?? "",
+      peakValue: p.peakValue ?? "",
+      mvpCount: Number(p.mvpCount) || 0,
+      destaqueCount: Number(p.destaqueCount) || 0,
+      trophy: p.trophy ?? "",
+      statsRound: p.statsRound || "",
+      nationality: p.nationality || "",
+      age: p.age ?? "",
+      status: p.status || "",
+      contractUntil: p.contractUntil || ""
+    };
+  }).sort((a, b) => String(a.team).localeCompare(String(b.team)) || String(a.name).localeCompare(String(b.name)));
+
+  if (!rows.length) {
+    alert("Nenhum agente no Market para exportar.");
+    return;
+  }
+
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Market Snapshot");
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+  XLSX.writeFile(wb, `jet-market-snapshot-${stamp}.xlsx`);
+}
 
 window.openAdmin = openAdmin;
 window.closeAdmin = closeAdmin;
@@ -1881,6 +1979,7 @@ window.processImportFile = processImportFile;
 window.populateSyncSelectors = populateSyncSelectors;
 window.refreshSyncRoundOptions = refreshSyncRoundOptions;
 window.previewJetLeagueSync = previewJetLeagueSync;
+window.exportMarketSnapshot = exportMarketSnapshot;
 
 window.forceReseedFromCode = forceReseedFromCode;
 window.setTransferWindow = setTransferWindow;
