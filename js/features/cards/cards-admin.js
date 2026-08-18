@@ -61,6 +61,7 @@ function renderCardsAdmin(subTab) {
         <div><label>Rare</label><input type="number" step="0.01" id="jcRateR" value="${s.rates?.rare ?? 0.13}"></div>
         <div><label>Epic</label><input type="number" step="0.01" id="jcRateE" value="${s.rates?.epic ?? 0.04}"></div>
         <div><label>Legend</label><input type="number" step="0.01" id="jcRateL" value="${s.rates?.legend ?? 0.01}"></div>
+        <div><label>Especial (ED)</label><input type="number" step="0.01" min="0" max="1" id="jcRateSp" value="${s.specialChance ?? 0.08}" title="Chance de virar edição especial (respeita raridade mínima do especial)"></div>
         <div><label>Label do ciclo</label><input type="text" id="jcCycle" value="${s.cycleLabel || ""}" placeholder="CICLO III"></div>
         <div><label>Temporada</label><input type="text" id="jcSeason" value="${s.seasonId || window.AppState.jet?.currentSeason || ""}"></div>
         <div><label>Slots vitrine</label><input type="number" id="jcSlots" min="3" max="12" value="${s.showcaseSlots ?? 6}"></div>
@@ -405,6 +406,8 @@ async function jcAdminSeed() {
 }
 
 async function jcAdminSaveConfig() {
+  const spRaw = Number(document.getElementById("jcRateSp")?.value);
+  const specialChance = Number.isFinite(spRaw) ? Math.max(0, Math.min(1, spRaw)) : 0.08;
   await saveCardsSettings({
     packSize: Number(document.getElementById("jcPackSize")?.value) || 3,
     rates: {
@@ -413,6 +416,7 @@ async function jcAdminSaveConfig() {
       epic: Number(document.getElementById("jcRateE")?.value) || 0.065,
       legend: Number(document.getElementById("jcRateL")?.value) || 0.015
     },
+    specialChance,
     cycleLabel: document.getElementById("jcCycle")?.value || null,
     seasonId: document.getElementById("jcSeason")?.value || window.AppState.jet.currentSeason,
     showcaseSlots: Number(document.getElementById("jcSlots")?.value) || 6

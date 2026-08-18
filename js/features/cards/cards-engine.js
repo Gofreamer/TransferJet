@@ -73,69 +73,58 @@ function openPackResults(count, rates) {
   const n = count || cardsSettings().packSize || 3;
   const results = [];
 
+  // Ordem de raridade para checar mínimo do especial
+  const order = ["common", "rare", "epic", "legend"];
+  const rarityOrder = (r) => {
+    const i = order.indexOf(String(r || "").toLowerCase());
+    return i >= 0 ? i : 0;
+  };
+  const settings = cardsSettings();
+  const spRaw = Number(settings.specialChance);
+  const spChance = Number.isFinite(spRaw) ? Math.max(0, Math.min(1, spRaw)) : 0.08;
+
   for (let i = 0; i < n; i++) {
+    // 1) Raridade sempre pelas rates (dificuldade)
+    const rarity = rollRarity(rates);
     let def = null;
     let fromSpecial = false;
-    // ~8% chance de especial se houver no pool
-    if (specialPool.length && Math.random() < 0.08) {
-      def = specialPool[Math.floor(Math.random() * specialPool.length)];
-      fromSpecial = true;
-    } else if (pool && pool.length) {
-      def = pool[Math.floor(Math.random() * pool.length)];
-    } else {
-      const p = pickRandomPlayer(players);
-      if (!p) continue;
-      def = {
-        defId: catalogDefId(p.key, "BASE"),
-        playerKey: p.key,
-        playerName: p.name,
-        team: p.club,
-        rank: p.rank,
-        edition: "BASE",
-        number: null
-      };
+
+    // 2) Chance configurável de ED — só se raridade sorteada >= mínima do especial
+    if (specialPool.length && Math.random() < spChance) {
+      const eligible = specialPool.filter(s => {
+        const minR = String(s.defaultRarity || s.rarity || "epic").toLowerCase();
+        return rarityOrder(rarity) >= rarityOrder(minR);
+      });
+      if (eligible.length) {
+        def = eligible[Math.floor(Math.random() * eligible.length)];
+        fromSpecial = true;
+      }
     }
 
-    // Especial no pool: raridade mínima (floor) + foil híbrido
-    // defaultRarity = mínimo permitido → sorteia entre ela e as acima (rates renormalizadas)
-    // defaultFoil = "holo" força holo; "normal" usa chance normal da raridade
-    // BASE: continua sorteando pelas rates globais
-    let rarity;
+    if (!fromSpecial) {
+      if (pool && pool.length) {
+        def = pool[Math.floor(Math.random() * pool.length)];
+      } else {
+        const p = pickRandomPlayer(players);
+        if (!p) continue;
+        def = {
+          defId: catalogDefId(p.key, "BASE"),
+          playerKey: p.key,
+          playerName: p.name,
+          team: p.club,
+          rank: p.rank,
+          edition: "BASE",
+          number: null
+        };
+      }
+    }
+
+    // 3) Foil: especial com "holo" força; senão chance normal da raridade
     let foil;
     if (fromSpecial) {
-      const order = ["common", "rare", "epic", "legend"];
-      const dr = String(def.defaultRarity || def.rarity || "epic").toLowerCase();
-      const minIdx = Math.max(0, order.indexOf(dr));
-      const allowedRarities = order.slice(minIdx);
-      const baseRates = rates || cardsSettings().rates || window.CARDS.DEFAULTS.rates;
-      const filtered = {};
-      let sum = 0;
-      for (const k of allowedRarities) {
-        const v = Number(baseRates[k]) || 0;
-        filtered[k] = v;
-        sum += v;
-      }
-      if (sum <= 0) {
-        // fallback: tudo na raridade mínima
-        rarity = allowedRarities[0] || "epic";
-      } else {
-        // renormaliza e sorteia
-        const x = Math.random() * sum;
-        let acc = 0;
-        rarity = allowedRarities[allowedRarities.length - 1];
-        for (const k of allowedRarities) {
-          acc += filtered[k];
-          if (x <= acc) { rarity = k; break; }
-        }
-      }
       const df = String(def.defaultFoil || def.foil || "normal").toLowerCase();
-      if (df === "holo") {
-        foil = "holo";
-      } else {
-        foil = rollHolo(rarity) ? "holo" : "normal";
-      }
+      foil = df === "holo" ? "holo" : (rollHolo(rarity) ? "holo" : "normal");
     } else {
-      rarity = rollRarity(rates);
       foil = rollHolo(rarity) ? "holo" : "normal";
     }
 

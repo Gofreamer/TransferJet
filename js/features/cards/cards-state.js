@@ -4,6 +4,7 @@ window.CARDS = window.CARDS || {};
 window.CARDS.DEFAULTS = {
   packSize: 3,
   rates: { common: 0.70, rare: 0.22, epic: 0.065, legend: 0.015 },
+  specialChance: 0.08, // chance de virar edição especial (se houver no pool e raridade >= mínima)
   holoChance: { common: 0.02, rare: 0.08, epic: 0.25, legend: 0.55 },
   showcaseSlots: 6,
   seasonId: null,
