@@ -1558,6 +1558,9 @@ function refreshSyncRoundOptions() {
   const rounds = Object.keys(grouped[season] || {}).map(Number).sort((a, b) => a - b);
   const synced = getSyncedMatchMap();
 
+  // Guarda a seleção atual para não resetar ao reconstruir as opções
+  const prevValue = roundEl.value;
+
   roundEl.innerHTML = rounds.length
     ? rounds.map(r => {
         const ms = grouped[season][r] || [];
@@ -1567,7 +1570,14 @@ function refreshSyncRoundOptions() {
       }).join("")
     : `<option value="">—</option>`;
 
-  if (listEl) {
+  // Restaura a seleção se ainda existir na lista
+  if (prevValue !== "" && rounds.includes(Number(prevValue))) {
+    roundEl.value = prevValue;
+  }
+
+  // Atualiza só a lista de partidas (sem reconstruir o select)
+  function updateMatchList() {
+    if (!listEl) return;
     const r = Number(roundEl.value);
     const ms = (grouped[season] && grouped[season][r]) || [];
     listEl.innerHTML = ms.length
@@ -1579,7 +1589,10 @@ function refreshSyncRoundOptions() {
       : "Nenhuma partida encontrada para esta combinação.";
   }
 
-  roundEl.onchange = () => refreshSyncRoundOptions();
+  updateMatchList();
+
+  // onchange da rodada só atualiza a lista, não reconstrói opções
+  roundEl.onchange = updateMatchList;
 }
 
 /** Extrai participantes de uma partida (por nome + time da série). */
