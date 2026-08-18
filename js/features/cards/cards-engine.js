@@ -96,16 +96,44 @@ function openPackResults(count, rates) {
       };
     }
 
-    // Especial no pool: raridade e foil fixos do cadastro (defaultRarity / defaultFoil)
+    // Especial no pool: raridade mínima (floor) + foil híbrido
+    // defaultRarity = mínimo permitido → sorteia entre ela e as acima (rates renormalizadas)
+    // defaultFoil = "holo" força holo; "normal" usa chance normal da raridade
     // BASE: continua sorteando pelas rates globais
     let rarity;
     let foil;
     if (fromSpecial) {
-      const allowed = { common: 1, rare: 1, epic: 1, legend: 1 };
+      const order = ["common", "rare", "epic", "legend"];
       const dr = String(def.defaultRarity || def.rarity || "epic").toLowerCase();
-      rarity = allowed[dr] ? dr : "epic";
+      const minIdx = Math.max(0, order.indexOf(dr));
+      const allowedRarities = order.slice(minIdx);
+      const baseRates = rates || cardsSettings().rates || window.CARDS.DEFAULTS.rates;
+      const filtered = {};
+      let sum = 0;
+      for (const k of allowedRarities) {
+        const v = Number(baseRates[k]) || 0;
+        filtered[k] = v;
+        sum += v;
+      }
+      if (sum <= 0) {
+        // fallback: tudo na raridade mínima
+        rarity = allowedRarities[0] || "epic";
+      } else {
+        // renormaliza e sorteia
+        const x = Math.random() * sum;
+        let acc = 0;
+        rarity = allowedRarities[allowedRarities.length - 1];
+        for (const k of allowedRarities) {
+          acc += filtered[k];
+          if (x <= acc) { rarity = k; break; }
+        }
+      }
       const df = String(def.defaultFoil || def.foil || "normal").toLowerCase();
-      foil = df === "holo" ? "holo" : "normal";
+      if (df === "holo") {
+        foil = "holo";
+      } else {
+        foil = rollHolo(rarity) ? "holo" : "normal";
+      }
     } else {
       rarity = rollRarity(rates);
       foil = rollHolo(rarity) ? "holo" : "normal";

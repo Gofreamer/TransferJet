@@ -90,7 +90,7 @@ function renderCardsAdmin(subTab) {
   } else if (tab === "cartas") {
     body = `
       <h3 class="admin-section-title">Edição especial</h3>
-      <p class="admin-sub">MVP, Champion, Finals, Commemorative… com arte por URL opcional.</p>
+      <p class="admin-sub">MVP, Champion, Finals, Commemorative… com arte por URL opcional. Raridade mínima = floor (ex: Epic sai Epic ou Legend). HOLO “Chance normal” sorteia; “Sempre Holo” força.</p>
       <div class="admin-form-grid">
         <div><label>Tipo</label><select id="jcSpEdition">${editionOpts}</select></div>
         <div>
@@ -99,14 +99,20 @@ function renderCardsAdmin(subTab) {
         </div>
         <div><label>Equipe (congelada)</label><input type="text" id="jcSpTeam" placeholder="deixe vazio = equipe atual"></div>
         <div>
-          <label>Raridade padrão</label>
+          <label>Raridade mínima</label>
           <select id="jcSpRarity">
-            <option value="rare">Rare</option>
-            <option value="epic" selected>Epic</option>
-            <option value="legend">Legend</option>
+            <option value="rare">Rare (e acima)</option>
+            <option value="epic" selected>Epic (e acima)</option>
+            <option value="legend">Legend (só)</option>
           </select>
         </div>
-        <div><label>HOLO padrão</label><select id="jcSpFoil"><option value="normal">Normal</option><option value="holo">Holo</option></select></div>
+        <div>
+          <label>HOLO</label>
+          <select id="jcSpFoil">
+            <option value="normal">Chance normal</option>
+            <option value="holo">Sempre Holo</option>
+          </select>
+        </div>
         <div><label>Ciclo</label><input type="text" id="jcSpCycle" value="${s.cycleLabel || (typeof cardsCycleLabel==="function"?cardsCycleLabel():"")}"></div>
         <div><label>No pool de packs?</label><select id="jcSpPool"><option value="no">Não</option><option value="yes">Sim</option></select></div>
         <div class="full"><label>Imagem URL</label><input type="url" id="jcSpImg"></div>
