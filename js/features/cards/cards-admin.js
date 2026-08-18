@@ -141,22 +141,39 @@ function renderCardsAdmin(subTab) {
       </div>
 
       <h3 class="admin-section-title" style="margin-top:22px">Dar carta direta</h3>
+      <p class="admin-sub">Só cartas que já existem no catálogo BASE ou em especiais cadastrados.</p>
       <div class="admin-form-grid">
         <div>
           <label>Jogador</label>
           <select id="jcGrantOwner">${humanOpts}</select>
         </div>
-        <div>
-          <label>Agente</label>
-          <select id="jcGrantPlayer">${playerOpts}</select>
+        <div class="full">
+          <label>Carta do deck</label>
+          <select id="jcGrantDef">${(() => {
+            const cat = Object.entries(window.AppState.cards.catalog || {});
+            const sp = Object.entries(window.AppState.cards.specials || {});
+            const rows = [];
+            cat.forEach(([id, c]) => {
+              const num = c.number != null ? "JL-" + String(c.number).padStart(3, "0") : "—";
+              const name = c.playerName || c.playerKey || id;
+              rows.push({ id, kind: "catalog", label: `${num} · ${name} · BASE`, sort: name });
+            });
+            sp.forEach(([id, c]) => {
+              const num = c.number != null ? "JL-" + String(c.number).padStart(3, "0") : "—";
+              const name = c.playerName || c.playerKey || id;
+              const ed = c.edition || "SPECIAL";
+              rows.push({ id, kind: "special", label: `${num} · ${name} · ${ed}`, sort: name });
+            });
+            rows.sort((a, b) => a.sort.localeCompare(b.sort) || a.label.localeCompare(b.label));
+            if (!rows.length) return "<option value=''>Nenhuma carta no deck</option>";
+            return rows.map(r => `<option value="${r.kind}|${r.id}">${r.label}</option>`).join("");
+          })()}</select>
         </div>
-        <div><label>Edição</label><select id="jcGrantEdition">${editionOpts}</select></div>
         <div>
           <label>Raridade</label>
-          <select id="jcGrantRarity"><option value="legend">Legend</option><option value="epic">Epic</option><option value="rare">Rare</option></select>
+          <select id="jcGrantRarity"><option value="legend">Legend</option><option value="epic">Epic</option><option value="rare">Rare</option><option value="common">Common</option></select>
         </div>
         <div><label>Foil</label><select id="jcGrantFoil"><option value="holo">Holo</option><option value="normal">Normal</option></select></div>
-        <div class="full"><label>Imagem URL</label><input type="url" id="jcGrantImg"></div>
       </div>
       <div class="admin-actions" style="margin-top:8px">
         <button class="btn-primary btn-sm" onclick="jcAdminGrantCard()">Dar carta</button>
@@ -511,20 +528,20 @@ async function jcAdminGrantPack() {
   const target = humans.find(([id]) => id === ownerId);
   const name = target?.[1]?.displayName || ownerId;
 
-  const now = new Date().toISOString();
   const updates = {};
-  for (let i = 0; i < qty; i++) {
-    const packId = "pack_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8) + "_" + i;
-    updates["cards/packs/" + packId] = {
-      ownerId,
-      status: "sealed",
-      label: "Pack Admin",
-      source: "admin",
-      grantedAt: now
-    };
+  if (typeof applyStackedPackGains === "function") {
+    applyStackedPackGains(ownerId, qty, { label: "Pack Admin", source: "admin" }, updates);
+  } else {
+    const now = new Date().toISOString();
+    for (let i = 0; i < qty; i++) {
+      const packId = "pack_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8) + "_" + i;
+      updates["cards/packs/" + packId] = {
+        ownerId, status: "sealed", label: "Pack Admin", source: "admin", grantedAt: now, count: 1
+      };
+    }
   }
   await window.marketDb.ref().update(updates);
-  alert(`${qty} pack${qty > 1 ? "s" : ""} → ${name}`);
+  alert(`${qty} pack${qty > 1 ? "s" : ""} → ${name} (empilhado)`);
   renderCardsAdmin();
 }
 
@@ -591,27 +608,36 @@ async function jcAdminCreateOffer() {
 
 async function jcAdminGrantCard() {
   const ownerId = document.getElementById("jcGrantOwner")?.value;
-  const sel = document.getElementById("jcGrantPlayer");
-  const opt = sel?.selectedOptions?.[0];
-  if (!ownerId || !opt?.value) return alert("Preencha");
+  const raw = document.getElementById("jcGrantDef")?.value || "";
+  if (!ownerId || !raw || !raw.includes("|")) return alert("Selecione jogador e uma carta do deck");
+  const [kind, defId] = raw.split("|");
+  const fromCat = kind === "catalog" ? (window.AppState.cards.catalog || {})[defId] : null;
+  const fromSp = kind === "special" ? (window.AppState.cards.specials || {})[defId] : null;
+  const def = fromCat || fromSp;
+  if (!def) return alert("Carta não encontrada no deck");
+
   // Garante inventário do dono em memória
   if (!(window.AppState.cards.inventory || {})[ownerId] && typeof cardsFetchInventoryOnce === "function") {
     await cardsFetchInventoryOnce(ownerId);
   }
   const updates = {};
   applyStackedCardGains(ownerId, [{
-    playerKey: opt.value,
-    playerName: opt.dataset.name,
-    team: opt.dataset.team,
-    rank: opt.dataset.rank,
-    edition: document.getElementById("jcGrantEdition")?.value || "BASE",
+    defId: def.defId || defId,
+    playerKey: def.playerKey,
+    playerName: def.playerName,
+    team: def.team,
+    rank: def.rank,
+    edition: def.edition || (kind === "catalog" ? "BASE" : "SPECIAL"),
+    number: def.number != null ? def.number : null,
     rarity: document.getElementById("jcGrantRarity")?.value || "legend",
     foil: document.getElementById("jcGrantFoil")?.value || "holo",
-    specialImageUrl: document.getElementById("jcGrantImg")?.value || null,
+    specialImageUrl: def.specialImageUrl || null,
+    description: def.description || "",
     source: "admin"
   }], updates);
   await window.marketDb.ref().update(updates);
-  alert("Carta concedida (empilhada)");
+  const label = (def.playerName || def.playerKey) + " · " + (def.edition || "BASE");
+  alert("Carta concedida (empilhada): " + label);
   renderCardsAdmin();
 }
 

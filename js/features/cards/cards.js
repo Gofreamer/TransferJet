@@ -125,7 +125,7 @@ function renderCardsHub(container) {
   const ownerId = getCardsOwnerId();
   const cards = inventoryList(ownerId);
   const counts = countByRarity(cards);
-  const sealed = Object.values(window.AppState.cards.packs || {}).filter(p => p.ownerId === ownerId && p.status === "sealed");
+  const sealedTotal = typeof totalSealedPacks === "function" ? totalSealedPacks(ownerId) : Object.values(window.AppState.cards.packs || {}).filter(p => p.ownerId === ownerId && p.status === "sealed").length;
   const dex = carddexEntries(ownerId);
   const discovered = dex.filter(e => e.discovered).length;
   const showcase = (window.AppState.cards.showcases || {})[ownerId];
@@ -139,7 +139,7 @@ function renderCardsHub(container) {
         <div class="jc-kpi"><div class="jc-kpi-label">Álbum</div><div class="jc-kpi-value">${discovered}<small>/${dex.length || "—"}</small></div></div>
         <div class="jc-kpi"><div class="jc-kpi-label">Cartas</div><div class="jc-kpi-value">${cards.length}</div></div>
         <div class="jc-kpi"><div class="jc-kpi-label">Legend</div><div class="jc-kpi-value gold">${counts.legend}</div></div>
-        <div class="jc-kpi"><div class="jc-kpi-label">Pacotes</div><div class="jc-kpi-value">${sealed.length}</div></div>
+        <div class="jc-kpi"><div class="jc-kpi-label">Pacotes</div><div class="jc-kpi-value">${sealedTotal}</div></div>
       </div>
       <div class="jc-section">
         <div class="jc-section-head"><h2>Vitrine</h2><button class="jc-btn sm" onclick="showCardsView('showcase')">Editar</button></div>
@@ -167,42 +167,74 @@ function renderCardsHub(container) {
 /* ========== PACKS + abertura sequencial ========== */
 function renderCardsPacks(container) {
   const ownerId = getCardsOwnerId();
-  // Só lacrados — abertos somem da lista (cartas já estão no inventário)
-  const packs = Object.entries(window.AppState.cards.packs || {})
-    .filter(([, p]) => p.ownerId === ownerId && p.status === "sealed")
-    .sort((a, b) => (b[1].grantedAt || "").localeCompare(a[1].grantedAt || ""));
+  // Empilhados por label+source — lista estável, só o contador muda
+  const groups = typeof groupSealedPacks === "function" ? groupSealedPacks(ownerId) : [];
+  const total = typeof totalSealedPacks === "function" ? totalSealedPacks(ownerId) : groups.reduce((s, g) => s + g.total, 0);
 
-  const batchBtn = packs.length >= 10
+  const batchBtn = total >= 10
     ? `<button class="jc-btn primary" onclick="cardsOpenPacksBatch(10)">Abrir 10 packs</button>`
     : "";
-  const allBtn = packs.length >= 2 && packs.length < 10
-    ? `<button class="jc-btn" onclick="cardsOpenPacksBatch(${packs.length})">Abrir todos (${packs.length})</button>`
-    : packs.length > 10
-      ? `<button class="jc-btn" onclick="cardsOpenPacksBatch(${packs.length})">Abrir todos (${packs.length})</button>`
+  const allBtn = total >= 2 && total < 10
+    ? `<button class="jc-btn" onclick="cardsOpenPacksBatch(${total})">Abrir todos (${total})</button>`
+    : total > 10
+      ? `<button class="jc-btn" onclick="cardsOpenPacksBatch(${total})">Abrir todos (${total})</button>`
       : "";
 
   container.innerHTML = `
     <div class="jc-section">
-      <h2>Pacotes ${packs.length ? `<span class="jc-hint" style="font-weight:400">· ${packs.length} lacrado${packs.length > 1 ? "s" : ""}</span>` : ""}</h2>
-      <p class="jc-hint">Revelação carta a carta. Depois de abrir, o pack some daqui — as cartas ficam no inventário.</p>
-      ${packs.length >= 2 ? `<div class="jc-actions-row" style="margin-bottom:12px">${batchBtn}${allBtn}</div>` : ""}
+      <h2>Pacotes ${total ? `<span class="jc-hint" style="font-weight:400">· ${total} lacrado${total > 1 ? "s" : ""}</span>` : ""}</h2>
+      <p class="jc-hint">Revelação carta a carta. Packs iguais ficam empilhados — a lista não treme ao abrir.</p>
+      ${total >= 2 ? `<div class="jc-actions-row" style="margin-bottom:12px">${batchBtn}${allBtn}</div>` : ""}
       <div class="jc-pack-list">
-        ${packs.map(([id, p]) => `
+        ${groups.map(g => {
+          const firstId = g.units[0]?.id || "";
+          const qtyLabel = g.total > 1 ? ` ×${g.total}` : "";
+          return `
           <div class="jc-pack-item status-sealed">
             <div class="jc-pack-visual">📦</div>
             <div class="jc-pack-info">
-              <div class="jc-pack-title">${p.label || "Pacote Jet Cards"}</div>
-              <div class="jc-pack-meta">Lacrado · ${p.source || ""}</div>
+              <div class="jc-pack-title">${g.label}${qtyLabel}</div>
+              <div class="jc-pack-meta">Lacrado · ${g.source || "—"}${g.total > 1 ? " · pilha" : ""}</div>
             </div>
-            <button class="jc-btn primary sm" onclick="cardsOpenPack('${id}')">Abrir</button>
-          </div>
-        `).join("") || "<p class='jc-hint'>Nenhum pacote. Resgate um código ou peça ao Admin.</p>"}
+            <button class="jc-btn primary sm" onclick="cardsOpenPackFromGroup('${encodeURIComponent(g.key)}')">Abrir</button>
+          </div>`;
+        }).join("") || "<p class='jc-hint'>Nenhum pacote. Resgate um código ou peça ao Admin.</p>"}
       </div>
       <div id="jcPackStage" class="jc-pack-stage hidden"></div>
     </div>
   `;
 }
 
+/** Abre 1 pack de um grupo empilhado (key = label|source) */
+async function cardsOpenPackFromGroup(groupKeyEnc) {
+  const ownerId = getCardsOwnerId();
+  const groupKey = decodeURIComponent(groupKeyEnc || "");
+  const groups = typeof groupSealedPacks === "function" ? groupSealedPacks(ownerId) : [];
+  const g = groups.find(x => x.key === groupKey);
+  if (!g || !g.total) return alert("Pacote indisponível");
+
+  const before = discoveredDefIds(ownerId);
+  const results = openPackResults(cardsSettings().packSize, cardsSettings().rates);
+  results.forEach(r => {
+    const defId = r.defId || catalogDefId(r.playerKey, r.edition || "BASE");
+    r.isNewDiscovery = !before.has(defId);
+  });
+
+  const updates = {};
+  applyStackedCardGains(ownerId, results, updates, g.units[0]?.id || null);
+  const consumed = typeof consumePackUnits === "function" ? consumePackUnits(g.units, 1, updates) : 0;
+  if (consumed < 1) return alert("Pacote indisponível");
+
+  try {
+    await window.marketDb.ref().update(updates);
+  } catch (e) {
+    return alert("Erro ao salvar: " + (e.message || e));
+  }
+
+  cardsRunRevealSequence(results, false);
+}
+
+/** Compat: abrir por id direto (legado) */
 async function cardsOpenPack(packId) {
   const pack = (window.AppState.cards.packs || {})[packId];
   if (!pack || pack.status !== "sealed") return alert("Pacote indisponível");
@@ -211,7 +243,6 @@ async function cardsOpenPack(packId) {
 
   const before = discoveredDefIds(ownerId);
   const results = openPackResults(cardsSettings().packSize, cardsSettings().rates);
-
   results.forEach(r => {
     const defId = r.defId || catalogDefId(r.playerKey, r.edition || "BASE");
     r.isNewDiscovery = !before.has(defId);
@@ -219,7 +250,8 @@ async function cardsOpenPack(packId) {
 
   const updates = {};
   applyStackedCardGains(ownerId, results, updates, packId);
-  updates["cards/packs/" + packId] = null;
+  const units = [{ id: packId, count: packUnitCount(pack), grantedAt: pack.grantedAt || "" }];
+  consumePackUnits(units, 1, updates);
 
   try {
     await window.marketDb.ref().update(updates);
@@ -233,11 +265,8 @@ async function cardsOpenPack(packId) {
 /** Abre N packs de uma vez (ex.: 10). Junta todas as cartas e mostra o resultado. */
 async function cardsOpenPacksBatch(n) {
   const ownerId = getCardsOwnerId();
-  const sealed = Object.entries(window.AppState.cards.packs || {})
-    .filter(([, p]) => p.ownerId === ownerId && p.status === "sealed")
-    .sort((a, b) => (a[1].grantedAt || "").localeCompare(b[1].grantedAt || ""));
-
-  const count = Math.min(Math.max(1, n || 10), sealed.length);
+  const total = typeof totalSealedPacks === "function" ? totalSealedPacks(ownerId) : 0;
+  const count = Math.min(Math.max(1, n || 10), total);
   if (count < 1) return alert("Nenhum pack lacrado");
   if (!confirm(`Abrir ${count} pack${count > 1 ? "s" : ""} de uma vez?`)) return;
 
@@ -246,8 +275,13 @@ async function cardsOpenPacksBatch(n) {
   const allResults = [];
   const updates = {};
 
-  for (let i = 0; i < count; i++) {
-    const [packId] = sealed[i];
+  // Consome de todos os grupos (FIFO por grantedAt via consumePackUnits)
+  const groups = typeof groupSealedPacks === "function" ? groupSealedPacks(ownerId) : [];
+  const allUnits = groups.flatMap(g => g.units);
+  const consumed = typeof consumePackUnits === "function" ? consumePackUnits(allUnits, count, updates) : 0;
+  if (consumed < 1) return alert("Nenhum pack lacrado");
+
+  for (let i = 0; i < consumed; i++) {
     const results = openPackResults(cardsSettings().packSize, cardsSettings().rates);
     results.forEach(r => {
       const defId = r.defId || catalogDefId(r.playerKey, r.edition || "BASE");
@@ -255,8 +289,7 @@ async function cardsOpenPacksBatch(n) {
       if (r.isNewDiscovery) seen.add(defId);
       allResults.push(r);
     });
-    applyStackedCardGains(ownerId, results, updates, packId);
-    updates["cards/packs/" + packId] = null;
+    applyStackedCardGains(ownerId, results, updates, null);
   }
 
   try {
@@ -1019,11 +1052,19 @@ async function cardsRedeemCode() {
     ["cards/codes/" + codeId + "/usedAt"]: new Date().toISOString()
   };
   if (entry.type === "pack" || !entry.type) {
-    const packId = newPackId();
-    updates["cards/packs/" + packId] = {
-      ownerId, status: "sealed", label: entry.label || "Pack código",
-      source: "code", codeId, grantedAt: new Date().toISOString()
-    };
+    if (typeof applyStackedPackGains === "function") {
+      applyStackedPackGains(ownerId, 1, {
+        label: entry.label || "Pack código",
+        source: "code",
+        codeId
+      }, updates);
+    } else {
+      const packId = newPackId();
+      updates["cards/packs/" + packId] = {
+        ownerId, status: "sealed", label: entry.label || "Pack código",
+        source: "code", codeId, grantedAt: new Date().toISOString(), count: 1
+      };
+    }
     await window.marketDb.ref().update(updates);
     if (status) status.textContent = "Pack adicionado!";
     showCardsView("packs");
@@ -1050,6 +1091,7 @@ window.showCardsView = showCardsView;
 window.renderCardsShell = renderCardsShell;
 window.cardsDoLogin = cardsDoLogin;
 window.cardsOpenPack = cardsOpenPack;
+window.cardsOpenPackFromGroup = cardsOpenPackFromGroup;
 window.cardsOpenPacksBatch = cardsOpenPacksBatch;
 window.cardsShowBatchResults = cardsShowBatchResults;
 window.cardsSkipBatchAnim = cardsSkipBatchAnim;

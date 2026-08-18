@@ -416,6 +416,114 @@ function buildBaseCatalogEntries(existingCatalog) {
   return updates;
 }
 
+/** Quantidade de um registro de pack (legado sem count = 1) */
+function packUnitCount(p) {
+  return Math.max(1, Number(p?.count) || 1);
+}
+
+/** Packs lacrados do dono: [ [id, pack], ... ] */
+function sealedPackEntries(ownerId) {
+  return Object.entries(window.AppState.cards.packs || {})
+    .filter(([, p]) => p && p.ownerId === ownerId && p.status === "sealed");
+}
+
+/** Total de packs lacrados (soma counts) */
+function totalSealedPacks(ownerId) {
+  return sealedPackEntries(ownerId).reduce((s, [, p]) => s + packUnitCount(p), 0);
+}
+
+/**
+ * Agrupa packs lacrados por label+source para UI empilhada.
+ * Retorna [{ key, label, source, total, units: [{ id, count }] }]
+ */
+function groupSealedPacks(ownerId) {
+  const map = {};
+  for (const [id, p] of sealedPackEntries(ownerId)) {
+    const label = p.label || "Pacote Jet Cards";
+    const source = p.source || "";
+    const key = label + "|" + source;
+    if (!map[key]) map[key] = { key, label, source, total: 0, units: [] };
+    const c = packUnitCount(p);
+    map[key].total += c;
+    map[key].units.push({ id, count: c, grantedAt: p.grantedAt || "" });
+  }
+  return Object.values(map).sort((a, b) => b.total - a.total);
+}
+
+/** ID estável de pilha de packs (mesmo dono + label + source) */
+function packStackId(ownerId, label, source) {
+  const slug = (s) => String(s || "x").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 40);
+  return "pstack_" + slug(ownerId) + "_" + slug(label) + "_" + slug(source || "pack");
+}
+
+/**
+ * Adiciona qty packs empilhados em `updates`.
+ * Se já existir pilha sealed do mesmo tipo, soma no count.
+ */
+function applyStackedPackGains(ownerId, qty, meta, updates) {
+  const n = Math.max(1, Number(qty) || 1);
+  const label = meta?.label || "Pacote Jet Cards";
+  const source = meta?.source || "admin";
+  const sid = packStackId(ownerId, label, source);
+  const existing = (window.AppState.cards.packs || {})[sid];
+  // também olha updates do mesmo batch
+  const fromUp = updates && updates["cards/packs/" + sid];
+  const prev = fromUp !== undefined ? fromUp : existing;
+  const now = new Date().toISOString();
+  if (prev && prev.status === "sealed" && prev.ownerId === ownerId) {
+    updates["cards/packs/" + sid] = {
+      ...prev,
+      count: packUnitCount(prev) + n,
+      label,
+      source,
+      status: "sealed",
+      ownerId,
+      grantedAt: prev.grantedAt || now
+    };
+  } else {
+    updates["cards/packs/" + sid] = {
+      ownerId,
+      status: "sealed",
+      label,
+      source,
+      count: n,
+      grantedAt: now,
+      ...(meta?.codeId ? { codeId: meta.codeId } : {})
+    };
+  }
+  return sid;
+}
+
+/**
+ * Consome `need` packs de um grupo (units). Escreve em updates.
+ * Retorna quantos realmente consumidos.
+ */
+function consumePackUnits(units, need, updates) {
+  let left = Math.max(0, Number(need) || 0);
+  if (!units || !left) return 0;
+  // mais antigos primeiro
+  const sorted = units.slice().sort((a, b) => (a.grantedAt || "").localeCompare(b.grantedAt || ""));
+  let used = 0;
+  for (const u of sorted) {
+    if (left <= 0) break;
+    const live = (window.AppState.cards.packs || {})[u.id];
+    const fromUp = updates["cards/packs/" + u.id];
+    const cur = fromUp !== undefined ? fromUp : live;
+    if (!cur || cur.status !== "sealed") continue;
+    const have = packUnitCount(cur);
+    if (have <= left) {
+      updates["cards/packs/" + u.id] = null;
+      left -= have;
+      used += have;
+    } else {
+      updates["cards/packs/" + u.id] = { ...cur, count: have - left };
+      used += left;
+      left = 0;
+    }
+  }
+  return used;
+}
+
 window.getCatalogMap = getCatalogMap;
 window.getSpecialsMap = getSpecialsMap;
 window.resolveCardDef = resolveCardDef;
@@ -433,3 +541,10 @@ window.carddexEntries = carddexEntries;
 window.validateCodePayload = validateCodePayload;
 window.buildBaseCatalogEntries = buildBaseCatalogEntries;
 window.pickRandomPlayer = pickRandomPlayer;
+window.packUnitCount = packUnitCount;
+window.sealedPackEntries = sealedPackEntries;
+window.totalSealedPacks = totalSealedPacks;
+window.groupSealedPacks = groupSealedPacks;
+window.packStackId = packStackId;
+window.applyStackedPackGains = applyStackedPackGains;
+window.consumePackUnits = consumePackUnits;
