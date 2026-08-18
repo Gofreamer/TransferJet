@@ -92,7 +92,17 @@ window.VALUATION = {
     return Number(trophyFallback) || 0;
   },
 
-  calculate({ rank, func, role, trophy, titles, P, V, D, team }) {
+  // Bônus acumulativo por prêmios individuais da Jet League
+  mvpBonusPer: 0.04,        // +4% por MVP da série
+  destaqueBonusPer: 0.07,   // +7% por Destaque da Rodada
+
+  awardsMultiplier(mvpCount, destaqueCount) {
+    const m = Math.max(0, Number(mvpCount) || 0);
+    const d = Math.max(0, Number(destaqueCount) || 0);
+    return 1 + (this.mvpBonusPer * m) + (this.destaqueBonusPer * d);
+  },
+
+  calculate({ rank, func, role, trophy, titles, P, V, D, team, mvpCount = 0, destaqueCount = 0 }) {
     const base = this.resolveRankBase(rank);
     const wr = P > 0 ? V / P : 0.5;
     const perf = 0.65 + 0.35 * wr;
@@ -103,6 +113,7 @@ window.VALUATION = {
     const trop = this.titlesMultiplier(titles, trophy);
     const roleM = this.roleMultiplier(func, role);
     const tf = this.teamFactor[team] || 1.0;
+    const awards = this.awardsMultiplier(mvpCount, destaqueCount);
 
     // Proteção amostra pequena: P < 3 → × 0.75
     const sampleGuard = (P > 0 && P < 3) ? 0.75 : 1.0;
@@ -112,7 +123,7 @@ window.VALUATION = {
 
     let value = base <= 0
       ? 0
-      : Math.round(base * perf * vol * roleM * trop * tf * sampleGuard * consistency / 50000) * 50000;
+      : Math.round(base * perf * vol * roleM * trop * tf * sampleGuard * consistency * awards / 50000) * 50000;
 
     value = Math.max(0, Math.min(value, 12000000));
     const peak = value <= 0
