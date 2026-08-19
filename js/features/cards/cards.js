@@ -187,14 +187,15 @@ function renderCardsPacks(container) {
       ${total >= 2 ? `<div class="jc-actions-row" style="margin-bottom:12px">${batchBtn}${allBtn}</div>` : ""}
       <div class="jc-pack-list">
         ${groups.map(g => {
-          const firstId = g.units[0]?.id || "";
           const qtyLabel = g.total > 1 ? ` ×${g.total}` : "";
+          const pt = typeof resolvePackType === "function" ? resolvePackType(g.packTypeId) : null;
+          const typeLabel = pt && pt.id !== "standard" ? pt.label : "";
           return `
           <div class="jc-pack-item status-sealed">
             <div class="jc-pack-visual">📦</div>
             <div class="jc-pack-info">
               <div class="jc-pack-title">${g.label}${qtyLabel}</div>
-              <div class="jc-pack-meta">Lacrado · ${g.source || "—"}${g.total > 1 ? " · pilha" : ""}</div>
+              <div class="jc-pack-meta">Lacrado · ${g.source || "—"}${typeLabel ? " · " + typeLabel : ""}${g.total > 1 ? " · pilha" : ""}</div>
             </div>
             <button class="jc-btn primary sm" onclick="cardsOpenPackFromGroup('${encodeURIComponent(g.key)}')">Abrir</button>
           </div>`;
@@ -205,7 +206,7 @@ function renderCardsPacks(container) {
   `;
 }
 
-/** Abre 1 pack de um grupo empilhado (key = label|source) */
+/** Abre 1 pack de um grupo empilhado (key = label|source|packTypeId) */
 async function cardsOpenPackFromGroup(groupKeyEnc) {
   const ownerId = getCardsOwnerId();
   const groupKey = decodeURIComponent(groupKeyEnc || "");
@@ -214,7 +215,7 @@ async function cardsOpenPackFromGroup(groupKeyEnc) {
   if (!g || !g.total) return alert("Pacote indisponível");
 
   const before = discoveredDefIds(ownerId);
-  const results = openPackResults(cardsSettings().packSize, cardsSettings().rates);
+  const results = openPackResults({ packTypeId: g.packTypeId || "standard" });
   results.forEach(r => {
     const defId = r.defId || catalogDefId(r.playerKey, r.edition || "BASE");
     r.isNewDiscovery = !before.has(defId);
@@ -242,7 +243,7 @@ async function cardsOpenPack(packId) {
   if (pack.ownerId !== ownerId) return alert("Pacote de outro colecionador");
 
   const before = discoveredDefIds(ownerId);
-  const results = openPackResults(cardsSettings().packSize, cardsSettings().rates);
+  const results = openPackResults({ packTypeId: pack.packTypeId || "standard" });
   results.forEach(r => {
     const defId = r.defId || catalogDefId(r.playerKey, r.edition || "BASE");
     r.isNewDiscovery = !before.has(defId);
@@ -275,22 +276,40 @@ async function cardsOpenPacksBatch(n) {
   const allResults = [];
   const updates = {};
 
-  // Consome de todos os grupos (FIFO por grantedAt via consumePackUnits)
+  // Consome unidade a unidade respeitando packTypeId de cada uma
   const groups = typeof groupSealedPacks === "function" ? groupSealedPacks(ownerId) : [];
-  const allUnits = groups.flatMap(g => g.units);
-  const consumed = typeof consumePackUnits === "function" ? consumePackUnits(allUnits, count, updates) : 0;
-  if (consumed < 1) return alert("Nenhum pack lacrado");
+  // Expande units com tipo
+  const queue = [];
+  groups.forEach(g => {
+    g.units.forEach(u => {
+      for (let k = 0; k < (u.count || 1); k++) {
+        queue.push({ id: u.id, packTypeId: g.packTypeId || u.packTypeId || "standard", grantedAt: u.grantedAt || "" });
+      }
+    });
+  });
+  queue.sort((a, b) => (a.grantedAt || "").localeCompare(b.grantedAt || ""));
+  const take = queue.slice(0, count);
+  if (!take.length) return alert("Nenhum pack lacrado");
 
-  for (let i = 0; i < consumed; i++) {
-    const results = openPackResults(cardsSettings().packSize, cardsSettings().rates);
+  // Agrupa consumo por id de pack record
+  const needById = {};
+  take.forEach(t => { needById[t.id] = (needById[t.id] || 0) + 1; });
+  Object.entries(needById).forEach(([id, need]) => {
+    const live = (window.AppState.cards.packs || {})[id];
+    if (!live) return;
+    consumePackUnits([{ id, count: packUnitCount(live), grantedAt: live.grantedAt || "" }], need, updates);
+  });
+
+  take.forEach(t => {
+    const results = openPackResults({ packTypeId: t.packTypeId || "standard" });
     results.forEach(r => {
       const defId = r.defId || catalogDefId(r.playerKey, r.edition || "BASE");
       r.isNewDiscovery = !seen.has(defId);
       if (r.isNewDiscovery) seen.add(defId);
       allResults.push(r);
     });
-    applyStackedCardGains(ownerId, results, updates, null);
-  }
+    applyStackedCardGains(ownerId, results, updates, t.id);
+  });
 
   try {
     await window.marketDb.ref().update(updates);
@@ -1052,21 +1071,27 @@ async function cardsRedeemCode() {
     ["cards/codes/" + codeId + "/usedAt"]: new Date().toISOString()
   };
   if (entry.type === "pack" || !entry.type) {
+    const qty = Math.max(1, Math.min(50, parseInt(entry.quantity || entry.qty || 1, 10) || 1));
+    const packTypeId = entry.packTypeId || "standard";
+    const pt = typeof resolvePackType === "function" ? resolvePackType(packTypeId) : null;
+    const label = entry.label || pt?.label || "Pack código";
     if (typeof applyStackedPackGains === "function") {
-      applyStackedPackGains(ownerId, 1, {
-        label: entry.label || "Pack código",
+      applyStackedPackGains(ownerId, qty, {
+        label,
         source: "code",
+        packTypeId,
         codeId
       }, updates);
     } else {
       const packId = newPackId();
       updates["cards/packs/" + packId] = {
-        ownerId, status: "sealed", label: entry.label || "Pack código",
-        source: "code", codeId, grantedAt: new Date().toISOString(), count: 1
+        ownerId, status: "sealed", label,
+        source: "code", codeId, packTypeId,
+        grantedAt: new Date().toISOString(), count: qty
       };
     }
     await window.marketDb.ref().update(updates);
-    if (status) status.textContent = "Pack adicionado!";
+    if (status) status.textContent = qty > 1 ? `${qty} packs adicionados!` : "Pack adicionado!";
     showCardsView("packs");
     return;
   }

@@ -11,6 +11,38 @@ window.CARDS.DEFAULTS = {
   cycleLabel: null // ex: "CICLO III"
 };
 
+/** Tipos de pack embutidos (usados se ainda não houver cards/packTypes no Firebase) */
+window.CARDS.DEFAULT_PACK_TYPES = {
+  standard: {
+    id: "standard",
+    label: "Pack Padrão",
+    packSize: 3,
+    rates: { common: 0.70, rare: 0.22, epic: 0.065, legend: 0.015 },
+    specialChance: 0.06
+  },
+  legend: {
+    id: "legend",
+    label: "Pack Lendário",
+    packSize: 3,
+    rates: { common: 0.50, rare: 0.30, epic: 0.15, legend: 0.05 },
+    specialChance: 0.06
+  },
+  special: {
+    id: "special",
+    label: "Pack Caça ED",
+    packSize: 3,
+    rates: { common: 0.70, rare: 0.22, epic: 0.065, legend: 0.015 },
+    specialChance: 0.20
+  },
+  mega: {
+    id: "mega",
+    label: "Mega Pack",
+    packSize: 5,
+    rates: { common: 0.60, rare: 0.25, epic: 0.12, legend: 0.03 },
+    specialChance: 0.08
+  }
+};
+
 window.CARDS.RARITY = {
   common: { label: "COMMON", order: 1, color: "#94a3b8" },
   rare: { label: "RARE", order: 2, color: "#3b82f6" },
@@ -57,6 +89,7 @@ function ensureCardsState() {
   }
   if (!window.AppState.cards.catalog) window.AppState.cards.catalog = {};
   if (!window.AppState.cards.specials) window.AppState.cards.specials = {};
+  if (!window.AppState.cards.packTypes) window.AppState.cards.packTypes = {};
   return window.AppState.cards;
 }
 
@@ -64,6 +97,41 @@ function cardsSettings() {
   ensureCardsState();
   return { ...window.CARDS.DEFAULTS, ...(window.AppState.cards.settings || {}) };
 }
+
+/** Mapa de tipos de pack: Firebase > defaults embutidos */
+function getPackTypesMap() {
+  ensureCardsState();
+  const fromDb = window.AppState.cards.packTypes || {};
+  if (fromDb && Object.keys(fromDb).length) return fromDb;
+  return { ...(window.CARDS.DEFAULT_PACK_TYPES || {}) };
+}
+
+/** Resolve tipo de pack por id (fallback: rates globais / standard) */
+function resolvePackType(packTypeId) {
+  const map = getPackTypesMap();
+  const id = packTypeId || "standard";
+  const t = map[id] || map.standard || null;
+  const s = cardsSettings();
+  if (!t) {
+    return {
+      id: "standard",
+      label: "Pack Padrão",
+      packSize: s.packSize || 3,
+      rates: s.rates || window.CARDS.DEFAULTS.rates,
+      specialChance: s.specialChance != null ? s.specialChance : 0.06
+    };
+  }
+  return {
+    id: t.id || id,
+    label: t.label || id,
+    packSize: Number(t.packSize) || s.packSize || 3,
+    rates: t.rates || s.rates || window.CARDS.DEFAULTS.rates,
+    specialChance: t.specialChance != null ? Number(t.specialChance) : (s.specialChance != null ? s.specialChance : 0.06)
+  };
+}
+
+window.getPackTypesMap = getPackTypesMap;
+window.resolvePackType = resolvePackType;
 
 function getCardsOwnerId() {
   return ensureCardsState().session.ownerId;

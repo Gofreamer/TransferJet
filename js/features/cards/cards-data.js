@@ -25,6 +25,11 @@ function startCardsListeners() {
     refresh();
   });
 
+  window.marketDb.ref("cards/packTypes").on("value", snap => {
+    ensureCardsState().packTypes = snap.val() || {};
+    refresh();
+  });
+
   window.marketDb.ref("cards/codes").on("value", snap => {
     ensureCardsState().codes = snap.val() || {};
   });

@@ -71,17 +71,63 @@ function renderCardsAdmin(subTab) {
       </div>
     `;
   } else if (tab === "packs") {
+    const packTypes = typeof getPackTypesMap === "function" ? getPackTypesMap() : (window.CARDS.DEFAULT_PACK_TYPES || {});
+    const packTypeOpts = Object.entries(packTypes).map(([id, t]) =>
+      `<option value="${id}">${t.label || id} · ${t.packSize || 3}c · L${Math.round((t.rates?.legend || 0) * 1000) / 10}% · ED${Math.round((t.specialChance || 0) * 100)}%</option>`
+    ).join("");
     body = `
-      <h3 class="admin-section-title">Dar packs</h3>
-      <p class="admin-sub">Selecione o jogador e a quantidade de packs para enviar.</p>
+      <h3 class="admin-section-title">Tipos de pack</h3>
+      <p class="admin-sub">Cada tipo tem rates, chance de ED e cartas/pack. Códigos e “Dar packs” usam um tipo.</p>
+      <div class="admin-form-grid">
+        <div><label>ID</label><input type="text" id="jcPtId" placeholder="ex: legend"></div>
+        <div><label>Label</label><input type="text" id="jcPtLabel" placeholder="Pack Lendário"></div>
+        <div><label>Cartas/pack</label><input type="number" id="jcPtSize" min="1" max="10" value="3"></div>
+        <div><label>Common</label><input type="number" step="0.01" id="jcPtC" value="0.70"></div>
+        <div><label>Rare</label><input type="number" step="0.01" id="jcPtR" value="0.22"></div>
+        <div><label>Epic</label><input type="number" step="0.01" id="jcPtE" value="0.065"></div>
+        <div><label>Legend</label><input type="number" step="0.01" id="jcPtL" value="0.015"></div>
+        <div><label>Especial (ED)</label><input type="number" step="0.01" min="0" max="1" id="jcPtSp" value="0.06"></div>
+      </div>
+      <div class="admin-actions" style="margin-top:8px">
+        <button class="btn-primary btn-sm" onclick="jcAdminSavePackType()">Salvar tipo</button>
+        <button class="btn-gray btn-sm" onclick="jcAdminSeedPackTypes()">Seed tipos padrão</button>
+      </div>
+      <div class="admin-table-wrap" style="margin-top:10px;max-height:180px;overflow:auto">
+        <table class="admin-table">
+          <thead><tr><th>ID</th><th>Label</th><th>Size</th><th>Legend</th><th>ED</th><th></th></tr></thead>
+          <tbody>
+            ${Object.entries(packTypes).map(([id, t]) => `
+              <tr>
+                <td><code>${id}</code></td>
+                <td>${t.label || id}</td>
+                <td>${t.packSize || 3}</td>
+                <td>${t.rates?.legend ?? "—"}</td>
+                <td>${t.specialChance ?? "—"}</td>
+                <td><button class="btn-gray btn-sm" onclick="jcAdminDeletePackType('${id}')">Apagar</button></td>
+              </tr>
+            `).join("") || "<tr><td colspan='6'>—</td></tr>"}
+          </tbody>
+        </table>
+      </div>
+
+      <h3 class="admin-section-title" style="margin-top:22px">Dar packs</h3>
+      <p class="admin-sub">Selecione o jogador, o tipo de pack e a quantidade.</p>
       <div class="admin-form-grid">
         <div>
           <label>Jogador</label>
           <select id="jcPackOwner">${humanOpts}</select>
         </div>
         <div>
+          <label>Tipo de pack</label>
+          <select id="jcPackType">${packTypeOpts || "<option value='standard'>Padrão</option>"}</select>
+        </div>
+        <div>
           <label>Quantidade</label>
           <input type="number" id="jcPackQty" min="1" max="50" value="1">
+        </div>
+        <div>
+          <label>Label (opcional)</label>
+          <input type="text" id="jcPackLabel" placeholder="usa o nome do tipo se vazio">
         </div>
       </div>
       <div class="admin-actions" style="margin-top:8px">
@@ -200,6 +246,10 @@ function renderCardsAdmin(subTab) {
       </div>
     `;
   } else if (tab === "codigos") {
+    const packTypes = typeof getPackTypesMap === "function" ? getPackTypesMap() : (window.CARDS.DEFAULT_PACK_TYPES || {});
+    const packTypeOpts = Object.entries(packTypes).map(([id, t]) =>
+      `<option value="${id}">${t.label || id}</option>`
+    ).join("");
     body = `
       <h3 class="admin-section-title">Código</h3>
       <div class="admin-form-grid">
@@ -211,7 +261,19 @@ function renderCardsAdmin(subTab) {
           </select>
         </div>
         <div><label>Código</label><input type="text" id="jcCodeStr" placeholder="auto se vazio"></div>
-        <div><label>Label</label><input type="text" id="jcCodeLabel"></div>
+        <div><label>Label</label><input type="text" id="jcCodeLabel" placeholder="nome da pilha (opcional)"></div>
+        <div id="jcCodePackFields" style="grid-column:1/-1">
+          <div class="admin-form-grid">
+            <div>
+              <label>Tipo de pack</label>
+              <select id="jcCodePackType">${packTypeOpts || "<option value='standard'>Padrão</option>"}</select>
+            </div>
+            <div>
+              <label>Quantidade</label>
+              <input type="number" id="jcCodeQty" min="1" max="50" value="1">
+            </div>
+          </div>
+        </div>
         <div id="jcCodeCardFields" style="display:none;grid-column:1/-1">
           <div class="admin-form-grid">
             <div>
@@ -233,17 +295,25 @@ function renderCardsAdmin(subTab) {
       </div>
       <div class="admin-table-wrap" style="margin-top:10px;max-height:220px;overflow:auto">
         <table class="admin-table">
-          <thead><tr><th>Código</th><th>Tipo</th><th>Label</th><th>Usado</th><th></th></tr></thead>
+          <thead><tr><th>Código</th><th>Tipo</th><th>Detalhe</th><th>Label</th><th>Usado</th><th></th></tr></thead>
           <tbody>
-            ${codes.map(([id, c]) => `
+            ${codes.map(([id, c]) => {
+              let det = "—";
+              if ((c.type || "pack") === "pack") {
+                det = (c.packTypeId || "standard") + " ×" + (c.quantity || c.qty || 1);
+              } else {
+                det = (c.playerName || c.playerKey || "?") + " · " + (c.rarity || "");
+              }
+              return `
               <tr>
                 <td><code>${c.code || id}</code></td>
                 <td>${c.type || "pack"}</td>
+                <td>${det}</td>
                 <td>${c.label || "—"}</td>
                 <td>${c.used ? "Sim" : "Não"}</td>
                 <td><button class="btn-gray btn-sm" onclick="jcAdminDeleteCode('${id}')">Apagar</button></td>
-              </tr>
-            `).join("") || "<tr><td colspan='5'>—</td></tr>"}
+              </tr>`;
+            }).join("") || "<tr><td colspan='6'>—</td></tr>"}
           </tbody>
         </table>
       </div>
@@ -411,8 +481,10 @@ function renderCardsAdmin(subTab) {
 
 function jcAdminToggleCodeType() {
   const t = document.getElementById("jcCodeType")?.value;
-  const box = document.getElementById("jcCodeCardFields");
-  if (box) box.style.display = t === "card" ? "block" : "none";
+  const cardBox = document.getElementById("jcCodeCardFields");
+  const packBox = document.getElementById("jcCodePackFields");
+  if (cardBox) cardBox.style.display = t === "card" ? "block" : "none";
+  if (packBox) packBox.style.display = t === "pack" || !t ? "block" : "none";
 }
 
 async function jcAdminSeed() {
@@ -497,6 +569,10 @@ async function jcAdminCreateCode() {
     used: false,
     createdAt: new Date().toISOString()
   };
+  if (type === "pack" || !type) {
+    payload.packTypeId = document.getElementById("jcCodePackType")?.value || "standard";
+    payload.quantity = Math.max(1, Math.min(50, parseInt(document.getElementById("jcCodeQty")?.value || "1", 10) || 1));
+  }
   if (type === "card") {
     const sel = document.getElementById("jcCodePlayer");
     const opt = sel?.selectedOptions?.[0];
@@ -510,7 +586,8 @@ async function jcAdminCreateCode() {
     payload.specialImageUrl = document.getElementById("jcCodeImg")?.value || null;
   }
   await window.marketDb.ref("cards/codes/" + id).set(payload);
-  alert("Código: " + code);
+  const extra = type === "pack" ? ` · ${payload.packTypeId} ×${payload.quantity}` : "";
+  alert("Código: " + code + extra);
   renderCardsAdmin();
 }
 
@@ -523,26 +600,68 @@ async function jcAdminDeleteCode(id) {
 async function jcAdminGrantPack() {
   const ownerId = document.getElementById("jcPackOwner")?.value;
   const qty = Math.max(1, Math.min(50, parseInt(document.getElementById("jcPackQty")?.value || "1", 10) || 1));
+  const packTypeId = document.getElementById("jcPackType")?.value || "standard";
+  const customLabel = (document.getElementById("jcPackLabel")?.value || "").trim();
   if (!ownerId) return alert("Selecione um jogador");
   const humans = Object.entries(window.AppState.fantasy?.participants || {}).filter(([, p]) => p && p.type !== "npc");
   const target = humans.find(([id]) => id === ownerId);
   const name = target?.[1]?.displayName || ownerId;
+  const pt = typeof resolvePackType === "function" ? resolvePackType(packTypeId) : null;
+  const label = customLabel || pt?.label || "Pack Admin";
 
   const updates = {};
   if (typeof applyStackedPackGains === "function") {
-    applyStackedPackGains(ownerId, qty, { label: "Pack Admin", source: "admin" }, updates);
+    applyStackedPackGains(ownerId, qty, { label, source: "admin", packTypeId }, updates);
   } else {
     const now = new Date().toISOString();
-    for (let i = 0; i < qty; i++) {
-      const packId = "pack_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8) + "_" + i;
-      updates["cards/packs/" + packId] = {
-        ownerId, status: "sealed", label: "Pack Admin", source: "admin", grantedAt: now, count: 1
-      };
-    }
+    const packId = "pack_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8);
+    updates["cards/packs/" + packId] = {
+      ownerId, status: "sealed", label, source: "admin", packTypeId, grantedAt: now, count: qty
+    };
   }
   await window.marketDb.ref().update(updates);
-  alert(`${qty} pack${qty > 1 ? "s" : ""} → ${name} (empilhado)`);
+  alert(`${qty}× ${label} → ${name}`);
   renderCardsAdmin();
+}
+
+async function jcAdminSavePackType() {
+  let id = (document.getElementById("jcPtId")?.value || "").trim().toLowerCase().replace(/[^a-z0-9_]+/g, "_");
+  if (!id) return alert("ID obrigatório (ex: legend)");
+  const label = (document.getElementById("jcPtLabel")?.value || "").trim() || id;
+  const packSize = Math.max(1, Math.min(10, parseInt(document.getElementById("jcPtSize")?.value || "3", 10) || 3));
+  const rates = {
+    common: Number(document.getElementById("jcPtC")?.value) || 0,
+    rare: Number(document.getElementById("jcPtR")?.value) || 0,
+    epic: Number(document.getElementById("jcPtE")?.value) || 0,
+    legend: Number(document.getElementById("jcPtL")?.value) || 0
+  };
+  const spRaw = Number(document.getElementById("jcPtSp")?.value);
+  const specialChance = Number.isFinite(spRaw) ? Math.max(0, Math.min(1, spRaw)) : 0.06;
+  await window.marketDb.ref("cards/packTypes/" + id).set({
+    id, label, packSize, rates, specialChance, updatedAt: new Date().toISOString()
+  });
+  alert("Tipo salvo: " + label);
+  renderCardsAdmin("packs");
+}
+
+async function jcAdminDeletePackType(id) {
+  if (!id || id === "standard") {
+    if (id === "standard" && !confirm("Apagar o tipo standard? Packs sem tipo caem nas rates globais.")) return;
+  }
+  if (!confirm("Apagar tipo " + id + "?")) return;
+  await window.marketDb.ref("cards/packTypes/" + id).remove();
+  renderCardsAdmin("packs");
+}
+
+async function jcAdminSeedPackTypes() {
+  const defaults = window.CARDS.DEFAULT_PACK_TYPES || {};
+  const updates = {};
+  Object.entries(defaults).forEach(([id, t]) => {
+    updates["cards/packTypes/" + id] = { ...t, id };
+  });
+  await window.marketDb.ref().update(updates);
+  alert("Tipos padrão gravados no Firebase");
+  renderCardsAdmin("packs");
 }
 
 function jcAdminViewVitrine() {
@@ -965,6 +1084,9 @@ window.jcAdminDeleteSpecial = jcAdminDeleteSpecial;
 window.jcAdminCreateCode = jcAdminCreateCode;
 window.jcAdminDeleteCode = jcAdminDeleteCode;
 window.jcAdminGrantPack = jcAdminGrantPack;
+window.jcAdminSavePackType = jcAdminSavePackType;
+window.jcAdminDeletePackType = jcAdminDeletePackType;
+window.jcAdminSeedPackTypes = jcAdminSeedPackTypes;
 window.jcAdminViewVitrine = jcAdminViewVitrine;
 window.jcAdminCreateOffer = jcAdminCreateOffer;
 window.jcAdminGrantCard = jcAdminGrantCard;

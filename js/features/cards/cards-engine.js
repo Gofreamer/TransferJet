@@ -61,16 +61,41 @@ function pickRandomPlayer(pool) {
 
 /**
  * Sorteia resultados de pack a partir do catálogo BASE (+ especiais com inPackPool).
+ * Aceita (count, rates) legado OU options: { count, rates, specialChance, packTypeId }.
  * Campos históricos ficam congelados no record.
  */
-function openPackResults(count, rates) {
+function openPackResults(countOrOpts, ratesArg) {
+  let count = null;
+  let rates = null;
+  let spChanceOverride = null;
+  let packTypeId = null;
+  if (countOrOpts && typeof countOrOpts === "object") {
+    count = countOrOpts.count;
+    rates = countOrOpts.rates;
+    spChanceOverride = countOrOpts.specialChance;
+    packTypeId = countOrOpts.packTypeId || null;
+  } else {
+    count = countOrOpts;
+    rates = ratesArg;
+  }
+
+  // Tipo de pack sobrescreve size/rates/specialChance quando informado
+  if (packTypeId && typeof resolvePackType === "function") {
+    const pt = resolvePackType(packTypeId);
+    if (count == null) count = pt.packSize;
+    if (!rates) rates = pt.rates;
+    if (spChanceOverride == null) spChanceOverride = pt.specialChance;
+  }
+
   const catalog = getCatalogMap();
   const specials = getSpecialsMap();
   const basePool = Object.values(catalog).filter(c => (c.edition || "BASE") === "BASE");
   const specialPool = Object.values(specials).filter(s => s.active !== false && s.inPackPool === true);
   const pool = basePool.length ? basePool : null;
   const players = cardsPlayerPool();
-  const n = count || cardsSettings().packSize || 3;
+  const settings = cardsSettings();
+  const n = count || settings.packSize || 3;
+  rates = rates || settings.rates || window.CARDS.DEFAULTS.rates;
   const results = [];
 
   // Ordem de raridade para checar mínimo do especial
@@ -79,8 +104,7 @@ function openPackResults(count, rates) {
     const i = order.indexOf(String(r || "").toLowerCase());
     return i >= 0 ? i : 0;
   };
-  const settings = cardsSettings();
-  const spRaw = Number(settings.specialChance);
+  const spRaw = spChanceOverride != null ? Number(spChanceOverride) : Number(settings.specialChance);
   const spChance = Number.isFinite(spRaw) ? Math.max(0, Math.min(1, spRaw)) : 0.08;
 
   for (let i = 0; i < n; i++) {
@@ -433,38 +457,42 @@ function totalSealedPacks(ownerId) {
 }
 
 /**
- * Agrupa packs lacrados por label+source para UI empilhada.
- * Retorna [{ key, label, source, total, units: [{ id, count }] }]
+ * Agrupa packs lacrados por label+source+packTypeId para UI empilhada.
+ * Retorna [{ key, label, source, packTypeId, total, units: [{ id, count }] }]
  */
 function groupSealedPacks(ownerId) {
   const map = {};
   for (const [id, p] of sealedPackEntries(ownerId)) {
     const label = p.label || "Pacote Jet Cards";
     const source = p.source || "";
-    const key = label + "|" + source;
-    if (!map[key]) map[key] = { key, label, source, total: 0, units: [] };
+    const packTypeId = p.packTypeId || "standard";
+    const key = label + "|" + source + "|" + packTypeId;
+    if (!map[key]) map[key] = { key, label, source, packTypeId, total: 0, units: [] };
     const c = packUnitCount(p);
     map[key].total += c;
-    map[key].units.push({ id, count: c, grantedAt: p.grantedAt || "" });
+    map[key].units.push({ id, count: c, grantedAt: p.grantedAt || "", packTypeId });
   }
   return Object.values(map).sort((a, b) => b.total - a.total);
 }
 
-/** ID estável de pilha de packs (mesmo dono + label + source) */
-function packStackId(ownerId, label, source) {
+/** ID estável de pilha de packs (mesmo dono + label + source + tipo) */
+function packStackId(ownerId, label, source, packTypeId) {
   const slug = (s) => String(s || "x").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 40);
-  return "pstack_" + slug(ownerId) + "_" + slug(label) + "_" + slug(source || "pack");
+  return "pstack_" + slug(ownerId) + "_" + slug(label) + "_" + slug(source || "pack") + "_" + slug(packTypeId || "standard");
 }
 
 /**
  * Adiciona qty packs empilhados em `updates`.
  * Se já existir pilha sealed do mesmo tipo, soma no count.
+ * meta: { label, source, packTypeId, codeId }
  */
 function applyStackedPackGains(ownerId, qty, meta, updates) {
   const n = Math.max(1, Number(qty) || 1);
-  const label = meta?.label || "Pacote Jet Cards";
+  const packTypeId = meta?.packTypeId || "standard";
+  const pt = typeof resolvePackType === "function" ? resolvePackType(packTypeId) : null;
+  const label = meta?.label || pt?.label || "Pacote Jet Cards";
   const source = meta?.source || "admin";
-  const sid = packStackId(ownerId, label, source);
+  const sid = packStackId(ownerId, label, source, packTypeId);
   const existing = (window.AppState.cards.packs || {})[sid];
   // também olha updates do mesmo batch
   const fromUp = updates && updates["cards/packs/" + sid];
@@ -476,6 +504,7 @@ function applyStackedPackGains(ownerId, qty, meta, updates) {
       count: packUnitCount(prev) + n,
       label,
       source,
+      packTypeId,
       status: "sealed",
       ownerId,
       grantedAt: prev.grantedAt || now
@@ -486,6 +515,7 @@ function applyStackedPackGains(ownerId, qty, meta, updates) {
       status: "sealed",
       label,
       source,
+      packTypeId,
       count: n,
       grantedAt: now,
       ...(meta?.codeId ? { codeId: meta.codeId } : {})
