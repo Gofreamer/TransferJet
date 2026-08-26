@@ -72,41 +72,56 @@ function renderCardsAdmin(subTab) {
     `;
   } else if (tab === "packs") {
     const packTypes = typeof getPackTypesMap === "function" ? getPackTypesMap() : (window.CARDS.DEFAULT_PACK_TYPES || {});
-    const packTypeOpts = Object.entries(packTypes).map(([id, t]) =>
-      `<option value="${id}">${t.label || id} · ${t.packSize || 3}c · L${Math.round((t.rates?.legend || 0) * 1000) / 10}% · ED${Math.round((t.specialChance || 0) * 100)}%</option>`
-    ).join("");
+    const packTypeOpts = Object.entries(packTypes).map(([id, t]) => {
+      const wr = jcPackWinrateSummary(t);
+      return `<option value="${id}">${t.label || id} · ${t.packSize || 3}c · L${wr.legendPct}% · ED${wr.edPct}% · boa≈${wr.packGoodPct}%</option>`;
+    }).join("");
+    const rows = Object.entries(packTypes).map(([id, t]) => {
+      const wr = jcPackWinrateSummary(t);
+      const sumOk = Math.abs(wr.ratesSum - 100) < 0.6;
+      return `
+        <tr style="cursor:pointer" onclick="jcAdminOpenPackTypeModal('${id}')" title="Clique para editar">
+          <td><code>${id}</code></td>
+          <td><strong>${t.label || id}</strong></td>
+          <td>${t.packSize || 3}</td>
+          <td style="font-size:0.78rem;white-space:nowrap">
+            C ${wr.commonPct}% · R ${wr.rarePct}% · E ${wr.epicPct}% · <span style="color:#fbbf24">L ${wr.legendPct}%</span>
+          </td>
+          <td style="color:#a855f7">${wr.edPct}%</td>
+          <td>
+            <span style="font-size:0.78rem;${sumOk ? "color:#86efac" : "color:#fca5a5"}" title="Soma das rates (deve ≈100%)">
+              Σ ${wr.ratesSum}%
+            </span>
+          </td>
+          <td style="font-weight:600;color:#67e8f9" title="Chance de pelo menos 1 carta boa (Epic/Legend/ED) no pack">
+            ≈${wr.packGoodPct}%
+          </td>
+          <td onclick="event.stopPropagation()">
+            <button class="btn-gray btn-sm" onclick="jcAdminOpenPackTypeModal('${id}')">Editar</button>
+            <button class="btn-gray btn-sm" onclick="jcAdminDeletePackType('${id}')">Apagar</button>
+          </td>
+        </tr>`;
+    }).join("") || "<tr><td colspan='8' style='opacity:.6'>Nenhum tipo ainda — clique em Criar novo</td></tr>";
+
     body = `
       <h3 class="admin-section-title">Tipos de pack</h3>
-      <p class="admin-sub">Cada tipo tem rates, chance de ED e cartas/pack. Códigos e “Dar packs” usam um tipo.</p>
-      <div class="admin-form-grid">
-        <div><label>ID</label><input type="text" id="jcPtId" placeholder="ex: legend"></div>
-        <div><label>Label</label><input type="text" id="jcPtLabel" placeholder="Pack Lendário"></div>
-        <div><label>Cartas/pack</label><input type="number" id="jcPtSize" min="1" max="10" value="3"></div>
-        <div><label>Common</label><input type="number" step="0.01" id="jcPtC" value="0.70"></div>
-        <div><label>Rare</label><input type="number" step="0.01" id="jcPtR" value="0.22"></div>
-        <div><label>Epic</label><input type="number" step="0.01" id="jcPtE" value="0.065"></div>
-        <div><label>Legend</label><input type="number" step="0.01" id="jcPtL" value="0.015"></div>
-        <div><label>Especial (ED)</label><input type="number" step="0.01" min="0" max="1" id="jcPtSp" value="0.06"></div>
-      </div>
-      <div class="admin-actions" style="margin-top:8px">
-        <button class="btn-primary btn-sm" onclick="jcAdminSavePackType()">Salvar tipo</button>
+      <p class="admin-sub">
+        Rates em <strong>%</strong>. Soma deve ficar perto de <strong>100%</strong> (senão Legend perde taxa).
+        “Boa no pack” = chance de sair pelo menos 1 Epic, Legend ou ED.
+      </p>
+      <div class="admin-actions" style="flex-wrap:wrap;gap:8px;margin-bottom:12px">
+        <button class="btn-primary btn-sm" onclick="jcAdminOpenPackTypeModal()">+ Criar novo tipo de pack</button>
         <button class="btn-gray btn-sm" onclick="jcAdminSeedPackTypes()">Seed tipos padrão</button>
       </div>
-      <div class="admin-table-wrap" style="margin-top:10px;max-height:180px;overflow:auto">
+      <div class="admin-table-wrap" style="max-height:260px;overflow:auto">
         <table class="admin-table">
-          <thead><tr><th>ID</th><th>Label</th><th>Size</th><th>Legend</th><th>ED</th><th></th></tr></thead>
-          <tbody>
-            ${Object.entries(packTypes).map(([id, t]) => `
-              <tr>
-                <td><code>${id}</code></td>
-                <td>${t.label || id}</td>
-                <td>${t.packSize || 3}</td>
-                <td>${t.rates?.legend ?? "—"}</td>
-                <td>${t.specialChance ?? "—"}</td>
-                <td><button class="btn-gray btn-sm" onclick="jcAdminDeletePackType('${id}')">Apagar</button></td>
-              </tr>
-            `).join("") || "<tr><td colspan='6'>—</td></tr>"}
-          </tbody>
+          <thead>
+            <tr>
+              <th>ID</th><th>Nome</th><th>Cartas</th>
+              <th>Rates (C / R / E / L)</th><th>ED</th><th>Soma</th><th>Boa no pack</th><th></th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
         </table>
       </div>
 
@@ -624,31 +639,188 @@ async function jcAdminGrantPack() {
   renderCardsAdmin();
 }
 
-async function jcAdminSavePackType() {
+/** Converte rates (0–1) em resumo legível em % + winrate do pack */
+function jcPackWinrateSummary(t) {
+  const r = t?.rates || {};
+  const c = Number(r.common) || 0;
+  const rare = Number(r.rare) || 0;
+  const e = Number(r.epic) || 0;
+  const l = Number(r.legend) || 0;
+  const sp = Number(t?.specialChance);
+  const specialChance = Number.isFinite(sp) ? Math.max(0, Math.min(1, sp)) : 0.06;
+  const size = Math.max(1, Number(t?.packSize) || 3);
+
+  // Mesma lógica cumulativa do rollRarity
+  let acc = 0;
+  const eff = {};
+  for (const [k, v] of [["common", c], ["rare", rare], ["epic", e], ["legend", l]]) {
+    const prev = acc;
+    acc += v;
+    eff[k] = Math.max(0, Math.min(1, acc) - prev);
+  }
+  const pHigh = (eff.epic || 0) + (eff.legend || 0); // raridade >= epic
+  const pEd = pHigh * specialChance;
+  const pGood = pHigh; // ED substitui, não adiciona raridade extra
+  const packGood = 1 - Math.pow(1 - pGood, size);
+
+  const pct = (x) => Math.round((x || 0) * 1000) / 10; // 1 casa
+  return {
+    commonPct: pct(c),
+    rarePct: pct(rare),
+    epicPct: pct(e),
+    legendPct: pct(l),
+    edPct: pct(specialChance),
+    ratesSum: pct(c + rare + e + l),
+    effLegendPct: pct(eff.legend),
+    pGoodPct: pct(pGood),
+    packGoodPct: pct(packGood),
+    size
+  };
+}
+
+function jcAdminClosePackTypeModal() {
+  const el = document.getElementById("jcPackTypeModal");
+  if (el) el.remove();
+}
+
+function jcAdminOpenPackTypeModal(editId) {
+  jcAdminClosePackTypeModal();
+  const map = typeof getPackTypesMap === "function" ? getPackTypesMap() : (window.CARDS.DEFAULT_PACK_TYPES || {});
+  const isEdit = !!(editId && map[editId]);
+  const t = isEdit ? map[editId] : {
+    id: "",
+    label: "",
+    packSize: 3,
+    rates: { common: 0.70, rare: 0.22, epic: 0.065, legend: 0.015 },
+    specialChance: 0.06
+  };
+  const r = t.rates || {};
+  const toPct = (v) => Math.round((Number(v) || 0) * 1000) / 10;
+
+  const overlay = document.createElement("div");
+  overlay.id = "jcPackTypeModal";
+  overlay.className = "jc-modal-overlay";
+  overlay.onclick = (e) => { if (e.target === overlay) jcAdminClosePackTypeModal(); };
+  overlay.innerHTML = `
+    <div class="jc-modal" style="grid-template-columns:1fr;max-width:480px" onclick="event.stopPropagation()">
+      <button type="button" class="jc-modal-close" onclick="jcAdminClosePackTypeModal()" title="Fechar">×</button>
+      <div>
+        <h2 style="margin:0 0 4px;font-size:1.15rem">${isEdit ? "Editar tipo de pack" : "Criar novo tipo de pack"}</h2>
+        <p style="margin:0 0 14px;font-size:0.82rem;color:var(--jc-muted,#94a3b8)">
+          Digite as rates em <strong>%</strong> (ex: 70 = 70%). Soma ideal ≈ 100%.
+        </p>
+        <div class="admin-form-grid" style="grid-template-columns:1fr 1fr">
+          <div>
+            <label>ID ${isEdit ? "(fixo)" : ""}</label>
+            <input type="text" id="jcPtId" value="${isEdit ? editId : ""}" placeholder="ex: hardcore" ${isEdit ? "readonly style='opacity:.7'" : ""}>
+          </div>
+          <div>
+            <label>Nome (label)</label>
+            <input type="text" id="jcPtLabel" value="${(t.label || "").replace(/"/g, "&quot;")}" placeholder="Pack Hardcore">
+          </div>
+          <div>
+            <label>Cartas por pack</label>
+            <input type="number" id="jcPtSize" min="1" max="10" value="${t.packSize || 3}">
+          </div>
+          <div>
+            <label>Chance de ED (%)</label>
+            <input type="number" step="0.1" min="0" max="100" id="jcPtSp" value="${toPct(t.specialChance ?? 0.06)}">
+          </div>
+          <div>
+            <label>Common (%)</label>
+            <input type="number" step="0.1" min="0" max="100" id="jcPtC" value="${toPct(r.common)}" oninput="jcAdminPtPreview()">
+          </div>
+          <div>
+            <label>Rare (%)</label>
+            <input type="number" step="0.1" min="0" max="100" id="jcPtR" value="${toPct(r.rare)}" oninput="jcAdminPtPreview()">
+          </div>
+          <div>
+            <label>Epic (%)</label>
+            <input type="number" step="0.1" min="0" max="100" id="jcPtE" value="${toPct(r.epic)}" oninput="jcAdminPtPreview()">
+          </div>
+          <div>
+            <label>Legend (%)</label>
+            <input type="number" step="0.1" min="0" max="100" id="jcPtL" value="${toPct(r.legend)}" oninput="jcAdminPtPreview()">
+          </div>
+        </div>
+        <div id="jcPtPreview" style="margin-top:12px;padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);font-size:0.82rem;line-height:1.45"></div>
+        <div class="admin-actions" style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn-primary btn-sm" onclick="jcAdminSavePackTypeFromModal(${isEdit ? "true" : "false"})">Salvar</button>
+          <button class="btn-gray btn-sm" onclick="jcAdminClosePackTypeModal()">Cancelar</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  jcAdminPtPreview();
+  if (!isEdit) setTimeout(() => document.getElementById("jcPtId")?.focus(), 50);
+}
+
+function jcAdminPtPreview() {
+  const box = document.getElementById("jcPtPreview");
+  if (!box) return;
+  const pctToRate = (id) => (Number(document.getElementById(id)?.value) || 0) / 100;
+  const t = {
+    packSize: Number(document.getElementById("jcPtSize")?.value) || 3,
+    rates: {
+      common: pctToRate("jcPtC"),
+      rare: pctToRate("jcPtR"),
+      epic: pctToRate("jcPtE"),
+      legend: pctToRate("jcPtL")
+    },
+    specialChance: pctToRate("jcPtSp")
+  };
+  const wr = jcPackWinrateSummary(t);
+  const sumOk = Math.abs(wr.ratesSum - 100) < 0.6;
+  const warn = !sumOk
+    ? `<div style="color:#fca5a5;margin-top:4px">⚠️ Soma = ${wr.ratesSum}% (ideal 100%). Acima de 100% o excesso é cortado e Legend perde taxa.</div>`
+    : `<div style="color:#86efac;margin-top:4px">✓ Soma ≈ 100% — rates batem com a realidade.</div>`;
+  const pEdPct = Math.round(wr.pGoodPct * (wr.edPct / 100) * 10) / 10;
+  box.innerHTML = `
+    <div><strong>Prévia do winrate</strong></div>
+    <div>Por carta: Epic ${wr.epicPct}% · Legend efetiva ~${wr.effLegendPct}% · ED ~${pEdPct}%*</div>
+    <div style="margin-top:2px">Chance de <strong>carta boa</strong> (E/L/ED) por carta: <strong>~${wr.pGoodPct}%</strong></div>
+    <div>No pack de <strong>${wr.size}</strong> cartas: chance de pelo menos 1 boa ≈ <strong style="color:#67e8f9">${wr.packGoodPct}%</strong></div>
+    ${warn}
+    <div style="opacity:.65;margin-top:4px;font-size:0.75rem">* ED só rola se a raridade já for Epic ou Legend (mínimo padrão).</div>
+  `;
+}
+
+async function jcAdminSavePackTypeFromModal(isEdit) {
   let id = (document.getElementById("jcPtId")?.value || "").trim().toLowerCase().replace(/[^a-z0-9_]+/g, "_");
-  if (!id) return alert("ID obrigatório (ex: legend)");
+  if (!id) return alert("ID obrigatório (ex: hardcore, legend_plus)");
   const label = (document.getElementById("jcPtLabel")?.value || "").trim() || id;
   const packSize = Math.max(1, Math.min(10, parseInt(document.getElementById("jcPtSize")?.value || "3", 10) || 3));
+  const pct = (elId) => Math.max(0, (Number(document.getElementById(elId)?.value) || 0) / 100);
   const rates = {
-    common: Number(document.getElementById("jcPtC")?.value) || 0,
-    rare: Number(document.getElementById("jcPtR")?.value) || 0,
-    epic: Number(document.getElementById("jcPtE")?.value) || 0,
-    legend: Number(document.getElementById("jcPtL")?.value) || 0
+    common: pct("jcPtC"),
+    rare: pct("jcPtR"),
+    epic: pct("jcPtE"),
+    legend: pct("jcPtL")
   };
-  const spRaw = Number(document.getElementById("jcPtSp")?.value);
-  const specialChance = Number.isFinite(spRaw) ? Math.max(0, Math.min(1, spRaw)) : 0.06;
+  const specialChance = Math.max(0, Math.min(1, pct("jcPtSp")));
+  const sum = rates.common + rates.rare + rates.epic + rates.legend;
+  if (sum > 1.02) {
+    if (!confirm(`A soma das rates é ${(sum * 100).toFixed(1)}% (acima de 100%).\nLegend vai perder taxa efetiva.\nSalvar mesmo assim?`)) return;
+  }
   await window.marketDb.ref("cards/packTypes/" + id).set({
     id, label, packSize, rates, specialChance, updatedAt: new Date().toISOString()
   });
+  jcAdminClosePackTypeModal();
   alert("Tipo salvo: " + label);
   renderCardsAdmin("packs");
 }
 
+/** Legado: formulário antigo (mantido por compat) */
+async function jcAdminSavePackType() {
+  return jcAdminSavePackTypeFromModal(false);
+}
+
 async function jcAdminDeletePackType(id) {
-  if (!id || id === "standard") {
-    if (id === "standard" && !confirm("Apagar o tipo standard? Packs sem tipo caem nas rates globais.")) return;
-  }
-  if (!confirm("Apagar tipo " + id + "?")) return;
+  if (!id) return;
+  if (id === "standard") {
+    if (!confirm("Apagar o tipo standard? Packs sem tipo caem nas rates globais.")) return;
+  } else if (!confirm("Apagar tipo " + id + "?")) return;
   await window.marketDb.ref("cards/packTypes/" + id).remove();
   renderCardsAdmin("packs");
 }
@@ -1085,6 +1257,11 @@ window.jcAdminCreateCode = jcAdminCreateCode;
 window.jcAdminDeleteCode = jcAdminDeleteCode;
 window.jcAdminGrantPack = jcAdminGrantPack;
 window.jcAdminSavePackType = jcAdminSavePackType;
+window.jcAdminSavePackTypeFromModal = jcAdminSavePackTypeFromModal;
+window.jcAdminOpenPackTypeModal = jcAdminOpenPackTypeModal;
+window.jcAdminClosePackTypeModal = jcAdminClosePackTypeModal;
+window.jcAdminPtPreview = jcAdminPtPreview;
+window.jcPackWinrateSummary = jcPackWinrateSummary;
 window.jcAdminDeletePackType = jcAdminDeletePackType;
 window.jcAdminSeedPackTypes = jcAdminSeedPackTypes;
 window.jcAdminViewVitrine = jcAdminViewVitrine;
