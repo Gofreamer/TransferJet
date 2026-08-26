@@ -72,56 +72,41 @@ function renderCardsAdmin(subTab) {
     `;
   } else if (tab === "packs") {
     const packTypes = typeof getPackTypesMap === "function" ? getPackTypesMap() : (window.CARDS.DEFAULT_PACK_TYPES || {});
-    const packTypeOpts = Object.entries(packTypes).map(([id, t]) => {
-      const wr = jcPackWinrateSummary(t);
-      return `<option value="${id}">${t.label || id} · ${t.packSize || 3}c · L${wr.legendPct}% · ED${wr.edPct}% · boa≈${wr.packGoodPct}%</option>`;
-    }).join("");
-    const rows = Object.entries(packTypes).map(([id, t]) => {
-      const wr = jcPackWinrateSummary(t);
-      const sumOk = Math.abs(wr.ratesSum - 100) < 0.6;
-      return `
-        <tr style="cursor:pointer" onclick="jcAdminOpenPackTypeModal('${id}')" title="Clique para editar">
-          <td><code>${id}</code></td>
-          <td><strong>${t.label || id}</strong></td>
-          <td>${t.packSize || 3}</td>
-          <td style="font-size:0.78rem;white-space:nowrap">
-            C ${wr.commonPct}% · R ${wr.rarePct}% · E ${wr.epicPct}% · <span style="color:#fbbf24">L ${wr.legendPct}%</span>
-          </td>
-          <td style="color:#a855f7">${wr.edPct}%</td>
-          <td>
-            <span style="font-size:0.78rem;${sumOk ? "color:#86efac" : "color:#fca5a5"}" title="Soma das rates (deve ≈100%)">
-              Σ ${wr.ratesSum}%
-            </span>
-          </td>
-          <td style="font-weight:600;color:#67e8f9" title="Chance de pelo menos 1 carta boa (Epic/Legend/ED) no pack">
-            ≈${wr.packGoodPct}%
-          </td>
-          <td onclick="event.stopPropagation()">
-            <button class="btn-gray btn-sm" onclick="jcAdminOpenPackTypeModal('${id}')">Editar</button>
-            <button class="btn-gray btn-sm" onclick="jcAdminDeletePackType('${id}')">Apagar</button>
-          </td>
-        </tr>`;
-    }).join("") || "<tr><td colspan='8' style='opacity:.6'>Nenhum tipo ainda — clique em Criar novo</td></tr>";
-
+    const packTypeOpts = Object.entries(packTypes).map(([id, t]) =>
+      `<option value="${id}">${t.label || id} · ${t.packSize || 3}c · L${Math.round((t.rates?.legend || 0) * 1000) / 10}% · ED${Math.round((t.specialChance || 0) * 100)}%</option>`
+    ).join("");
     body = `
       <h3 class="admin-section-title">Tipos de pack</h3>
-      <p class="admin-sub">
-        Rates em <strong>%</strong>. Soma deve ficar perto de <strong>100%</strong> (senão Legend perde taxa).
-        “Boa no pack” = chance de sair pelo menos 1 Epic, Legend ou ED.
-      </p>
-      <div class="admin-actions" style="flex-wrap:wrap;gap:8px;margin-bottom:12px">
-        <button class="btn-primary btn-sm" onclick="jcAdminOpenPackTypeModal()">+ Criar novo tipo de pack</button>
+      <p class="admin-sub">Cada tipo tem rates, chance de ED e cartas/pack. Códigos e “Dar packs” usam um tipo.</p>
+      <div class="admin-form-grid">
+        <div><label>ID</label><input type="text" id="jcPtId" placeholder="ex: legend"></div>
+        <div><label>Label</label><input type="text" id="jcPtLabel" placeholder="Pack Lendário"></div>
+        <div><label>Cartas/pack</label><input type="number" id="jcPtSize" min="1" max="10" value="3"></div>
+        <div><label>Common</label><input type="number" step="0.01" id="jcPtC" value="0.70"></div>
+        <div><label>Rare</label><input type="number" step="0.01" id="jcPtR" value="0.22"></div>
+        <div><label>Epic</label><input type="number" step="0.01" id="jcPtE" value="0.065"></div>
+        <div><label>Legend</label><input type="number" step="0.01" id="jcPtL" value="0.015"></div>
+        <div><label>Especial (ED)</label><input type="number" step="0.01" min="0" max="1" id="jcPtSp" value="0.06"></div>
+      </div>
+      <div class="admin-actions" style="margin-top:8px">
+        <button class="btn-primary btn-sm" onclick="jcAdminSavePackType()">Salvar tipo</button>
         <button class="btn-gray btn-sm" onclick="jcAdminSeedPackTypes()">Seed tipos padrão</button>
       </div>
-      <div class="admin-table-wrap" style="max-height:260px;overflow:auto">
+      <div class="admin-table-wrap" style="margin-top:10px;max-height:180px;overflow:auto">
         <table class="admin-table">
-          <thead>
-            <tr>
-              <th>ID</th><th>Nome</th><th>Cartas</th>
-              <th>Rates (C / R / E / L)</th><th>ED</th><th>Soma</th><th>Boa no pack</th><th></th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
+          <thead><tr><th>ID</th><th>Label</th><th>Size</th><th>Legend</th><th>ED</th><th></th></tr></thead>
+          <tbody>
+            ${Object.entries(packTypes).map(([id, t]) => `
+              <tr>
+                <td><code>${id}</code></td>
+                <td>${t.label || id}</td>
+                <td>${t.packSize || 3}</td>
+                <td>${t.rates?.legend ?? "—"}</td>
+                <td>${t.specialChance ?? "—"}</td>
+                <td><button class="btn-gray btn-sm" onclick="jcAdminDeletePackType('${id}')">Apagar</button></td>
+              </tr>
+            `).join("") || "<tr><td colspan='6'>—</td></tr>"}
+          </tbody>
         </table>
       </div>
 
@@ -242,8 +227,22 @@ function renderCardsAdmin(subTab) {
 
       <h3 class="admin-section-title" style="margin-top:22px">Remover carta da coleção</h3>
       <p class="admin-sub">Quando o jogador vende a carta em outro site — remove da conta e da vitrine.</p>
-      <div class="admin-actions" style="margin-top:4px">
-        <button class="btn-primary btn-sm" style="background:#7f1d1d;border-color:#991b1b" onclick="jcAdminOpenRemoveCardModal()">🗑 Abrir removedor de cartas</button>
+      <div class="admin-form-grid">
+        <div>
+          <label>Jogador</label>
+          <select id="jcRemoveOwner" onchange="jcAdminLoadPlayerCards()">
+            <option value="">— selecione —</option>
+            ${humans.map(([id, p]) => `<option value="${id}">${p.displayName || id}</option>`).join("")}
+          </select>
+        </div>
+        <div class="full">
+          <label>Carta</label>
+          <select id="jcRemoveCard"><option value="">— carregue o jogador —</option></select>
+        </div>
+      </div>
+      <div class="admin-actions" style="margin-top:8px">
+        <button class="btn-primary btn-sm" onclick="jcAdminLoadPlayerCards()">Carregar cartas</button>
+        <button class="btn-gray btn-sm" style="background:#7f1d1d;border-color:#991b1b" onclick="jcAdminRemoveCard()">Remover carta</button>
       </div>
     `;
   } else if (tab === "codigos") {
@@ -625,188 +624,31 @@ async function jcAdminGrantPack() {
   renderCardsAdmin();
 }
 
-/** Converte rates (0–1) em resumo legível em % + winrate do pack */
-function jcPackWinrateSummary(t) {
-  const r = t?.rates || {};
-  const c = Number(r.common) || 0;
-  const rare = Number(r.rare) || 0;
-  const e = Number(r.epic) || 0;
-  const l = Number(r.legend) || 0;
-  const sp = Number(t?.specialChance);
-  const specialChance = Number.isFinite(sp) ? Math.max(0, Math.min(1, sp)) : 0.06;
-  const size = Math.max(1, Number(t?.packSize) || 3);
-
-  // Mesma lógica cumulativa do rollRarity
-  let acc = 0;
-  const eff = {};
-  for (const [k, v] of [["common", c], ["rare", rare], ["epic", e], ["legend", l]]) {
-    const prev = acc;
-    acc += v;
-    eff[k] = Math.max(0, Math.min(1, acc) - prev);
-  }
-  const pHigh = (eff.epic || 0) + (eff.legend || 0); // raridade >= epic
-  const pEd = pHigh * specialChance;
-  const pGood = pHigh; // ED substitui, não adiciona raridade extra
-  const packGood = 1 - Math.pow(1 - pGood, size);
-
-  const pct = (x) => Math.round((x || 0) * 1000) / 10; // 1 casa
-  return {
-    commonPct: pct(c),
-    rarePct: pct(rare),
-    epicPct: pct(e),
-    legendPct: pct(l),
-    edPct: pct(specialChance),
-    ratesSum: pct(c + rare + e + l),
-    effLegendPct: pct(eff.legend),
-    pGoodPct: pct(pGood),
-    packGoodPct: pct(packGood),
-    size
-  };
-}
-
-function jcAdminClosePackTypeModal() {
-  const el = document.getElementById("jcPackTypeModal");
-  if (el) el.remove();
-}
-
-function jcAdminOpenPackTypeModal(editId) {
-  jcAdminClosePackTypeModal();
-  const map = typeof getPackTypesMap === "function" ? getPackTypesMap() : (window.CARDS.DEFAULT_PACK_TYPES || {});
-  const isEdit = !!(editId && map[editId]);
-  const t = isEdit ? map[editId] : {
-    id: "",
-    label: "",
-    packSize: 3,
-    rates: { common: 0.70, rare: 0.22, epic: 0.065, legend: 0.015 },
-    specialChance: 0.06
-  };
-  const r = t.rates || {};
-  const toPct = (v) => Math.round((Number(v) || 0) * 1000) / 10;
-
-  const overlay = document.createElement("div");
-  overlay.id = "jcPackTypeModal";
-  overlay.className = "jc-modal-overlay";
-  overlay.onclick = (e) => { if (e.target === overlay) jcAdminClosePackTypeModal(); };
-  overlay.innerHTML = `
-    <div class="jc-modal" style="grid-template-columns:1fr;max-width:480px" onclick="event.stopPropagation()">
-      <button type="button" class="jc-modal-close" onclick="jcAdminClosePackTypeModal()" title="Fechar">×</button>
-      <div>
-        <h2 style="margin:0 0 4px;font-size:1.15rem">${isEdit ? "Editar tipo de pack" : "Criar novo tipo de pack"}</h2>
-        <p style="margin:0 0 14px;font-size:0.82rem;color:var(--jc-muted,#94a3b8)">
-          Digite as rates em <strong>%</strong> (ex: 70 = 70%). Soma ideal ≈ 100%.
-        </p>
-        <div class="admin-form-grid" style="grid-template-columns:1fr 1fr">
-          <div>
-            <label>ID ${isEdit ? "(fixo)" : ""}</label>
-            <input type="text" id="jcPtId" value="${isEdit ? editId : ""}" placeholder="ex: hardcore" ${isEdit ? "readonly style='opacity:.7'" : ""}>
-          </div>
-          <div>
-            <label>Nome (label)</label>
-            <input type="text" id="jcPtLabel" value="${(t.label || "").replace(/"/g, "&quot;")}" placeholder="Pack Hardcore">
-          </div>
-          <div>
-            <label>Cartas por pack</label>
-            <input type="number" id="jcPtSize" min="1" max="10" value="${t.packSize || 3}">
-          </div>
-          <div>
-            <label>Chance de ED (%)</label>
-            <input type="number" step="0.1" min="0" max="100" id="jcPtSp" value="${toPct(t.specialChance ?? 0.06)}">
-          </div>
-          <div>
-            <label>Common (%)</label>
-            <input type="number" step="0.1" min="0" max="100" id="jcPtC" value="${toPct(r.common)}" oninput="jcAdminPtPreview()">
-          </div>
-          <div>
-            <label>Rare (%)</label>
-            <input type="number" step="0.1" min="0" max="100" id="jcPtR" value="${toPct(r.rare)}" oninput="jcAdminPtPreview()">
-          </div>
-          <div>
-            <label>Epic (%)</label>
-            <input type="number" step="0.1" min="0" max="100" id="jcPtE" value="${toPct(r.epic)}" oninput="jcAdminPtPreview()">
-          </div>
-          <div>
-            <label>Legend (%)</label>
-            <input type="number" step="0.1" min="0" max="100" id="jcPtL" value="${toPct(r.legend)}" oninput="jcAdminPtPreview()">
-          </div>
-        </div>
-        <div id="jcPtPreview" style="margin-top:12px;padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);font-size:0.82rem;line-height:1.45"></div>
-        <div class="admin-actions" style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
-          <button class="btn-primary btn-sm" onclick="jcAdminSavePackTypeFromModal(${isEdit ? "true" : "false"})">Salvar</button>
-          <button class="btn-gray btn-sm" onclick="jcAdminClosePackTypeModal()">Cancelar</button>
-        </div>
-      </div>
-    </div>
-  `;
-  document.body.appendChild(overlay);
-  jcAdminPtPreview();
-  if (!isEdit) setTimeout(() => document.getElementById("jcPtId")?.focus(), 50);
-}
-
-function jcAdminPtPreview() {
-  const box = document.getElementById("jcPtPreview");
-  if (!box) return;
-  const pctToRate = (id) => (Number(document.getElementById(id)?.value) || 0) / 100;
-  const t = {
-    packSize: Number(document.getElementById("jcPtSize")?.value) || 3,
-    rates: {
-      common: pctToRate("jcPtC"),
-      rare: pctToRate("jcPtR"),
-      epic: pctToRate("jcPtE"),
-      legend: pctToRate("jcPtL")
-    },
-    specialChance: pctToRate("jcPtSp")
-  };
-  const wr = jcPackWinrateSummary(t);
-  const sumOk = Math.abs(wr.ratesSum - 100) < 0.6;
-  const warn = !sumOk
-    ? `<div style="color:#fca5a5;margin-top:4px">⚠️ Soma = ${wr.ratesSum}% (ideal 100%). Acima de 100% o excesso é cortado e Legend perde taxa.</div>`
-    : `<div style="color:#86efac;margin-top:4px">✓ Soma ≈ 100% — rates batem com a realidade.</div>`;
-  const pEdPct = Math.round(wr.pGoodPct * (wr.edPct / 100) * 10) / 10;
-  box.innerHTML = `
-    <div><strong>Prévia do winrate</strong></div>
-    <div>Por carta: Epic ${wr.epicPct}% · Legend efetiva ~${wr.effLegendPct}% · ED ~${pEdPct}%*</div>
-    <div style="margin-top:2px">Chance de <strong>carta boa</strong> (E/L/ED) por carta: <strong>~${wr.pGoodPct}%</strong></div>
-    <div>No pack de <strong>${wr.size}</strong> cartas: chance de pelo menos 1 boa ≈ <strong style="color:#67e8f9">${wr.packGoodPct}%</strong></div>
-    ${warn}
-    <div style="opacity:.65;margin-top:4px;font-size:0.75rem">* ED só rola se a raridade já for Epic ou Legend (mínimo padrão).</div>
-  `;
-}
-
-async function jcAdminSavePackTypeFromModal(isEdit) {
+async function jcAdminSavePackType() {
   let id = (document.getElementById("jcPtId")?.value || "").trim().toLowerCase().replace(/[^a-z0-9_]+/g, "_");
-  if (!id) return alert("ID obrigatório (ex: hardcore, legend_plus)");
+  if (!id) return alert("ID obrigatório (ex: legend)");
   const label = (document.getElementById("jcPtLabel")?.value || "").trim() || id;
   const packSize = Math.max(1, Math.min(10, parseInt(document.getElementById("jcPtSize")?.value || "3", 10) || 3));
-  const pct = (elId) => Math.max(0, (Number(document.getElementById(elId)?.value) || 0) / 100);
   const rates = {
-    common: pct("jcPtC"),
-    rare: pct("jcPtR"),
-    epic: pct("jcPtE"),
-    legend: pct("jcPtL")
+    common: Number(document.getElementById("jcPtC")?.value) || 0,
+    rare: Number(document.getElementById("jcPtR")?.value) || 0,
+    epic: Number(document.getElementById("jcPtE")?.value) || 0,
+    legend: Number(document.getElementById("jcPtL")?.value) || 0
   };
-  const specialChance = Math.max(0, Math.min(1, pct("jcPtSp")));
-  const sum = rates.common + rates.rare + rates.epic + rates.legend;
-  if (sum > 1.02) {
-    if (!confirm(`A soma das rates é ${(sum * 100).toFixed(1)}% (acima de 100%).\nLegend vai perder taxa efetiva.\nSalvar mesmo assim?`)) return;
-  }
+  const spRaw = Number(document.getElementById("jcPtSp")?.value);
+  const specialChance = Number.isFinite(spRaw) ? Math.max(0, Math.min(1, spRaw)) : 0.06;
   await window.marketDb.ref("cards/packTypes/" + id).set({
     id, label, packSize, rates, specialChance, updatedAt: new Date().toISOString()
   });
-  jcAdminClosePackTypeModal();
   alert("Tipo salvo: " + label);
   renderCardsAdmin("packs");
 }
 
-/** Legado: formulário antigo (mantido por compat) */
-async function jcAdminSavePackType() {
-  return jcAdminSavePackTypeFromModal(false);
-}
-
 async function jcAdminDeletePackType(id) {
-  if (!id) return;
-  if (id === "standard") {
-    if (!confirm("Apagar o tipo standard? Packs sem tipo caem nas rates globais.")) return;
-  } else if (!confirm("Apagar tipo " + id + "?")) return;
+  if (!id || id === "standard") {
+    if (id === "standard" && !confirm("Apagar o tipo standard? Packs sem tipo caem nas rates globais.")) return;
+  }
+  if (!confirm("Apagar tipo " + id + "?")) return;
   await window.marketDb.ref("cards/packTypes/" + id).remove();
   renderCardsAdmin("packs");
 }
@@ -1105,218 +947,69 @@ async function jcAdminCreateNpcVitrine() {
   renderCardsAdmin();
 }
 
-function jcAdminCloseRemoveCardModal() {
-  document.getElementById("jcRemoveCardModal")?.remove();
-}
-
-function jcAdminOpenRemoveCardModal() {
-  jcAdminCloseRemoveCardModal();
-  const humans = Object.entries(window.AppState.fantasy?.participants || {}).filter(([, p]) => p && p.type !== "npc");
-  const humanOpts = humans.map(([id, p]) =>
-    `<option value="${id}">${p.displayName || id}</option>`
-  ).join("") || "<option value=''>Nenhum humano</option>";
-
-  const overlay = document.createElement("div");
-  overlay.id = "jcRemoveCardModal";
-  overlay.className = "jc-modal-overlay";
-  overlay.onclick = (e) => { if (e.target === overlay) jcAdminCloseRemoveCardModal(); };
-  overlay.innerHTML = `
-    <div class="jc-modal" style="grid-template-columns:1fr;max-width:560px;max-height:92vh" onclick="event.stopPropagation()">
-      <button type="button" class="jc-modal-close" onclick="jcAdminCloseRemoveCardModal()" title="Fechar">×</button>
-      <div>
-        <h2 style="margin:0 0 4px;font-size:1.15rem">Remover carta da coleção</h2>
-        <p style="margin:0 0 12px;font-size:0.82rem;color:var(--jc-muted,#94a3b8)">
-          Busca direto no Firebase. Remove 1× da pilha (ou a carta inteira se count = 1) e tira da vitrine se estiver lá.
-        </p>
-        <div class="admin-form-grid" style="grid-template-columns:1fr auto;align-items:end;gap:8px">
-          <div>
-            <label>Jogador</label>
-            <select id="jcRmOwner">${humanOpts}</select>
-          </div>
-          <button class="btn-primary btn-sm" type="button" onclick="jcAdminLoadPlayerCards()" style="height:36px">Carregar</button>
-        </div>
-        <div style="margin-top:10px">
-          <label style="font-size:0.78rem;opacity:.8">Filtrar</label>
-          <input type="search" id="jcRmFilter" placeholder="nome, raridade, edição…" oninput="jcAdminFilterRemoveList()" style="width:100%;margin-top:4px">
-        </div>
-        <div id="jcRmStatus" style="margin-top:8px;font-size:0.8rem;opacity:.75">Selecione o jogador e clique em Carregar.</div>
-        <div id="jcRmList" style="margin-top:10px;max-height:380px;overflow:auto;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:6px"></div>
-      </div>
-    </div>
-  `;
-  document.body.appendChild(overlay);
-}
-
-/** Força fetch fresco do inventário no Firebase e preenche a lista do modal */
-async function jcAdminLoadPlayerCards() {
-  const ownerId = document.getElementById("jcRmOwner")?.value
-    || document.getElementById("jcRemoveOwner")?.value;
-  const list = document.getElementById("jcRmList");
-  const status = document.getElementById("jcRmStatus");
-  const legacySel = document.getElementById("jcRemoveCard");
-
+function jcAdminLoadPlayerCards() {
+  const ownerId = document.getElementById("jcRemoveOwner")?.value;
+  const sel = document.getElementById("jcRemoveCard");
+  if (!sel) return;
   if (!ownerId) {
-    if (status) status.textContent = "Selecione um jogador.";
-    if (legacySel) legacySel.innerHTML = "<option value=''>— selecione o jogador —</option>";
+    sel.innerHTML = "<option value=''>— selecione o jogador —</option>";
     return;
   }
-
-  if (status) status.textContent = "Carregando inventário do Firebase…";
-  if (list) list.innerHTML = "<div style='padding:12px;opacity:.6'>Buscando…</div>";
-
-  // Força refresh (admin não pode confiar em cache antigo/vazio)
-  try {
-    if (window.AppState.cards?.inventory) delete window.AppState.cards.inventory[ownerId];
-    if (window._jcInvFetching) delete window._jcInvFetching[ownerId];
-  } catch (_) {}
-
-  let inv = {};
-  try {
-    if (typeof cardsFetchInventoryOnce === "function") {
-      inv = (await cardsFetchInventoryOnce(ownerId)) || {};
-    } else if (window.marketDb) {
-      const snap = await window.marketDb.ref("cards/inventory/" + ownerId).once("value");
-      inv = snap.val() || {};
-      const all = ensureCardsState().inventory || {};
-      all[ownerId] = inv;
-      ensureCardsState().inventory = all;
-    }
-  } catch (err) {
-    console.error("jcAdminLoadPlayerCards", err);
-    if (status) status.textContent = "Erro ao carregar: " + (err.message || err);
-    if (list) list.innerHTML = "";
-    return;
-  }
-
-  // Inventário pode vir como objeto de stacks; filtrar entradas inválidas
-  const entries = Object.entries(inv || {}).filter(([, c]) => c && typeof c === "object");
-  window._jcRmCache = { ownerId, entries };
-
+  const inv = (window.AppState.cards.inventory || {})[ownerId] || {};
+  const entries = Object.entries(inv);
   if (!entries.length) {
-    if (status) status.textContent = "Nenhuma carta na coleção deste jogador.";
-    if (list) list.innerHTML = "<div style='padding:14px;opacity:.6;text-align:center'>Coleção vazia</div>";
-    if (legacySel) legacySel.innerHTML = "<option value=''>Nenhuma carta na coleção</option>";
+    sel.innerHTML = "<option value=''>Nenhuma carta na coleção</option>";
     return;
   }
-
-  const totalQty = entries.reduce((s, [, c]) => s + Math.max(1, Number(c.count) || 1), 0);
-  if (status) status.textContent = `${entries.length} pilha(s) · ${totalQty} carta(s) no total`;
-
-  // Legacy select (se ainda existir em alguma tela)
-  if (legacySel) {
-    const rarityOrder = { legend: 0, epic: 1, rare: 2, common: 3 };
-    const sorted = entries.slice().sort((a, b) => {
-      const ra = rarityOrder[a[1].rarity] ?? 9;
-      const rb = rarityOrder[b[1].rarity] ?? 9;
-      return ra - rb || (a[1].playerName || "").localeCompare(b[1].playerName || "");
-    });
-    legacySel.innerHTML = sorted.map(([cid, c]) => {
-      const n = Math.max(1, Number(c.count) || 1);
-      const label = `${c.playerName || c.playerKey} · ${c.rarity || "?"} · ${(c.edition || "BASE")} · ${c.foil || "normal"}${n > 1 ? " · ×" + n : ""}`;
-      return `<option value="${cid}">${label}</option>`;
-    }).join("");
-  }
-
-  jcAdminFilterRemoveList();
-}
-
-function jcAdminFilterRemoveList() {
-  const list = document.getElementById("jcRmList");
-  if (!list || !window._jcRmCache) return;
-  const q = (document.getElementById("jcRmFilter")?.value || "").trim().toLowerCase();
   const rarityOrder = { legend: 0, epic: 1, rare: 2, common: 3 };
-  const rarityColor = { legend: "#fbbf24", epic: "#a855f7", rare: "#3b82f6", common: "#94a3b8" };
-  let entries = window._jcRmCache.entries.slice();
-  if (q) {
-    entries = entries.filter(([, c]) => {
-      const hay = [c.playerName, c.playerKey, c.rarity, c.edition, c.foil, c.team].join(" ").toLowerCase();
-      return hay.includes(q);
-    });
-  }
   entries.sort((a, b) => {
     const ra = rarityOrder[a[1].rarity] ?? 9;
     const rb = rarityOrder[b[1].rarity] ?? 9;
     return ra - rb || (a[1].playerName || "").localeCompare(b[1].playerName || "");
   });
-  if (!entries.length) {
-    list.innerHTML = "<div style='padding:14px;opacity:.6;text-align:center'>Nada encontrado com esse filtro</div>";
-    return;
-  }
-  list.innerHTML = entries.map(([cid, c]) => {
+  sel.innerHTML = entries.map(([cid, c]) => {
     const n = Math.max(1, Number(c.count) || 1);
-    const col = rarityColor[(c.rarity || "").toLowerCase()] || "#94a3b8";
-    const name = c.playerName || c.playerKey || "?";
-    const meta = `${(c.edition || "BASE")} · ${c.foil || "normal"}${c.team ? " · " + c.team : ""}`;
-    return `
-      <div style="display:flex;align-items:center;gap:10px;padding:8px 8px;border-bottom:1px solid rgba(255,255,255,0.05)">
-        <div style="flex:1;min-width:0">
-          <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${name}</div>
-          <div style="font-size:0.75rem;opacity:.75">
-            <span style="color:${col};font-weight:700">${(c.rarity || "?").toUpperCase()}</span>
-            · ${meta}${n > 1 ? ` · <strong>×${n}</strong>` : ""}
-          </div>
-        </div>
-        <button class="btn-gray btn-sm" style="background:#7f1d1d;border-color:#991b1b;flex-shrink:0"
-          onclick="jcAdminRemoveCardById('${window._jcRmCache.ownerId}','${cid}')">
-          Remover 1×
-        </button>
-      </div>`;
+    const label = `${c.playerName || c.playerKey} · ${c.rarity || "?"} · ${(c.edition || "BASE")} · ${c.foil || "normal"}${n > 1 ? " · ×" + n : ""}`;
+    return `<option value="${cid}">${label}</option>`;
   }).join("");
 }
 
-async function jcAdminRemoveCardById(ownerId, cardId) {
-  if (!ownerId || !cardId) return alert("Dados inválidos");
-  // Refresh fresco
-  try {
-    if (window.AppState.cards?.inventory) delete window.AppState.cards.inventory[ownerId];
-    if (window._jcInvFetching) delete window._jcInvFetching[ownerId];
-  } catch (_) {}
-  let inv = {};
-  if (typeof cardsFetchInventoryOnce === "function") {
-    inv = (await cardsFetchInventoryOnce(ownerId)) || {};
-  }
-  const card = inv[cardId];
-  if (!card) return alert("Carta não encontrada (talvez já tenha sido removida)");
-  const cnt = Math.max(1, Number(card.count) || 1);
-  const label = `${card.playerName || card.playerKey} (${card.rarity || "?"}) ×${cnt}`;
-  if (!confirm(`Remover 1× de "${label}" da coleção?`)) return;
-
-  try {
-    if (cnt > 1) {
-      await window.marketDb.ref("cards/inventory/" + ownerId + "/" + cardId).update({
-        count: cnt - 1,
-        stacked: true
-      });
-    } else {
-      await window.marketDb.ref("cards/inventory/" + ownerId + "/" + cardId).remove();
-      // Tira da vitrine do jogador se estiver nos slots
-      const scSnap = await window.marketDb.ref("cards/showcases/" + ownerId).once("value");
-      const sc = scSnap.val();
-      if (sc && Array.isArray(sc.slots)) {
-        const newSlots = sc.slots.map(s => {
-          if (s === cardId) return null;
-          if (s && typeof s === "object" && (s.cardId === cardId || s.id === cardId)) return null;
-          return s;
-        });
-        await window.marketDb.ref("cards/showcases/" + ownerId + "/slots").set(newSlots);
-      }
-    }
-  } catch (err) {
-    console.error(err);
-    return alert("Erro ao remover: " + (err.message || err) + "\n(verifique rules do Firebase)");
-  }
-
-  alert("Removido 1×: " + label);
-  // Recarrega lista no modal
-  await jcAdminLoadPlayerCards();
-}
-
-/** Legado: botão antigo da tela (se ainda existir) */
 async function jcAdminRemoveCard() {
   const ownerId = document.getElementById("jcRemoveOwner")?.value;
   const cardId = document.getElementById("jcRemoveCard")?.value;
   if (!ownerId || !cardId) return alert("Selecione jogador e carta");
-  return jcAdminRemoveCardById(ownerId, cardId);
+  if (!(window.AppState.cards.inventory || {})[ownerId] && typeof cardsFetchInventoryOnce === "function") {
+    await cardsFetchInventoryOnce(ownerId);
+  }
+  const inv = (window.AppState.cards.inventory || {})[ownerId] || {};
+  const card = inv[cardId];
+  if (!card) return alert("Carta não encontrada");
+  const cnt = Math.max(1, Number(card.count) || 1);
+  const label = `${card.playerName || card.playerKey} (${card.rarity || "?"}) ×${cnt}`;
+  if (!confirm(`Remover 1× de "${label}" da coleção deste jogador?`)) return;
+
+  if (cnt > 1) {
+    await window.marketDb.ref("cards/inventory/" + ownerId + "/" + cardId).update({
+      count: cnt - 1,
+      stacked: true
+    });
+  } else {
+    await window.marketDb.ref("cards/inventory/" + ownerId + "/" + cardId).remove();
+    const sc = (window.AppState.cards.showcases || {})[ownerId];
+    if (sc && Array.isArray(sc.slots) && sc.slots.includes(cardId)) {
+      const newSlots = sc.slots.map(s => s === cardId ? null : s);
+      await window.marketDb.ref("cards/showcases/" + ownerId + "/slots").set(newSlots);
+    }
+  }
+
+  alert("Removido 1×: " + label);
+  // refresh local cache
+  if (typeof cardsFetchInventoryOnce === "function") {
+    const all = window.AppState.cards.inventory || {};
+    delete all[ownerId];
+    await cardsFetchInventoryOnce(ownerId);
+  }
+  jcAdminLoadPlayerCards();
 }
 
 async function jcAdminPurgeOpenedPacks() {
@@ -1392,11 +1085,6 @@ window.jcAdminCreateCode = jcAdminCreateCode;
 window.jcAdminDeleteCode = jcAdminDeleteCode;
 window.jcAdminGrantPack = jcAdminGrantPack;
 window.jcAdminSavePackType = jcAdminSavePackType;
-window.jcAdminSavePackTypeFromModal = jcAdminSavePackTypeFromModal;
-window.jcAdminOpenPackTypeModal = jcAdminOpenPackTypeModal;
-window.jcAdminClosePackTypeModal = jcAdminClosePackTypeModal;
-window.jcAdminPtPreview = jcAdminPtPreview;
-window.jcPackWinrateSummary = jcPackWinrateSummary;
 window.jcAdminDeletePackType = jcAdminDeletePackType;
 window.jcAdminSeedPackTypes = jcAdminSeedPackTypes;
 window.jcAdminViewVitrine = jcAdminViewVitrine;
@@ -1411,10 +1099,6 @@ window.jcAdminCopyExistingToNpc = jcAdminCopyExistingToNpc;
 window.jcAdminCreateNpcVitrine = jcAdminCreateNpcVitrine;
 window.jcAdminLoadPlayerCards = jcAdminLoadPlayerCards;
 window.jcAdminRemoveCard = jcAdminRemoveCard;
-window.jcAdminOpenRemoveCardModal = jcAdminOpenRemoveCardModal;
-window.jcAdminCloseRemoveCardModal = jcAdminCloseRemoveCardModal;
-window.jcAdminFilterRemoveList = jcAdminFilterRemoveList;
-window.jcAdminRemoveCardById = jcAdminRemoveCardById;
 window.jcAdminAddHuman = jcAdminAddHuman;
 window.jcAdminToggleCodeType = jcAdminToggleCodeType;
 window.jcAdminPurgeOpenedPacks = jcAdminPurgeOpenedPacks;

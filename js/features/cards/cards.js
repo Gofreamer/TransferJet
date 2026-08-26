@@ -38,30 +38,11 @@ function exitCardsMode() {
 }
 
 function showCardsView(view) {
-  // Saindo da revelação: libera o lock
-  if (view !== "packs") {
-    window._jcReveal = null;
-    window._jcBatch = null;
-    if (window._jcBatchTimers) {
-      window._jcBatchTimers.forEach(clearTimeout);
-      window._jcBatchTimers = [];
-    }
-  }
   ensureCardsState().ui.view = view;
-  renderCardsShell(true);
+  renderCardsShell();
 }
 
-/** true se animação de pack/batch está rodando (não pode re-renderizar a tela) */
-function cardsRevealLocked() {
-  if (window._jcReveal && Array.isArray(window._jcReveal.results)) return true;
-  if (window._jcBatch && Array.isArray(window._jcBatch.results) && !window._jcBatch.done) return true;
-  return false;
-}
-
-function renderCardsShell(force) {
-  // Firebase listeners disparam re-render e matavam a animação do pack
-  if (!force && cardsRevealLocked()) return;
-
+function renderCardsShell() {
   const shell = document.getElementById("cardsShell");
   if (!shell || !window.AppState.cards?.active) return;
   const view = window.AppState.cards.ui.view || "hub";
@@ -368,20 +349,15 @@ function cardsBatchSorted(results) {
 
 function cardsShowBatchResults(results, packCount) {
   const stage = document.getElementById("jcPackStage");
-  if (!stage) {
-    console.warn("jcPackStage não encontrado — animação batch cancelada");
-    return;
-  }
+  if (!stage) return;
   stage.classList.remove("hidden");
-  stage.style.display = "";
 
   // limpa timers anteriores
   if (window._jcBatchTimers) {
     window._jcBatchTimers.forEach(clearTimeout);
   }
   window._jcBatchTimers = [];
-  window._jcBatch = { results, packCount, skip: false, done: false };
-  try { stage.scrollIntoView({ behavior: "smooth", block: "nearest" }); } catch (_) {}
+  window._jcBatch = { results, packCount, skip: false };
 
   const packIcons = Array.from({ length: Math.min(packCount, 12) }, (_, i) =>
     `<span class="jc-batch-pack-icon" style="--i:${i}">📦</span>`
@@ -518,24 +494,19 @@ function cardsReplayPack(packId) {
 
 function cardsRunRevealSequence(results, skipSave) {
   const stage = document.getElementById("jcPackStage");
-  if (!stage) {
-    console.warn("jcPackStage não encontrado — animação de pack cancelada");
-    return;
-  }
+  if (!stage) return;
   stage.classList.remove("hidden");
-  stage.style.display = "";
-  window._jcReveal = { results: results || [], index: -1, skip: false, done: false };
+  window._jcReveal = { results, index: -1, skip: false };
   stage.innerHTML = `
     <div class="jc-open-anim">
       <div class="jc-pack-box" id="jcPackBox">📦</div>
       <p class="jc-hint">Toque para abrir</p>
-      <button class="jc-btn primary" id="jcRevealBtn" type="button" onclick="cardsRevealNext()">Abrir pacote</button>
-      <button class="jc-btn" type="button" onclick="cardsSkipReveal()">Pular tudo · ver cartas</button>
+      <button class="jc-btn primary" id="jcRevealBtn" onclick="cardsRevealNext()">Abrir pacote</button>
+      <button class="jc-btn" onclick="cardsSkipReveal()">Pular tudo · ver cartas</button>
       <div id="jcRevealFocus" class="jc-reveal-focus"></div>
       <div id="jcRevealDone" class="jc-reveal-done hidden"></div>
     </div>
   `;
-  try { stage.scrollIntoView({ behavior: "smooth", block: "nearest" }); } catch (_) {}
 }
 
 function cardsSkipReveal() {
@@ -1143,7 +1114,6 @@ window.enterCardsMode = enterCardsMode;
 window.exitCardsMode = exitCardsMode;
 window.showCardsView = showCardsView;
 window.renderCardsShell = renderCardsShell;
-window.cardsRevealLocked = cardsRevealLocked;
 window.cardsDoLogin = cardsDoLogin;
 window.cardsOpenPack = cardsOpenPack;
 window.cardsOpenPackFromGroup = cardsOpenPackFromGroup;

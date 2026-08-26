@@ -7,7 +7,6 @@ function startCardsListeners() {
 
   const refresh = () => {
     document.dispatchEvent(new CustomEvent("cards:updated"));
-    if (typeof cardsRevealLocked === "function" && cardsRevealLocked()) return;
     if (window.AppState.cards.active && typeof renderCardsShell === "function") renderCardsShell();
   };
 
@@ -63,7 +62,6 @@ function cardsRebindOwnerListeners() {
   const ownerId = typeof getCardsOwnerId === "function" ? getCardsOwnerId() : null;
   const refresh = () => {
     document.dispatchEvent(new CustomEvent("cards:updated"));
-    if (typeof cardsRevealLocked === "function" && cardsRevealLocked()) return;
     if (window.AppState.cards.active && typeof renderCardsShell === "function") renderCardsShell();
   };
 
