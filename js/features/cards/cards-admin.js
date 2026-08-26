@@ -242,22 +242,8 @@ function renderCardsAdmin(subTab) {
 
       <h3 class="admin-section-title" style="margin-top:22px">Remover carta da coleção</h3>
       <p class="admin-sub">Quando o jogador vende a carta em outro site — remove da conta e da vitrine.</p>
-      <div class="admin-form-grid">
-        <div>
-          <label>Jogador</label>
-          <select id="jcRemoveOwner" onchange="jcAdminLoadPlayerCards()">
-            <option value="">— selecione —</option>
-            ${humans.map(([id, p]) => `<option value="${id}">${p.displayName || id}</option>`).join("")}
-          </select>
-        </div>
-        <div class="full">
-          <label>Carta</label>
-          <select id="jcRemoveCard"><option value="">— carregue o jogador —</option></select>
-        </div>
-      </div>
-      <div class="admin-actions" style="margin-top:8px">
-        <button class="btn-primary btn-sm" onclick="jcAdminLoadPlayerCards()">Carregar cartas</button>
-        <button class="btn-gray btn-sm" style="background:#7f1d1d;border-color:#991b1b" onclick="jcAdminRemoveCard()">Remover carta</button>
+      <div class="admin-actions" style="margin-top:4px">
+        <button class="btn-primary btn-sm" style="background:#7f1d1d;border-color:#991b1b" onclick="jcAdminOpenRemoveCardModal()">🗑 Abrir removedor de cartas</button>
       </div>
     `;
   } else if (tab === "codigos") {
@@ -1119,69 +1105,218 @@ async function jcAdminCreateNpcVitrine() {
   renderCardsAdmin();
 }
 
-function jcAdminLoadPlayerCards() {
-  const ownerId = document.getElementById("jcRemoveOwner")?.value;
-  const sel = document.getElementById("jcRemoveCard");
-  if (!sel) return;
+function jcAdminCloseRemoveCardModal() {
+  document.getElementById("jcRemoveCardModal")?.remove();
+}
+
+function jcAdminOpenRemoveCardModal() {
+  jcAdminCloseRemoveCardModal();
+  const humans = Object.entries(window.AppState.fantasy?.participants || {}).filter(([, p]) => p && p.type !== "npc");
+  const humanOpts = humans.map(([id, p]) =>
+    `<option value="${id}">${p.displayName || id}</option>`
+  ).join("") || "<option value=''>Nenhum humano</option>";
+
+  const overlay = document.createElement("div");
+  overlay.id = "jcRemoveCardModal";
+  overlay.className = "jc-modal-overlay";
+  overlay.onclick = (e) => { if (e.target === overlay) jcAdminCloseRemoveCardModal(); };
+  overlay.innerHTML = `
+    <div class="jc-modal" style="grid-template-columns:1fr;max-width:560px;max-height:92vh" onclick="event.stopPropagation()">
+      <button type="button" class="jc-modal-close" onclick="jcAdminCloseRemoveCardModal()" title="Fechar">×</button>
+      <div>
+        <h2 style="margin:0 0 4px;font-size:1.15rem">Remover carta da coleção</h2>
+        <p style="margin:0 0 12px;font-size:0.82rem;color:var(--jc-muted,#94a3b8)">
+          Busca direto no Firebase. Remove 1× da pilha (ou a carta inteira se count = 1) e tira da vitrine se estiver lá.
+        </p>
+        <div class="admin-form-grid" style="grid-template-columns:1fr auto;align-items:end;gap:8px">
+          <div>
+            <label>Jogador</label>
+            <select id="jcRmOwner">${humanOpts}</select>
+          </div>
+          <button class="btn-primary btn-sm" type="button" onclick="jcAdminLoadPlayerCards()" style="height:36px">Carregar</button>
+        </div>
+        <div style="margin-top:10px">
+          <label style="font-size:0.78rem;opacity:.8">Filtrar</label>
+          <input type="search" id="jcRmFilter" placeholder="nome, raridade, edição…" oninput="jcAdminFilterRemoveList()" style="width:100%;margin-top:4px">
+        </div>
+        <div id="jcRmStatus" style="margin-top:8px;font-size:0.8rem;opacity:.75">Selecione o jogador e clique em Carregar.</div>
+        <div id="jcRmList" style="margin-top:10px;max-height:380px;overflow:auto;border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:6px"></div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+}
+
+/** Força fetch fresco do inventário no Firebase e preenche a lista do modal */
+async function jcAdminLoadPlayerCards() {
+  const ownerId = document.getElementById("jcRmOwner")?.value
+    || document.getElementById("jcRemoveOwner")?.value;
+  const list = document.getElementById("jcRmList");
+  const status = document.getElementById("jcRmStatus");
+  const legacySel = document.getElementById("jcRemoveCard");
+
   if (!ownerId) {
-    sel.innerHTML = "<option value=''>— selecione o jogador —</option>";
+    if (status) status.textContent = "Selecione um jogador.";
+    if (legacySel) legacySel.innerHTML = "<option value=''>— selecione o jogador —</option>";
     return;
   }
-  const inv = (window.AppState.cards.inventory || {})[ownerId] || {};
-  const entries = Object.entries(inv);
+
+  if (status) status.textContent = "Carregando inventário do Firebase…";
+  if (list) list.innerHTML = "<div style='padding:12px;opacity:.6'>Buscando…</div>";
+
+  // Força refresh (admin não pode confiar em cache antigo/vazio)
+  try {
+    if (window.AppState.cards?.inventory) delete window.AppState.cards.inventory[ownerId];
+    if (window._jcInvFetching) delete window._jcInvFetching[ownerId];
+  } catch (_) {}
+
+  let inv = {};
+  try {
+    if (typeof cardsFetchInventoryOnce === "function") {
+      inv = (await cardsFetchInventoryOnce(ownerId)) || {};
+    } else if (window.marketDb) {
+      const snap = await window.marketDb.ref("cards/inventory/" + ownerId).once("value");
+      inv = snap.val() || {};
+      const all = ensureCardsState().inventory || {};
+      all[ownerId] = inv;
+      ensureCardsState().inventory = all;
+    }
+  } catch (err) {
+    console.error("jcAdminLoadPlayerCards", err);
+    if (status) status.textContent = "Erro ao carregar: " + (err.message || err);
+    if (list) list.innerHTML = "";
+    return;
+  }
+
+  // Inventário pode vir como objeto de stacks; filtrar entradas inválidas
+  const entries = Object.entries(inv || {}).filter(([, c]) => c && typeof c === "object");
+  window._jcRmCache = { ownerId, entries };
+
   if (!entries.length) {
-    sel.innerHTML = "<option value=''>Nenhuma carta na coleção</option>";
+    if (status) status.textContent = "Nenhuma carta na coleção deste jogador.";
+    if (list) list.innerHTML = "<div style='padding:14px;opacity:.6;text-align:center'>Coleção vazia</div>";
+    if (legacySel) legacySel.innerHTML = "<option value=''>Nenhuma carta na coleção</option>";
     return;
   }
+
+  const totalQty = entries.reduce((s, [, c]) => s + Math.max(1, Number(c.count) || 1), 0);
+  if (status) status.textContent = `${entries.length} pilha(s) · ${totalQty} carta(s) no total`;
+
+  // Legacy select (se ainda existir em alguma tela)
+  if (legacySel) {
+    const rarityOrder = { legend: 0, epic: 1, rare: 2, common: 3 };
+    const sorted = entries.slice().sort((a, b) => {
+      const ra = rarityOrder[a[1].rarity] ?? 9;
+      const rb = rarityOrder[b[1].rarity] ?? 9;
+      return ra - rb || (a[1].playerName || "").localeCompare(b[1].playerName || "");
+    });
+    legacySel.innerHTML = sorted.map(([cid, c]) => {
+      const n = Math.max(1, Number(c.count) || 1);
+      const label = `${c.playerName || c.playerKey} · ${c.rarity || "?"} · ${(c.edition || "BASE")} · ${c.foil || "normal"}${n > 1 ? " · ×" + n : ""}`;
+      return `<option value="${cid}">${label}</option>`;
+    }).join("");
+  }
+
+  jcAdminFilterRemoveList();
+}
+
+function jcAdminFilterRemoveList() {
+  const list = document.getElementById("jcRmList");
+  if (!list || !window._jcRmCache) return;
+  const q = (document.getElementById("jcRmFilter")?.value || "").trim().toLowerCase();
   const rarityOrder = { legend: 0, epic: 1, rare: 2, common: 3 };
+  const rarityColor = { legend: "#fbbf24", epic: "#a855f7", rare: "#3b82f6", common: "#94a3b8" };
+  let entries = window._jcRmCache.entries.slice();
+  if (q) {
+    entries = entries.filter(([, c]) => {
+      const hay = [c.playerName, c.playerKey, c.rarity, c.edition, c.foil, c.team].join(" ").toLowerCase();
+      return hay.includes(q);
+    });
+  }
   entries.sort((a, b) => {
     const ra = rarityOrder[a[1].rarity] ?? 9;
     const rb = rarityOrder[b[1].rarity] ?? 9;
     return ra - rb || (a[1].playerName || "").localeCompare(b[1].playerName || "");
   });
-  sel.innerHTML = entries.map(([cid, c]) => {
+  if (!entries.length) {
+    list.innerHTML = "<div style='padding:14px;opacity:.6;text-align:center'>Nada encontrado com esse filtro</div>";
+    return;
+  }
+  list.innerHTML = entries.map(([cid, c]) => {
     const n = Math.max(1, Number(c.count) || 1);
-    const label = `${c.playerName || c.playerKey} · ${c.rarity || "?"} · ${(c.edition || "BASE")} · ${c.foil || "normal"}${n > 1 ? " · ×" + n : ""}`;
-    return `<option value="${cid}">${label}</option>`;
+    const col = rarityColor[(c.rarity || "").toLowerCase()] || "#94a3b8";
+    const name = c.playerName || c.playerKey || "?";
+    const meta = `${(c.edition || "BASE")} · ${c.foil || "normal"}${c.team ? " · " + c.team : ""}`;
+    return `
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 8px;border-bottom:1px solid rgba(255,255,255,0.05)">
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${name}</div>
+          <div style="font-size:0.75rem;opacity:.75">
+            <span style="color:${col};font-weight:700">${(c.rarity || "?").toUpperCase()}</span>
+            · ${meta}${n > 1 ? ` · <strong>×${n}</strong>` : ""}
+          </div>
+        </div>
+        <button class="btn-gray btn-sm" style="background:#7f1d1d;border-color:#991b1b;flex-shrink:0"
+          onclick="jcAdminRemoveCardById('${window._jcRmCache.ownerId}','${cid}')">
+          Remover 1×
+        </button>
+      </div>`;
   }).join("");
 }
 
+async function jcAdminRemoveCardById(ownerId, cardId) {
+  if (!ownerId || !cardId) return alert("Dados inválidos");
+  // Refresh fresco
+  try {
+    if (window.AppState.cards?.inventory) delete window.AppState.cards.inventory[ownerId];
+    if (window._jcInvFetching) delete window._jcInvFetching[ownerId];
+  } catch (_) {}
+  let inv = {};
+  if (typeof cardsFetchInventoryOnce === "function") {
+    inv = (await cardsFetchInventoryOnce(ownerId)) || {};
+  }
+  const card = inv[cardId];
+  if (!card) return alert("Carta não encontrada (talvez já tenha sido removida)");
+  const cnt = Math.max(1, Number(card.count) || 1);
+  const label = `${card.playerName || card.playerKey} (${card.rarity || "?"}) ×${cnt}`;
+  if (!confirm(`Remover 1× de "${label}" da coleção?`)) return;
+
+  try {
+    if (cnt > 1) {
+      await window.marketDb.ref("cards/inventory/" + ownerId + "/" + cardId).update({
+        count: cnt - 1,
+        stacked: true
+      });
+    } else {
+      await window.marketDb.ref("cards/inventory/" + ownerId + "/" + cardId).remove();
+      // Tira da vitrine do jogador se estiver nos slots
+      const scSnap = await window.marketDb.ref("cards/showcases/" + ownerId).once("value");
+      const sc = scSnap.val();
+      if (sc && Array.isArray(sc.slots)) {
+        const newSlots = sc.slots.map(s => {
+          if (s === cardId) return null;
+          if (s && typeof s === "object" && (s.cardId === cardId || s.id === cardId)) return null;
+          return s;
+        });
+        await window.marketDb.ref("cards/showcases/" + ownerId + "/slots").set(newSlots);
+      }
+    }
+  } catch (err) {
+    console.error(err);
+    return alert("Erro ao remover: " + (err.message || err) + "\n(verifique rules do Firebase)");
+  }
+
+  alert("Removido 1×: " + label);
+  // Recarrega lista no modal
+  await jcAdminLoadPlayerCards();
+}
+
+/** Legado: botão antigo da tela (se ainda existir) */
 async function jcAdminRemoveCard() {
   const ownerId = document.getElementById("jcRemoveOwner")?.value;
   const cardId = document.getElementById("jcRemoveCard")?.value;
   if (!ownerId || !cardId) return alert("Selecione jogador e carta");
-  if (!(window.AppState.cards.inventory || {})[ownerId] && typeof cardsFetchInventoryOnce === "function") {
-    await cardsFetchInventoryOnce(ownerId);
-  }
-  const inv = (window.AppState.cards.inventory || {})[ownerId] || {};
-  const card = inv[cardId];
-  if (!card) return alert("Carta não encontrada");
-  const cnt = Math.max(1, Number(card.count) || 1);
-  const label = `${card.playerName || card.playerKey} (${card.rarity || "?"}) ×${cnt}`;
-  if (!confirm(`Remover 1× de "${label}" da coleção deste jogador?`)) return;
-
-  if (cnt > 1) {
-    await window.marketDb.ref("cards/inventory/" + ownerId + "/" + cardId).update({
-      count: cnt - 1,
-      stacked: true
-    });
-  } else {
-    await window.marketDb.ref("cards/inventory/" + ownerId + "/" + cardId).remove();
-    const sc = (window.AppState.cards.showcases || {})[ownerId];
-    if (sc && Array.isArray(sc.slots) && sc.slots.includes(cardId)) {
-      const newSlots = sc.slots.map(s => s === cardId ? null : s);
-      await window.marketDb.ref("cards/showcases/" + ownerId + "/slots").set(newSlots);
-    }
-  }
-
-  alert("Removido 1×: " + label);
-  // refresh local cache
-  if (typeof cardsFetchInventoryOnce === "function") {
-    const all = window.AppState.cards.inventory || {};
-    delete all[ownerId];
-    await cardsFetchInventoryOnce(ownerId);
-  }
-  jcAdminLoadPlayerCards();
+  return jcAdminRemoveCardById(ownerId, cardId);
 }
 
 async function jcAdminPurgeOpenedPacks() {
@@ -1276,6 +1411,10 @@ window.jcAdminCopyExistingToNpc = jcAdminCopyExistingToNpc;
 window.jcAdminCreateNpcVitrine = jcAdminCreateNpcVitrine;
 window.jcAdminLoadPlayerCards = jcAdminLoadPlayerCards;
 window.jcAdminRemoveCard = jcAdminRemoveCard;
+window.jcAdminOpenRemoveCardModal = jcAdminOpenRemoveCardModal;
+window.jcAdminCloseRemoveCardModal = jcAdminCloseRemoveCardModal;
+window.jcAdminFilterRemoveList = jcAdminFilterRemoveList;
+window.jcAdminRemoveCardById = jcAdminRemoveCardById;
 window.jcAdminAddHuman = jcAdminAddHuman;
 window.jcAdminToggleCodeType = jcAdminToggleCodeType;
 window.jcAdminPurgeOpenedPacks = jcAdminPurgeOpenedPacks;
