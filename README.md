@@ -39,3 +39,8 @@ Todos os valores em **US$**.
 Cole o conteúdo de `database.rules.json` no Firebase Console do projeto `transfermarkt-545f7`.
 
 Na primeira carga o site aplica automaticamente os valores fictícios de seed (caso o banco esteja vazio).
+
+## Jet Cards
+
+O módulo de cartinhas **não faz mais parte** deste repo.
+O botão **Jet Cards** no menu abre o app externo (edite a URL em `index.html` se o domínio for outro).

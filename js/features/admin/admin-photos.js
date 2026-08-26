@@ -1,4 +1,4 @@
-/* Admin — Fotos dos agentes (URL global: Market, Cards, perfis)
+/* Admin — Fotos dos agentes (URL global: Market e perfis)
    Base robusta do Grok + QoL do Claude: filtro por time e importação em massa. */
 function renderAdminPhotos() {
   const el = document.getElementById("adminTabContent");
@@ -31,7 +31,7 @@ function renderAdminPhotos() {
     <h3 class="admin-section-title">Fotos dos agentes</h3>
     <p class="admin-sub">
       URL pública da imagem salva em <code>players/{key}.photo</code>.
-      Vale para <strong>Market, perfis, Fantasy e Jet Cards</strong>.
+      Vale para <strong>Market, perfis e Fantasy</strong>.
       Use link direto (https://…jpg/png/webp). Se vazio, o site usa avatar gerado.
     </p>
 

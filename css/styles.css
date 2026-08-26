@@ -1633,3 +1633,11 @@ table { min-width: 520px; }
   .admin-bulk-photos textarea { font-size: 16px; }
   .admin-photo-filters select { width: 100%; min-height: 40px; }
 }
+
+
+/* Jet Cards = link externo (app separado) */
+a.jc-entry-btn {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}

@@ -13,7 +13,6 @@
 
   <link rel="stylesheet" href="./css/styles.css"/>
   <link rel="stylesheet" href="./css/fantasy.css"/>
-  <link rel="stylesheet" href="./css/cards.css"/>
 </head>
 <body>
   <header>
@@ -30,7 +29,7 @@
       <a data-view="rumors" onclick="showView('rumors', this)">Rumores</a>
       <a data-view="rankings" onclick="showView('rankings', this)">Rankings</a>
       <button class="fx-entry-btn" onclick="enterFantasyMode()">Jet Fantasy</button>
-      <button class="jc-entry-btn" onclick="enterCardsMode()">Jet Cards</button>
+      <a class="jc-entry-btn" href="https://jet-cards.pages.dev/" target="_blank" rel="noopener">Jet Cards</a>
       <button id="adminBtn" onclick="openAdmin()">Admin</button>
       <button id="themeToggle" onclick="toggleTheme()" title="Alternar tema">☀</button>
     </nav>
@@ -238,7 +237,6 @@
 
   <!-- Jet Fantasy shell -->
   <div id="fantasyShell" class="hidden"></div>
-  <div id="cardsShell" class="hidden"></div>
 
 
   <footer>
@@ -288,12 +286,6 @@
   <script src="./js/features/fantasy/fantasy-cards.js"></script>
   <script src="./js/features/fantasy/fantasy.js"></script>
   <script src="./js/features/fantasy/fantasy-admin.js"></script>
-  <script src="./js/features/cards/cards-state.js"></script>
-  <script src="./js/features/cards/cards-engine.js"></script>
-  <script src="./js/features/cards/cards-data.js"></script>
-  <script src="./js/features/cards/cards-ui-card.js"></script>
-  <script src="./js/features/cards/cards.js"></script>
-  <script src="./js/features/cards/cards-admin.js"></script>
 
   <script src="./js/app.js"></script>
 </body>
