@@ -43,6 +43,9 @@
       },
       "specials": {
         ".write": "auth != null && auth.token.email != null"
+      },
+      "packTypes": {
+        ".write": "auth != null && auth.token.email != null"
       }
     },
     "fantasy": {
