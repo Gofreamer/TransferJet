@@ -1608,22 +1608,40 @@ function refreshSyncRoundOptions() {
   roundEl.onchange = updateMatchList;
 }
 
-/** Extrai participantes de uma partida (por nome + time da série). */
+/** Extrai participantes de uma partida com resultado por luta (não pela série). */
 function extractMatchParticipants(m) {
-  const participants = new Map(); // nameKey -> { name, team, played }
+  // nameKey -> { name, team, fightsPlayed, fightsWon, fightsLost }
+  const participants = new Map();
   const fights = Array.isArray(m.fights) ? m.fights : [];
 
   fights.forEach(f => {
     const agentsA = f.teamA?.agents || (Array.isArray(f.teamA) ? f.teamA : []) || [];
     const agentsB = f.teamB?.agents || (Array.isArray(f.teamB) ? f.teamB : []) || [];
-    agentsA.filter(Boolean).forEach(name => {
+    const winner = f.winner; // "A" | "B" | ""
+
+    const bump = (name, teamSide, isWinner) => {
       const k = normalizeAgentName(name);
-      if (!participants.has(k)) participants.set(k, { name: String(name).trim(), team: m.timeA, played: true });
-    });
-    agentsB.filter(Boolean).forEach(name => {
-      const k = normalizeAgentName(name);
-      if (!participants.has(k)) participants.set(k, { name: String(name).trim(), team: m.timeB, played: true });
-    });
+      if (!k) return;
+      if (!participants.has(k)) {
+        participants.set(k, {
+          name: String(name).trim(),
+          team: teamSide === "A" ? m.timeA : m.timeB,
+          fightsPlayed: 0,
+          fightsWon: 0,
+          fightsLost: 0
+        });
+      }
+      const row = participants.get(k);
+      row.fightsPlayed += 1;
+      if (winner === "A" || winner === "B") {
+        if (isWinner) row.fightsWon += 1;
+        else row.fightsLost += 1;
+      }
+      // sem winner definido → só conta P (empate/indefinido na luta)
+    };
+
+    agentsA.filter(Boolean).forEach(name => bump(name, "A", winner === "A"));
+    agentsB.filter(Boolean).forEach(name => bump(name, "B", winner === "B"));
   });
 
   return { participants, hasFights: fights.length > 0 };
@@ -1702,9 +1720,6 @@ function previewJetLeagueSync() {
       return;
     }
 
-    const winnerTeam = (Number(m.scoreA) > Number(m.scoreB)) ? m.timeA
-      : (Number(m.scoreB) > Number(m.scoreA)) ? m.timeB : null;
-
     // MVP da série e Destaque da Rodada (campos já gravados na Jet League)
     const mvpName = (m.seriesMvp && m.seriesMvp.agent) || m.mvp || "";
     const destaqueName = m.destaqueRodada || "";
@@ -1763,10 +1778,13 @@ function previewJetLeagueSync() {
       }
 
       const row = agentMap[key];
-      row.addP += 1;
-      if (winnerTeam && info.team === winnerTeam) row.addV += 1;
-      else if (winnerTeam) row.addD += 1;
-      // empate de série (raro na liga) → só P
+      // Conta por luta individual (não pelo resultado da série)
+      const played = Number(info.fightsPlayed) || 0;
+      const won = Number(info.fightsWon) || 0;
+      const lost = Number(info.fightsLost) || 0;
+      row.addP += played;
+      row.addV += won;
+      row.addD += lost;
       row.matches.push(m.id || matchSummaries[matchSummaries.length - 1].label);
 
       if (mvpKey && nameKey === mvpKey) row.addMvp += 1;
