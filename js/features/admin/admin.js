@@ -471,6 +471,30 @@ function showImportReviewModal(calculated, mode) {
 }
 
 /* ========== VALORES ========== */
+const ADMIN_RANK_OPTIONS = [
+  "Especial", "Rank S", "Rank A", "Rank B", "Rank C", "Rank D", "Rank E",
+  "Clandestino", "Clandestina", "Rank ?", "-"
+];
+const ADMIN_ROLE_OPTIONS = [
+  "Capitão", "Membro", "Reserva", "R. Emergência", "Agente livre"
+];
+const ADMIN_STATUS_OPTIONS = [
+  "ativo", "livre", "emprestado", "lesionado", "suspenso", "aposentado"
+];
+const ADMIN_CONTRACT_OPTIONS = [
+  "Temporada 1", "Temporada 2", "Temporada 3", "Temporada 4",
+  "Temporada 5", "Temporada 6", "Fim de temporada", "Sem contrato"
+];
+
+function adminSelectOptions(options, current) {
+  const cur = (current || "").trim();
+  const list = [...options];
+  if (cur && !list.includes(cur)) list.unshift(cur);
+  return list.map(o =>
+    `<option value="${o}" ${o === cur ? "selected" : ""}>${o}</option>`
+  ).join("");
+}
+
 function renderAdminValues() {
   const players = getAllPlayersFlat().sort((a, b) => a.club.localeCompare(b.club) || a.name.localeCompare(b.name));
   const el = document.getElementById("adminTabContent");
@@ -484,7 +508,8 @@ function renderAdminValues() {
       </select>
     </div>
     <p style="font-size:0.8rem;color:var(--text-muted);margin:0 0 10px">
-      Títulos: 🥇 Nacional · 🥈 L.J.I · 🏆 Mundial · 🏅 Evento — edite e clique Salvar. Célula vazia no Excel <strong>não apaga</strong> títulos.
+      Edite <strong>Rank</strong>, <strong>Função</strong>, <strong>Contrato</strong>, <strong>Status</strong>, valores e títulos — depois clique <strong>Salvar</strong> na linha.
+      Rank: Especial &gt; S &gt; A &gt; B &gt; C &gt; D &gt; E. Títulos: 🥇 Nacional · 🥈 L.J.I · 🏆 Mundial · 🏅 Evento.
     </p>
     <div class="admin-table-wrap">
       <table class="admin-table" id="adminValuesTable">
@@ -492,6 +517,10 @@ function renderAdminValues() {
           <tr>
             <th>Agente</th>
             <th>Equipe</th>
+            <th>Rank</th>
+            <th>Função</th>
+            <th>Contrato até</th>
+            <th>Status</th>
             <th>Valor</th>
             <th>Pico</th>
             <th>Títulos</th>
@@ -509,6 +538,26 @@ function renderAdminValues() {
             <tr data-key="${p.key}" data-name="${p.name.toLowerCase()}" data-club="${p.club}">
               <td><strong>${p.name}</strong></td>
               <td>${p.club}</td>
+              <td>
+                <select class="admin-input" data-field="rank" style="min-width:100px">
+                  ${adminSelectOptions(ADMIN_RANK_OPTIONS, p.rank)}
+                </select>
+              </td>
+              <td>
+                <select class="admin-input" data-field="functionRole" style="min-width:110px">
+                  ${adminSelectOptions(ADMIN_ROLE_OPTIONS, p.functionRole)}
+                </select>
+              </td>
+              <td>
+                <select class="admin-input" data-field="contractUntil" style="min-width:120px">
+                  ${adminSelectOptions(ADMIN_CONTRACT_OPTIONS, p.contractUntil)}
+                </select>
+              </td>
+              <td>
+                <select class="admin-input" data-field="status" style="min-width:100px">
+                  ${adminSelectOptions(ADMIN_STATUS_OPTIONS, p.status || "ativo")}
+                </select>
+              </td>
               <td><input type="number" class="admin-input" data-field="marketValue" value="${p.marketValue || ""}" placeholder="0"></td>
               <td><input type="number" class="admin-input" data-field="peakValue" value="${p.peakValue || ""}" placeholder="0"></td>
               <td>
@@ -552,6 +601,13 @@ function savePlayerRow(btn) {
     let val = input.value.trim();
     if (["marketValue", "peakValue", "age", "salary", "releaseClause"].includes(field)) {
       val = val === "" ? null : Number(val);
+      if (val !== null) data[field] = val;
+      return;
+    }
+    // rank, functionRole, contractUntil, status, nationality — sempre grava (string)
+    if (["rank", "functionRole", "contractUntil", "status", "nationality"].includes(field)) {
+      data[field] = val;
+      return;
     }
     if (val !== null && val !== "") data[field] = val;
   });
