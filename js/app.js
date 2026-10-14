@@ -67,82 +67,101 @@ function renderTitlesBadges(titles, opts = {}) {
   return `<span class="titles-row">${items.join("")}</span>`;
 }
 
+function buildPlayerFromMarket(key, m, defaults = {}) {
+  const st = m.stats || {};
+  const titles = normalizeTitles(m);
+  const status = (m.status || defaults.status || "ativo").toLowerCase();
+  const fx = typeof agentStatusEffects === "function" ? agentStatusEffects(status) : {};
+  const isFree = !!(m.freeAgent || fx.isFree || status === "livre");
+  const club = defaults.club
+    || fx.clubOverride
+    || (isFree ? "Livre" : (key.split("_")[0] || "—"));
+  return {
+    key,
+    name: m.name || defaults.name || key.split("_").slice(1).join("_") || key,
+    role: defaults.role || "titular",
+    club,
+    marketValue: m.marketValue ?? null,
+    peakValue: m.peakValue ?? null,
+    nationality: m.nationality || "—",
+    age: m.age || null,
+    contractUntil: m.contractUntil || "—",
+    status,
+    photo: m.photo || "",
+    valueHistory: m.valueHistory || [],
+    rank: m.rank || "—",
+    functionRole: m.functionRole || defaults.functionRole || "",
+    trophy: titlesTotal(titles),
+    titles,
+    salary: m.salary ?? null,
+    releaseClause: m.releaseClause ?? null,
+    freeAgent: isFree,
+    retired: !!fx.isRetired,
+    canTransfer: fx.canTransfer !== false,
+    fantasyEligible: fx.fantasyEligible !== false,
+    stats: {
+      P: st.P ?? 0,
+      V: st.V ?? 0,
+      D: st.D ?? 0,
+      winRate: st.winRate ?? (st.P ? st.V / st.P : 0)
+    },
+    statsRound: m.statsRound || ""
+  };
+}
+
 function getAllPlayersFlat() {
   const rosters = window.AppState.jet.rosters || {};
   const marketPlayers = window.AppState.market.players || {};
   const list = [];
+  const seen = new Set();
 
   for (const [club, agents] of Object.entries(rosters)) {
-    (agents || []).forEach((p, idx) => {
+    (agents || []).forEach((p) => {
       const key = playerKey(club, p.n);
       const m = marketPlayers[key] || {};
-      const stats = m.stats || {};
-      const titles = normalizeTitles(m);
-      list.push({
-        key,
+      const status = (m.status || "ativo").toLowerCase();
+      const fx = typeof agentStatusEffects === "function" ? agentStatusEffects(status) : {};
+      // Aposentado/livre ainda no elenco da JL: tira do clube e trata como off-roster
+      if (fx.offRosterVisible) {
+        return;
+      }
+      const row = buildPlayerFromMarket(key, m, {
         name: p.n,
         role: p.role || "titular",
         club,
-        marketValue: m.marketValue ?? null,
-        peakValue: m.peakValue ?? null,
-        nationality: m.nationality || "—",
-        age: m.age || null,
-        contractUntil: m.contractUntil || "—",
-        status: m.status || "ativo",
-        photo: m.photo || "",
-        valueHistory: m.valueHistory || [],
-        rank: m.rank || "—",
-        functionRole: m.functionRole || "",
-        trophy: titlesTotal(titles),
-        titles,
-        salary: m.salary ?? null,
-        releaseClause: m.releaseClause ?? null,
-        freeAgent: !!m.freeAgent,
-        stats: {
-          P: stats.P ?? 0,
-          V: stats.V ?? 0,
-          D: stats.D ?? 0,
-          winRate: stats.winRate ?? (stats.P ? stats.V / stats.P : 0)
-        },
-        statsRound: m.statsRound || ""
+        status
       });
+      // freeAgent flag no market sem status livre: ainda lista no clube se estiver no elenco
+      if (m.freeAgent && !fx.isFree) {
+        row.freeAgent = true;
+      }
+      list.push(row);
+      seen.add(key);
     });
   }
 
-  // Agentes livres (cadastrados só no Market)
+  // Fora do elenco: livres, aposentados e freeAgent no Market
   Object.entries(marketPlayers).forEach(([key, m]) => {
-    if (!m || !m.freeAgent) return;
-    if (list.some(p => p.key === key)) return;
-    const st = m.stats || {};
-    const titles = normalizeTitles(m);
-    list.push({
-      key,
-      name: m.name || key.split("_").slice(1).join("_") || key,
-      role: "titular",
-      club: "Livre",
-      marketValue: m.marketValue ?? null,
-      peakValue: m.peakValue ?? null,
-      nationality: m.nationality || "—",
-      age: m.age || null,
-      contractUntil: m.contractUntil || "—",
-      status: "livre",
-      photo: m.photo || "",
-      valueHistory: m.valueHistory || [],
-      rank: m.rank || "—",
-      functionRole: "Agente livre",
-      trophy: titlesTotal(titles),
-      titles,
-      salary: m.salary ?? null,
-      releaseClause: m.releaseClause ?? null,
-      freeAgent: true,
-      stats: {
-        P: st.P ?? 0,
-        V: st.V ?? 0,
-        D: st.D ?? 0,
-        winRate: st.winRate ?? 0
-      },
-      statsRound: m.statsRound || ""
-    });
+    if (!m || seen.has(key)) return;
+    const status = (m.status || "").toLowerCase();
+    const fx = typeof agentStatusEffects === "function" ? agentStatusEffects(status) : {};
+    const include = !!m.freeAgent || fx.offRosterVisible || status === "livre" || status === "aposentado";
+    if (!include) return;
+
+    if (status === "aposentado" || fx.isRetired) {
+      list.push(buildPlayerFromMarket(key, { ...m, status: "aposentado", freeAgent: false }, {
+        club: "Aposentado",
+        functionRole: m.functionRole || "Aposentado",
+        status: "aposentado"
+      }));
+    } else {
+      list.push(buildPlayerFromMarket(key, { ...m, status: status || "livre", freeAgent: true }, {
+        club: "Livre",
+        functionRole: m.functionRole || "Agente livre",
+        status: "livre"
+      }));
+    }
+    seen.add(key);
   });
 
   return list;
@@ -426,6 +445,7 @@ function renderPlayers() {
           <div class="card-value">${p.marketValue ? formatUSD(p.marketValue, true) : '<span style="color:var(--text-muted);font-size:0.85rem">Sem valor</span>'}</div>
           <div class="card-meta">
             <span class="tag ${p.role}">${roleLabel(p.role)}</span>
+            ${typeof renderAgentStatusBadge === "function" ? renderAgentStatusBadge(p.status) : ""}
             ${renderTitlesBadges(p.titles)}
             ${p.functionRole && p.functionRole.includes("Capitão") ? `<span class="tag" style="background:rgba(0,229,255,0.15);color:var(--cyan)">Capitão</span>` : ""}
           </div>
@@ -799,6 +819,7 @@ function openPlayerProfile(key) {
         <h1>${p.name}</h1>
         <div class="profile-meta">
           <span class="tag ${p.freeAgent ? "free-agent-tag" : ""}">${p.club}</span>
+          ${typeof renderAgentStatusBadge === "function" ? renderAgentStatusBadge(p.status) : ""}
           <span class="tag ${p.role}">${roleLabel(p.role)}</span>
           <span class="tag">${p.rank || "—"}</span>
           <span class="tag">${p.nationality}</span>

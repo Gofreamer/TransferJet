@@ -625,6 +625,20 @@ function savePlayerRow(btn) {
   const existing = window.AppState.market.players[key] || {};
   const payload = { ...existing, ...data };
 
+  // Status com efeito real: livre / aposentado / demais
+  const st = String(data.status || existing.status || "ativo").toLowerCase();
+  payload.status = st;
+  if (st === "livre") {
+    payload.freeAgent = true;
+    if (!payload.name) payload.name = existing.name || key.split("_").slice(1).join("_");
+  } else if (st === "aposentado") {
+    payload.freeAgent = false;
+    if (!payload.name) payload.name = existing.name || key.split("_").slice(1).join("_");
+  } else {
+    // ativo, emprestado, lesionado, suspenso → vinculado ao elenco da JL
+    payload.freeAgent = false;
+  }
+
   // Atualiza histórico de valor da temporada atual se o valor mudou
   const season = window.AppState.jet.currentSeason || "Temporada 1";
   if (data.marketValue != null) {
@@ -768,6 +782,16 @@ function saveTransfer() {
   const status = document.getElementById("trStatus").value;
   if (status === "oficial" && !isTransferWindowOpen()) {
     return alert("Janela de transferências está FECHADA.\nAbra a janela em Admin → Importar Excel antes de registrar oficiais.");
+  }
+
+  // Status do agente bloqueia transferência oficial
+  const agent = (typeof getAllPlayersFlat === "function" ? getAllPlayersFlat() : [])
+    .find(p => p.key === opt.value);
+  if (status === "oficial" && agent) {
+    const fx = typeof agentStatusEffects === "function" ? agentStatusEffects(agent.status) : null;
+    if (fx && fx.canTransfer === false) {
+      return alert(`Não dá para registrar transferência OFICIAL: status do agente é "${agent.status}".\n(Aposentado ou suspenso não pode ser transferido oficialmente.)`);
+    }
   }
 
   const id = "t" + Date.now();

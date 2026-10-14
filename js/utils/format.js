@@ -48,6 +48,42 @@ function statusLabel(status) {
   return map[status] || { label: status?.toUpperCase() || "—", color: "#94a3b8", icon: "⚪" };
 }
 
+/** Status do agente (Market) — distinto do status de transferência/rumor */
+function agentStatusMeta(status) {
+  const map = {
+    ativo:       { label: "Ativo",       color: "#22c55e", icon: "●" },
+    livre:       { label: "Livre",       color: "#38bdf8", icon: "○" },
+    emprestado:  { label: "Emprestado",  color: "#a78bfa", icon: "↔" },
+    lesionado:   { label: "Lesionado",   color: "#f97316", icon: "+" },
+    suspenso:    { label: "Suspenso",    color: "#ef4444", icon: "!" },
+    aposentado:  { label: "Aposentado",  color: "#94a3b8", icon: "◆" }
+  };
+  const key = String(status || "ativo").toLowerCase();
+  return map[key] || { label: status || "—", color: "#94a3b8", icon: "·" };
+}
+
+function renderAgentStatusBadge(status) {
+  if (!status || status === "ativo") return "";
+  const m = agentStatusMeta(status);
+  return `<span class="tag agent-status-tag" style="background:${m.color}22;color:${m.color};border:1px solid ${m.color}44">${m.icon} ${m.label}</span>`;
+}
+
+/** Efeitos reais do status do agente no Market / UI / Fantasy */
+function agentStatusEffects(status) {
+  const s = String(status || "ativo").toLowerCase();
+  return {
+    isFree: s === "livre",
+    isRetired: s === "aposentado",
+    isLoaned: s === "emprestado",
+    isInjured: s === "lesionado",
+    isSuspended: s === "suspenso",
+    offRosterVisible: s === "livre" || s === "aposentado",
+    canTransfer: s !== "aposentado" && s !== "suspenso",
+    fantasyEligible: s === "ativo" || s === "emprestado" || s === "lesionado",
+    clubOverride: s === "livre" ? "Livre" : (s === "aposentado" ? "Aposentado" : null)
+  };
+}
+
 function playerKey(club, name) {
   return `${club}_${name}`;
 }
@@ -56,4 +92,7 @@ window.formatUSD = formatUSD;
 window.formatVariation = formatVariation;
 window.roleLabel = roleLabel;
 window.statusLabel = statusLabel;
+window.agentStatusMeta = agentStatusMeta;
+window.renderAgentStatusBadge = renderAgentStatusBadge;
+window.agentStatusEffects = agentStatusEffects;
 window.playerKey = playerKey;
