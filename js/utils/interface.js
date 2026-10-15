@@ -1,7 +1,7 @@
 /* Comportamentos de apresentação compartilhados pelo roteador. */
 (function () {
   const pages = {
-    home: ["Visão geral", "O mercado em jogo.", "Acompanhe os agentes, as equipes e os movimentos que definem a Jet League."],
+    home: ["Visão geral", "O próximo movimento muda o jogo.", "Acompanhe os agentes, as equipes e os movimentos que definem a Jet League."],
     players: ["Agentes", "Talento que faz a diferença.", "Explore o elenco da liga. Encontre agentes por equipe, rank, função e valor."],
     clubs: ["Equipes", "A força de cada equipe.", "Conheça os elencos e descubra onde está o valor da Jet League."],
     compare: ["Comparar", "Lado a lado. Dado a dado.", "Compare até três agentes para avaliar valores, títulos e desempenho."],
@@ -93,6 +93,7 @@
     const labels = { compareA: "Primeiro agente para comparar", compareB: "Segundo agente para comparar", compareC: "Terceiro agente para comparar", transferSeasonFilter: "Filtrar temporada", transferClubFilter: "Filtrar equipe", rankingType: "Tipo de ranking" };
     Object.entries(labels).forEach(([id, text]) => document.getElementById(id)?.setAttribute("aria-label", text));
     refreshMetrics();
+    window.PremiumUI?.refreshSearch(true);
     refreshNotice();
   };
 

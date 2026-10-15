@@ -2,6 +2,16 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { context, load } = require('./helpers.cjs');
 
+test('busca global une agentes e equipes, ignora acentos e limita resultados', () => {
+  const c = load(context(), 'js/features/market/premium-ui.js');
+  const players = [{ key: 'a', name: 'Álice', club: 'Alpha', rank: 'A' }, ...Array.from({length: 12}, (_,i) => ({ key: 'p'+i, name: 'Agente '+i, club: 'Beta' }))];
+  assert.equal(c.PremiumUI.search('ALICE', players, ['Álice FC'])[0].key, 'a');
+  assert.equal(c.PremiumUI.search('alice', players, ['Álice FC'])[1].kind, 'club');
+  assert.equal(c.PremiumUI.search('agente', players, []).length, 8);
+  assert.equal(c.PremiumUI.search('   ', players, ['Alpha']).length, 0);
+  assert.equal(c.PremiumUI.search('inexistente', players, ['Alpha']).length, 0);
+});
+
 test('tema funciona com localStorage bloqueado e identifica a próxima ação do botão', () => {
   const attributes = {};
   const button = { setAttribute: (key, value) => attributes[key] = value };

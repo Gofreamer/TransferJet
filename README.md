@@ -117,6 +117,16 @@ Validação final: **49 testes automatizados e 27 cenários no Brave aprovados**
 
 As cinco etapas de código estão concluídas dentro do escopo acordado. A implantação continua estática, sem comando de build ou framework adicional: envie os arquivos ao GitHub e mantenha a configuração Cloudflare Pages existente. `tests/` deve ser versionado (também é usado pela prévia); `node_modules/` e `test-results/` continuam ignorados. A publicação e a verificação com os serviços reais ficam para o ambiente do responsável; não foi feito merge ou push nesta execução.
 
+## Redesign premium
+
+Nova direção em azul elétrico e marinho: navegação com ícones, conexão real na lateral, temporada/janela na barra superior e busca global por agentes e equipes (teclado, Enter, Escape e atalho `/`). Dashboard com composição decorativa em CSS, destaque pelo maior valor entre agentes em atividade, transferências com status explícito, ranking de valores, rumores separados e entrada para o Fantasy. Variações usam somente `valueEvents`; não há métricas ou personagens fictícios incluídos no código publicado.
+
+`css/premium.css` aplica a mesma tipografia e materiais a cards, perfis, comparação, tabelas, Fantasy e administração. `js/features/market/premium-ui.js` concentra a apresentação do dashboard e a busca, reutilizando os serviços e fotos existentes. Sem foto cadastrada, o destaque usa iniciais. Cabeçalho feito em CSS; a imagem de referência não estava disponível e a fidelidade exata ao mockup continua pendente.
+
+Barlow Condensed hospedada em `assets/fonts/`, com [licença OFL do projeto original](https://github.com/google/fonts/blob/main/ofl/barlowcondensed/OFL.txt) incluída. Envie também essa pasta ao publicar. Firebase, fórmulas, regras Fantasy, integração Gemini e History API foram preservados. Site continua estático, sem build.
+
+Validação: **50 testes automatizados e 30 cenários Brave aprovados**, com rede externa bloqueada e Firebase simulado. Capturas em `test-results/premium/` (não versionadas); a prévia local também foi validada em desktop e celular. Não houve escrita em produção.
+
 ## Jet Cards
 
 O módulo de cartinhas **não faz mais parte** deste repo.

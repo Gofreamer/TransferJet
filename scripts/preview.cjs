@@ -24,10 +24,10 @@ const server = http.createServer(async (req, res) => {
       return res.end(`window.__testConfig=${config};(${firebaseMock.toString()})();`);
     }
     const file = pathname === '/' ? 'index.html' : pathname.slice(1);
-    if (file !== 'index.html' && !/^(js|css)\/[\w./-]+\.(js|css)$/.test(file)) throw Error('not found');
+    if (file !== 'index.html' && !/^(js|css)\/[\w./-]+\.(js|css)$/.test(file) && !/^assets\/fonts\/[\w-]+\.ttf$/.test(file)) throw Error('not found');
     const target = path.resolve(root, file);
     if (!target.startsWith(root + path.sep)) throw Error('invalid path');
-    let body = await fs.readFile(target, 'utf8');
+    let body = await fs.readFile(target, file.endsWith('.ttf') ? undefined : 'utf8');
     if (file === 'js/services/ai.js') {
       body += `\nwindow.marketGenerateWithAI = window.generateWithAI = async () => "IA de demonstração: esta prévia usa dados fictícios e não consulta o Gemini.";\nwindow.isAIReady = () => true;\nwindow.getLastAIError = () => null;`;
     }
@@ -36,7 +36,7 @@ const server = http.createServer(async (req, res) => {
         .replace(/<script src="https:\/\/www\.gstatic\.com\/firebasejs\/[^\"]+firebase-(database|auth)-compat\.js"><\/script>/g, '')
         .replace('<body>', '<body><div class="demo-banner" role="status">PRÉVIA LOCAL · Dados fictícios · Sem conexão com os bancos de produção</div>');
     }
-    res.writeHead(200, { 'Content-Type': `${file.endsWith('.css') ? 'text/css' : file.endsWith('.js') ? 'text/javascript' : 'text/html'}; charset=utf-8`, 'Cache-Control': 'no-store' });
+    res.writeHead(200, { 'Content-Type': `${file.endsWith('.ttf') ? 'font/ttf' : file.endsWith('.css') ? 'text/css' : file.endsWith('.js') ? 'text/javascript' : 'text/html'}; charset=utf-8`, 'Cache-Control': 'no-store' });
     res.end(body);
   } catch { res.writeHead(404); res.end('Não encontrado'); }
 });

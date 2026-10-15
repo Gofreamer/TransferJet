@@ -15,30 +15,31 @@
   <link rel="stylesheet" href="./css/styles.css"/>
   <link rel="stylesheet" href="./css/fantasy.css"/>
   <link rel="stylesheet" href="./css/market-ui.css"/>
+  <link rel="stylesheet" href="./css/premium.css"/>
 </head>
 <body>
   <a class="skip-link" href="#mainContent">Pular para o conteúdo</a>
   <header class="site-header" id="siteNavigation">
     <a class="logo" href="?view=home" onclick="event.preventDefault();showView('home')" aria-label="Jet Market, início">
       <svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true"><path d="M7 8h28L19 33H7l12-17H3z" fill="currentColor"/></svg>
-      <span class="brand-name">JET MARKET<small>LEAGUE INTELLIGENCE</small></span>
+      <span class="brand-name">TRANSFER<span class="brand-jet">JET</span><small>JET LEAGUE · MERCADO OFICIAL</small></span>
       <small class="version-pill">2.0</small>
     </a>
     <nav class="nav" aria-label="Navegação principal">
       <span class="nav-label">EXPLORAR</span>
-      <a class="active" href="?view=home" data-view="home">Visão geral</a>
-      <a href="?view=players" data-view="players">Agentes</a>
-      <a href="?view=clubs" data-view="clubs">Equipes</a>
-      <a href="?view=compare" data-view="compare">Comparar</a>
-      <a href="?view=transfers" data-view="transfers">Transferências</a>
-      <a href="?view=rumors" data-view="rumors">Rumores</a>
-      <a href="?view=rankings" data-view="rankings">Rankings</a>
+      <a class="active" href="?view=home" data-view="home"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z"/></svg>Visão geral</a>
+      <a href="?view=players" data-view="players"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8 M17 4a4 4 0 0 1 0 7 M22 21v-2a4 4 0 0 0-3-4"/></svg>Agentes</a>
+      <a href="?view=clubs" data-view="clubs"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 3 7v6c0 5 9 9 9 9s9-4 9-9V7z M8 12l3 3 5-5"/></svg>Equipes</a>
+      <a href="?view=compare" data-view="compare"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3v18 M16 3v18 M3 8h10 M11 16h10"/></svg>Comparar</a>
+      <a href="?view=transfers" data-view="transfers"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h17l-4-4 M21 17H4l4 4 M20 7l-4 4 M4 17l4-4"/></svg>Transferências</a>
+      <a href="?view=rumors" data-view="rumors"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v13H9l-5 4z M8 8h8 M8 12h5"/></svg>Rumores</a>
+      <a href="?view=rankings" data-view="rankings"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21V11h5v10 M10 21V4h5v17 M16 21v-7h5v7"/></svg>Rankings</a>
       <span class="nav-label nav-universe">UNIVERSO JET</span>
-      <button class="fx-entry-btn" onclick="enterFantasyMode()">Jet Fantasy</button>
-      <a class="jc-entry-btn" href="https://forum-jet.pages.dev/" target="_blank" rel="noopener">Jet Cards</a>
+      <button class="fx-entry-btn" onclick="enterFantasyMode()"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 3 6 7 1-5 5 1 8-6-4-6 4 1-8-5-5 7-1z"/></svg><span>Jet Fantasy</span></button>
+      <a class="jc-entry-btn" href="https://forum-jet.pages.dev/" target="_blank" rel="noopener"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h13v16H6z M3 7v15h12"/></svg><span>Jet Cards</span></a>
     </nav>
     <div class="sidebar-footer">
-      <div class="sidebar-note"><span class="status-dot online"></span> A liga nunca para.<small>Seu próximo movimento começa aqui.</small></div>
+      <div class="sidebar-note">CONEXÃO COM A LIGA<div id="connectionStatus" class="connection-status offline"><span class="status-dot offline"></span> Conectando…</div></div>
       <div class="sidebar-tools">
       <button id="adminBtn" onclick="openAdmin()">Admin</button>
       <button id="themeToggle" onclick="toggleTheme()" title="Alternar tema" aria-label="Alternar tema">☀</button>
@@ -48,20 +49,24 @@
   <button class="menu-backdrop" aria-label="Fechar navegação" onclick="toggleSiteMenu(false)" tabindex="-1"></button>
   <div class="workspace-bar">
     <button class="menu-toggle" id="menuToggle" aria-label="Abrir navegação" aria-controls="siteNavigation" aria-expanded="false" onclick="toggleSiteMenu()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
-    <div class="workspace-path">Mercado <span aria-hidden="true">/</span> <strong id="currentPageLabel">Visão geral</strong></div>
+    <div class="workspace-path">CENTRAL DE MERCADO <strong id="currentPageLabel">Visão geral</strong></div>
+    <form class="global-search" id="globalSearchForm" role="search" autocomplete="off">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m15 15 5 5"/></svg>
+      <input id="globalSearch" type="search" aria-label="Buscar agentes e equipes" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="globalSearchResults" placeholder="Buscar agente ou equipe…"/>
+      <kbd aria-hidden="true">/</kbd>
+      <div id="globalSearchResults" role="listbox" aria-label="Resultados da busca" hidden></div>
+    </form>
+    <div class="workspace-meta"><span class="badge" id="seasonBadge">—</span><span class="window-badge closed" id="transferWindowBadge">JANELA FECHADA</span></div>
     <a class="league-link" href="https://teste-jet.pages.dev" target="_blank" rel="noopener">JET LEAGUE <span aria-hidden="true">↗</span></a>
   </div>
 
   <section class="hero">
+    <div class="hero-art" aria-hidden="true"><span class="hero-orbit"></span><strong>JET</strong><span class="hero-coordinate">TRANSFERJET / LEAGUE MARKET</span></div>
     <div class="hero-content">
       <div>
         <div class="eyebrow">TRANSFERJET · CENTRAL DE MERCADO</div>
         <h1 id="heroTitle">O mercado em jogo<span class="accent-dot">.</span></h1>
-        <div class="badges">
-          <span class="badge cyan">JET LEAGUE</span>
-          <span class="badge" id="seasonBadge">—</span>
-          <span class="window-badge closed" id="transferWindowBadge">JANELA FECHADA</span>
-        </div>
+        <div class="hero-edition">INTELIGÊNCIA DE MERCADO <span>JET LEAGUE</span></div>
         <p class="hero-desc" id="heroDescription">Acompanhe os agentes, as equipes e os movimentos que definem a Jet League.</p>
         <div class="hero-actions" id="heroActions"><button class="btn-primary" onclick="showView('players')">Explorar agentes <span aria-hidden="true">↗</span></button><button class="btn-gray" onclick="showView('transfers')">Ver transferências</button></div>
       </div>
@@ -86,49 +91,10 @@
     </div>
   </section>
 
-  <div id="connectionStatus" class="connection-status offline">
-    <span class="status-dot offline"></span> Conectando...
-  </div>
-
   <div class="data-notice hidden" id="dataNotice" role="status" aria-live="polite"></div>
   <main id="mainContent" tabindex="-1">
     <!-- ==================== VISÃO GERAL ==================== -->
-    <div id="view-home">
-      <div class="kpi-row" id="kpiRow"></div>
-
-      <div class="dashboard-grid">
-      <div class="section dashboard-feed">
-        <div class="section-heading"><div><span class="eyebrow">EM PAUTA</span><h2 class="section-h">Radar do mercado</h2></div><span class="section-caption">Últimas movimentações</span></div>
-        <div id="marketFeed"></div>
-      </div>
-
-      <div class="section dashboard-transfers">
-        <div class="section-heading"><div><span class="eyebrow">NEGÓCIOS</span><h2 class="section-h">Transferências recentes</h2></div><button class="text-button" onclick="showView('transfers')">Ver todas ↗</button></div>
-        <div id="recentTransfers"></div>
-      </div>
-
-      </div>
-      <div class="section market-split">
-        <div>
-          <h2 class="section-h">Maiores valores</h2>
-          <div id="topGainers"></div>
-        </div>
-        <div>
-          <h2 class="section-h">Valores acessíveis</h2>
-          <div id="topLosers"></div>
-        </div>
-      </div>
-
-      <div class="section">
-        <h2 class="section-h">Maiores Valores de Mercado</h2>
-        <div id="topValues"></div>
-      </div>
-
-      <div class="section">
-        <h2 class="section-h">Rumores do Mercado</h2>
-        <div id="homeRumors"></div>
-      </div>
-    </div>
+    <div id="view-home"><div id="premiumDashboard"></div></div>
 
     <!-- ==================== AGENTES ==================== -->
     <div id="view-players" class="hidden">
@@ -319,6 +285,7 @@
   <script src="./js/features/fantasy/fantasy-admin.js"></script>
 
   <script src="./js/features/market/market-ui.js"></script>
+  <script src="./js/features/market/premium-ui.js"></script>
   <script src="./js/app.js"></script>
   <script src="./js/core/router.js"></script>
 </body>

@@ -13,7 +13,7 @@ const root = path.resolve(__dirname, '..');
       const file = path.resolve(root, '.' + (pathname === '/' ? '/index.html' : pathname));
       if (!file.startsWith(root + path.sep)) throw Error('invalid path');
       const content = await fs.readFile(file);
-      const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css' };
+      const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.ttf': 'font/ttf' };
       res.writeHead(200, { 'Content-Type': types[path.extname(file)] || 'application/octet-stream' });
       res.end(content);
     } catch { res.writeHead(404); res.end(); }
@@ -67,6 +67,7 @@ const root = path.resolve(__dirname, '..');
       await page.goto(origin + '/' + query);
       await page.waitForFunction(() => window.AppRouter && (window.AppState.ui.jetLoaded && window.AppState.ui.marketLoaded || window.__testConfig.offline || window.__testConfig.denied));
       await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      await page.evaluate(() => document.fonts.ready);
     }
     async function view(page, name) {
       await page.waitForFunction(name => window.AppState.ui.currentView === name, name);
@@ -605,6 +606,77 @@ const root = path.resolve(__dirname, '..');
       await page.locator('#playerSearch').fill('Alice');
       assert.equal(await page.locator('#playersList .card').count(), 1);
     }, { aiMode: 'quota' });
+
+    await scenario('Premium: busca global abre agentes e equipes pelo teclado e preserva navegação', async page => {
+      await ready(page);
+      await page.keyboard.press('/');
+      assert.equal(await page.locator('#globalSearch').evaluate(el => el === document.activeElement), true);
+      await page.locator('#globalSearch').fill('a');
+      await page.keyboard.press('ArrowUp');
+      assert.equal(await page.locator('#globalSearch').getAttribute('aria-activedescendant'), 'global-result-7');
+      await page.locator('#globalSearch').fill('áLice');
+      assert.equal(await page.locator('#globalSearchResults [role="option"]').count(), 1);
+      await page.keyboard.press('ArrowDown');
+      assert.equal(await page.locator('#globalSearch').getAttribute('aria-activedescendant'), 'global-result-0');
+      await page.keyboard.press('Enter'); await view(page, 'player-profile');
+      assert.equal(await page.evaluate(() => AppState.ui.selectedPlayer.key), 'Alpha_Alice');
+      await page.goBack(); await view(page, 'home');
+      await page.locator('#globalSearch').fill('Alice');
+      await page.locator('#globalSearch').fill('');
+      await page.keyboard.press('Enter');
+      assert.equal(new URL(page.url()).searchParams.has('player'), false);
+      await page.locator('#globalSearch').fill('Alpha');
+      await page.locator('#globalSearchResults [role="option"]').click(); await view(page, 'club-profile');
+      assert.match(await page.locator('#clubProfileContent').innerText(), /Alpha/);
+      await page.goBack(); await view(page, 'home');
+      await page.locator('#globalSearch').fill('não existe');
+      assert.match(await page.locator('#globalSearchResults').innerText(), /Nenhum agente ou equipe/);
+      await page.keyboard.press('Escape');
+      await page.evaluate(() => __mockEmit());
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      assert.equal(await page.locator('#globalSearchResults').isVisible(), false);
+      const bounds = await page.locator('#connectionStatus').boundingBox();
+      assert.ok(bounds.y + bounds.height <= 720, 'conexão visível na lateral');
+      await noOverflow(page);
+    });
+
+    await scenario('Premium: dashboard usa registros reais, distingue negociações e escapa rumores', async page => {
+      await ready(page);
+      await page.evaluate(() => {
+        const p = __mockData.market.players.Alpha_Alice;
+        p.marketValue = 21000000;
+        p.valueEvents = { v1: { kind: 'recorded', at: 10, value: 21000000, previousValue: 20000000, source: 'manual', season: 'T2' } };
+        __mockData.market.transfers = {
+          t1: { playerKey: 'Alpha_Alice', playerName: 'Alice', from: 'Alpha', to: 'Beta', fee: 5000000, status: 'oficial', date: '2026-10-15' },
+          t2: { playerKey: 'Beta_Bob', playerName: 'Bob', from: 'Beta', to: 'Alpha', fee: 2000000, status: 'negociando', date: '2026-10-14' }
+        };
+        __mockData.market.rumors = { r1: { playerName: 'Bob', interestedClub: '<img src=x onerror="window.__xss=1">', currentClub: 'Beta', description: '<script>window.__xss=1</script>', reliability: 70, status: 'interesse', date: '2026-10-15' } };
+        __mockEmit();
+      });
+      await page.waitForFunction(() => document.querySelectorAll('.transfer-row').length === 2);
+      assert.equal(await page.locator('#statTransfers').innerText(), '2');
+      assert.equal(await page.locator('.deal-status.official').count(), 1);
+      assert.equal(await page.locator('.deal-status.pending').count(), 1);
+      assert.equal(await page.locator('.spotlight-info h3').innerText(), 'Alice');
+      assert.match(await page.locator('.spotlight-info .movement-chip').innerText(), /5/);
+      assert.equal(await page.locator('.news-row img, .news-row script').count(), 0);
+      assert.equal(await page.evaluate(() => window.__xss || 0), 0);
+      await screenshot(page, 'premium-records');
+      await page.locator('.spotlight-info [data-premium-player]').click(); await view(page, 'player-profile');
+      await page.goBack(); await view(page, 'home');
+      await page.locator('.btn-fantasy').click();
+      await page.waitForSelector('.fx-hub');
+    });
+
+    await scenario('Premium: busca e dashboard cabem no celular com todos os destinos funcionais', async page => {
+      await ready(page);
+      await page.locator('#globalSearch').fill('Bob');
+      await noOverflow(page); await screenshot(page, 'premium-mobile-search');
+      await page.locator('#globalSearchResults [role="option"]').click(); await view(page, 'player-profile');
+      await page.goBack(); await view(page, 'home');
+      await page.evaluate(() => window.scrollTo(0,0));
+      await noOverflow(page); await screenshot(page, 'premium-mobile');
+    }, {}, { width: 360, height: 800 });
 
     console.log(`${passed} cenários de navegador passaram. Rede externa bloqueada; escritas restritas ao mock.`);
   } finally {
