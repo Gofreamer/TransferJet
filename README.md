@@ -129,6 +129,10 @@ Validação: **50 testes automatizados e 30 cenários Brave aprovados**, com red
 
 ### Edição administrativa dos perfis
 
+**Legado visual das equipes:** o cabeçalho institucional, a sala de troféus, a trajetória cronológica e as galerias de ídolos e ex-integrantes reutilizam os registros existentes, sem migração. Campos vazios não reservam painéis. Temporadas dos títulos vêm somente de campanhas vencedoras explicitamente registradas na competição correspondente. Pessoas recebem links e fotos apenas por identidade explícita ou nome com correspondência única; listas em texto aceitam uma pessoa por linha, preservando vírgulas. A ordenação pública não altera dados ou navegação.
+
+Validação do redesign dos clubes: **71 testes automatizados e 39 cenários Brave**; tamanhos de desktop, notebook, tablet e celular, temas claro/escuro, movimento reduzido, edição administrativa e ausência de histórico. Capturas em `test-results/legacy/`. A prévia local inclui uma KOF 12 fictícia, identificada como demonstração; esses dados ficam exclusivamente no mock e não são carregados pelo site publicado.
+
 **Hall da Glória individual:** a aba Hall da Glória e o botão **Gerenciar conquistas** permitem adicionar, revisar, editar e excluir registros em `players/{chave}/achievements`, com IDs estáveis e auditoria. Conquistas não incrementam os contadores existentes. O número opcional do título antigo associa um detalhe a uma unidade da categoria, sem duplicação; prêmios individuais ficam separados dos títulos coletivos. Dados ausentes aparecem como “informação não registrada”.
 
 Equipes externas e históricas aceitam texto livre. Um vínculo explícito com equipe da liga também exibe o registro no perfil do clube como conquista do agente, sem criar títulos institucionais. O seletor de campeonato aceita somente registros de `liga/hallOfFame` com os campos explícitos `type`, `competitionName`, `season`, `result` e `teamName`; na ausência deles, o cadastro permanece manual. Não há inferência a partir de partidas ou da equipe atual.

@@ -4,6 +4,7 @@ const http = require('node:http');
 const path = require('node:path');
 const { chromium } = require('playwright');
 const firebaseMock = require('./firebase-mock.cjs');
+const legacyFixture = require('./fixtures/club-legacy.cjs');
 const root = path.resolve(__dirname, '..');
 
 (async () => {
@@ -234,7 +235,7 @@ const root = path.resolve(__dirname, '..');
       assert.equal(await page.evaluate(() => window.__xss), undefined);
       assert.equal(await page.locator('#playerProfileContent img[src="x"]').count(), 0);
       await page.evaluate(() => openClubProfile('<img src=x onerror="window.__xss=1">'));
-      assert.equal(await page.locator('#clubProfileContent h1').innerText(), '<img src=x onerror="window.__xss=1">');
+      assert.equal(await page.locator('#clubProfileContent h1').textContent(), '<img src=x onerror="window.__xss=1">');
       assert.equal(await page.evaluate(() => window.__xss), undefined);
     }, { specialName });
 
@@ -627,7 +628,7 @@ const root = path.resolve(__dirname, '..');
       assert.equal(new URL(page.url()).searchParams.has('player'), false);
       await page.locator('#globalSearch').fill('Alpha');
       await page.locator('#globalSearchResults [role="option"]').click(); await view(page, 'club-profile');
-      assert.match(await page.locator('#clubProfileContent').innerText(), /Alpha/);
+      assert.match(await page.locator('#clubProfileContent').textContent(), /Alpha/);
       await page.goBack(); await view(page, 'home');
       await page.locator('#globalSearch').fill('não existe');
       assert.match(await page.locator('#globalSearchResults').innerText(), /Nenhum agente ou equipe/);
@@ -900,6 +901,52 @@ const root = path.resolve(__dirname, '..');
       await page.waitForFunction(()=>!document.getElementById('manageAchievements'));
       assert.equal(await page.locator('#editAgentProfile').count(),0);
     },{admin:true,expectedWrites:1});
+
+    await scenario('Legado: galeria, trajetória, ídolos e antigos integrantes responsivos sem alterar dados', async page => {
+      await ready(page,'?club=KOF%2012');
+      const original=await page.evaluate(()=>JSON.stringify(__mockData));
+      assert.equal(await page.locator('.legacy-brand h1').innerText(),'KOF 12');
+      assert.equal(await page.locator('#editClubProfile').count(),1);
+      assert.equal(await page.locator('.legacy-trophy.is-winner strong').innerText(),'2');
+      assert.match(await page.locator('.legacy-trophy.is-winner').innerText(),/Temporada 2 · Temporada 3/);
+      assert.doesNotMatch(await page.locator('.legacy-trophy.is-winner').innerText(),/Temporada 1/);
+      assert.deepEqual(await page.locator('.legacy-cycle').allTextContents(),['Temporada 1','Temporada 2','Temporada 3']);
+      assert.equal(await page.locator('.legacy-campaign.podium-gold').count(),2);
+      assert.equal(await page.locator('.legacy-people.legends [data-premium-player]').count(),2);
+      assert.match(await page.locator('.legacy-former').innerText(),/Ex-integrante internacional/);
+      assert.match(await page.locator('.legacy-former').innerText(),/Empréstimo/);
+      for(const [width,label] of [[1440,'desktop'],[1180,'notebook'],[820,'tablet'],[390,'mobile']]) {
+        await page.setViewportSize({width,height:1000});
+        await page.evaluate(()=>window.scrollTo(0,0));
+        await noOverflow(page);
+        assert.ok(await page.locator('.legacy-brand h1').evaluate(el=>el.getBoundingClientRect().height)<90,'nome da equipe permanece legível');
+        assert.equal(await page.locator('.legacy-panel').evaluateAll(nodes=>nodes.every(node=>node.scrollWidth<=node.clientWidth+1)),true);
+        await screenshot(page,'legacy-'+label);
+      }
+      await page.emulateMedia({reducedMotion:'reduce'});
+      assert.ok(await page.locator('.legacy-person').first().evaluate(el=>parseFloat(getComputedStyle(el).transitionDuration))<=0.001);
+      await page.locator('[data-legacy-order]').selectOption('desc');
+      assert.deepEqual(await page.locator('.legacy-cycle').allTextContents(),['Temporada 3','Temporada 2','Temporada 1']);
+      await page.locator('.legacy-people.legends [data-premium-player="KOF 12_Jenny"]').click();
+      await page.waitForSelector('#editAgentProfile');
+      await page.goBack(); await page.waitForSelector('.legacy-hero');
+      assert.equal(await page.locator('[data-legacy-order]').inputValue(),'desc');
+      await page.goForward(); await page.waitForSelector('#editAgentProfile');
+      await page.goBack(); await page.waitForSelector('.legacy-hero');
+      assert.equal(await page.evaluate(()=>JSON.stringify(__mockData)),original);
+      await page.evaluate(()=>document.documentElement.setAttribute('data-theme','light'));
+      await screenshot(page,'legacy-light');
+    },{admin:true,rosters:{'KOF 12':[{n:'Jenny'},{n:'Jun'},{n:'Malenia Bianchi'}]},players:{'KOF 12_Jenny':{name:'Jenny',marketValue:10000000},'KOF 12_Jun':{name:'Jun',marketValue:8000000},'KOF 12_Malenia Bianchi':{name:'Malenia Bianchi',marketValue:9000000}},settings:{clubProfiles:{'club_4b-4f-46-20-31-32':legacyFixture()}}},{width:1440,height:1000});
+
+    await scenario('Legado: perfil sem história não reserva painéis e visitante não recebe edição', async page => {
+      await ready(page,'?club=Alpha');
+      assert.equal(await page.locator('#editClubProfile').count(),0);
+      assert.equal(await page.locator('.legacy-panel').count(),0);
+      assert.equal(await page.locator('.legacy-grid').evaluate(el=>el.getBoundingClientRect().height),0);
+      assert.equal(await page.locator('.legacy-hero .legacy-shield').count(),1);
+      assert.equal(await page.locator('.club-roster-section tbody tr').count(),31);
+      await noOverflow(page);
+    },{},{width:390,height:844});
 
     console.log(`${passed} cenários de navegador passaram. Rede externa bloqueada; escritas restritas ao mock.`);
   } finally {

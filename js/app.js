@@ -912,23 +912,17 @@ function openClubProfile(clubName) {
       ← Voltar para Equipes
     </button>
 
-    <h1 style="font-size:1.6rem;font-weight:800;margin-bottom:8px">${escapeHTML(clubName)}</h1>
-    ${window.isMarketAdmin?.() && Object.hasOwn(AppState.jet.rosters || {},clubName) ? `<button class="btn-primary btn-sm" id="editClubProfile" onclick="ProfileEditor.openClub('${escapeInlineJsSingle(clubName)}')">Editar equipe</button>` : ""}
-    <div class="profile-meta" style="margin-bottom:24px">
-      <span class="tag">${agents.length} agentes</span>
-    </div>
-
-    <div class="kpi-row">
-      <div class="kpi"><div class="kpi-label">Valor Total do Elenco</div><div class="kpi-value cyan">${formatUSD(totalValue)}</div></div>
-      <div class="kpi"><div class="kpi-label">Valor Médio</div><div class="kpi-value cyan">${formatUSD(avg, true)}</div></div>
-      <div class="kpi"><div class="kpi-label">Agente mais valioso</div><div class="kpi-value" style="font-size:1rem">${escapeHTML(agents[0]?.name || "—")}</div></div>
-      <div class="kpi"><div class="kpi-label">Valor do mais valioso</div><div class="kpi-value cyan">${agents[0] ? formatUSD(agents[0].marketValue, true) : "—"}</div></div>
-    </div>
-
-    <div class="section">
+    ${ClubLegacy.header(clubName,agents.length)}
       ${window.ProfileViews?.club(clubName) || ""}
       ${window.ProfileViews?.clubAchievements(clubName) || ""}
+    <div class="section club-roster-section">
       <h2 class="section-h">Elenco atual · Jet League</h2>
+      <div class="club-roster-metrics">
+        <div><span>Valor total do elenco</span><strong>${formatUSD(totalValue)}</strong></div>
+        <div><span>Valor médio</span><strong>${formatUSD(avg,true)}</strong></div>
+        <div><span>Agente mais valioso</span><strong>${escapeHTML(agents[0]?.name || "—")}</strong></div>
+        <div><span>Valor do mais valioso</span><strong>${agents[0] ? formatUSD(agents[0].marketValue,true) : "—"}</strong></div>
+      </div>
       <div class="table-wrap">
         <table>
           <thead><tr><th></th><th>Agente</th><th>Função</th><th>Valor</th><th>Nacionalidade</th><th>Idade</th></tr></thead>

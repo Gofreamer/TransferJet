@@ -1,0 +1,102 @@
+/* Enciclopédia esportiva: layout adaptativo sem espaços reservados para campos vazios. */
+.legacy-hero { position:relative; isolation:isolate; overflow:hidden; border:1px solid var(--border-light); border-top:3px solid var(--cyan-dim); border-radius:14px; background:linear-gradient(115deg,var(--bg-card) 30%,#14376a88),var(--bg-card); margin-bottom:24px; }
+.legacy-hero::after { content:""; position:absolute; z-index:-1; width:330px; height:330px; right:-70px; top:-70px; border:65px solid #3689ff0b; transform:rotate(35deg); pointer-events:none; }
+.legacy-cover { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; opacity:.23; z-index:-2; }
+.legacy-hero-content { padding:clamp(24px,3vw,42px); background:linear-gradient(90deg,var(--bg-card),transparent); }
+.legacy-brand { display:flex; align-items:center; gap:24px; }
+.legacy-brand-name { min-width:0; flex:1; }
+.legacy-brand h1 { font:800 clamp(42px,5vw,76px)/.95 var(--display-font); letter-spacing:-.5px; text-transform:uppercase; overflow-wrap:anywhere; margin:12px 0 16px; }
+.legacy-hero .eyebrow { color:var(--cyan); }
+.legacy-shield { position:relative; display:grid; place-items:center; width:112px; height:126px; flex-shrink:0; clip-path:polygon(0 0,100% 0,100% 78%,50% 100%,0 78%); background:linear-gradient(150deg,var(--bg-elevated),var(--bg)); border-top:2px solid var(--cyan-dim); font:800 42px var(--display-font); color:var(--cyan); }
+.legacy-shield img { position:absolute; inset:10%; width:80%; height:75%; object-fit:contain; background:var(--bg-card); }
+.legacy-tags { display:flex; flex-wrap:wrap; gap:10px 18px; font-size:11px; color:var(--text-muted); }
+.legacy-champion-tag { color:var(--gold); }
+.legacy-intro { max-width:85ch; margin:24px 0 0; font-size:14px; line-height:1.85; white-space:pre-wrap; overflow-wrap:anywhere; }
+.legacy-metrics { display:flex; flex-wrap:wrap; gap:24px 42px; margin-top:28px; border-top:1px solid var(--border-light); padding-top:22px; }
+.legacy-metrics > div { display:flex; align-items:center; gap:12px; }
+.legacy-metrics strong { font:700 38px/1 var(--display-font); color:var(--cyan); }
+.legacy-champion .legacy-metrics > div:first-child strong { color:var(--gold); }
+.legacy-metrics span { font-size:10px; text-transform:uppercase; letter-spacing:.7px; max-width:110px; line-height:1.6; color:var(--text-muted); }
+.club-institution.legacy-grid { display:block; container-type:inline-size; margin:0 0 26px; padding:0; border:0; background:none; overflow:visible; }
+.legacy-story-grid { display:grid; gap:22px; align-items:start; margin-bottom:22px; }
+.legacy-memory-stack { display:grid; gap:22px; min-width:0; }
+.legacy-trophies { margin-bottom:22px; }
+.legacy-grid:empty { display:none; }
+.legacy-wide { grid-column:1/-1; }
+.legacy-panel { min-width:0; padding:24px; border:1px solid var(--border); background:var(--bg-card); border-radius:12px; }
+.legacy-section-title { margin-bottom:22px; }
+.legacy-section-title > .eyebrow { color:var(--cyan); }
+.legacy-section-title h2 { font:700 28px/1.15 var(--display-font); text-transform:uppercase; margin:8px 0 0; }
+.legacy-trophy-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr)); gap:14px; }
+.legacy-trophy { min-width:0; display:grid; grid-template-columns:auto minmax(0,1fr); gap:14px; padding:20px; border:1px solid var(--border); background:var(--bg); border-radius:9px; }
+.legacy-trophy.is-winner { border-color:#bd995749; background:radial-gradient(ellipse at 0 0,#bd99571a,transparent 85%),var(--bg); }
+.legacy-trophy-icon { font-size:34px; padding-top:3px; }
+.legacy-trophy .eyebrow { font-size:9px; letter-spacing:.9px; display:block; }
+.legacy-trophy strong { font:800 48px/1.1 var(--display-font); display:block; color:var(--text-muted); margin-top:7px; }
+.legacy-trophy.is-winner strong { color:var(--gold); }
+.legacy-trophy-caption { font-size:10px; color:var(--text-muted); }
+.legacy-trophy p { grid-column:1/-1; font-size:10px; color:var(--text-muted); line-height:1.8; overflow-wrap:anywhere; border-top:1px solid var(--border); padding-top:12px; margin:0; }
+.legacy-trophy p b { color:var(--gold); font-weight:500; }
+.legacy-sort { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-top:18px; color:var(--text-muted); font-size:10px; }
+.legacy-sort select { max-width:100%; background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:5px; padding:8px; font:inherit; min-height:36px; }
+.legacy-timeline { list-style:none; display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr)); gap:24px 16px; margin:0; padding:18px 0 0; border-top:1px solid var(--border-light); }
+.legacy-campaign { position:relative; display:grid; align-content:start; grid-template-columns:minmax(0,1fr); gap:16px; border:1px solid var(--border); background:var(--bg); border-radius:8px; padding:18px; margin:0; }
+.legacy-campaign:last-child { margin-bottom:0; }
+.legacy-campaign::before { content:""; position:absolute; width:7px; height:7px; border-radius:50%; background:var(--cyan-dim); border:3px solid var(--bg-card); left:18px; top:-26px; box-sizing:content-box; }
+.legacy-campaign.podium-gold { border-color:#bd995750; background:linear-gradient(115deg,#bd99570f,transparent),var(--bg); }
+.legacy-campaign.podium-gold::before { background:var(--gold); }
+.legacy-cycle { font:700 20px/1.2 var(--display-font); overflow-wrap:anywhere; }
+.legacy-cycle small { display:block; font:400 10px/1.6 sans-serif; color:var(--text-muted); margin-top:6px; }
+.legacy-campaign h3 { margin:7px 0; font:700 23px/1.15 var(--display-font); overflow-wrap:anywhere; }
+.legacy-placement { color:var(--text-muted); font-size:11px; }
+.podium-gold .legacy-placement,.podium-gold .legacy-result { color:var(--gold); }
+.legacy-result { display:inline-block; font-size:9px; letter-spacing:.7px; text-transform:uppercase; color:var(--cyan); }
+.legacy-campaign p,.legacy-fact p,.legacy-person p { font-size:12px; line-height:1.8; color:var(--text-muted); margin-top:7px; white-space:pre-wrap; overflow-wrap:anywhere; }
+.legacy-fact-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr)); gap:16px; }
+.legacy-fact { display:flex; align-items:flex-start; gap:14px; background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:18px; min-width:0; }
+.legacy-fact > span { color:var(--cyan); font-size:23px; }
+.legacy-fact > div { min-width:0; }
+.legacy-fact h3 { font:700 20px/1.1 var(--display-font); margin:0; }
+.legacy-person-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr)); gap:12px; }
+.legacy-person { display:flex; align-items:center; gap:14px; padding:16px; background:var(--bg); border:1px solid var(--border); border-radius:8px; min-width:0; }
+.legacy-person > div { min-width:0; }
+.legacy-person strong,.legacy-person .text-button { display:block; text-align:left; color:var(--text); font-size:14px; line-height:1.5; overflow-wrap:anywhere; white-space:normal; }
+.legacy-person .text-button:hover { color:var(--cyan); }
+.legacy-person .eyebrow { display:block; font-size:8px; color:var(--gold); margin-bottom:5px; }
+.legacy-people.highlights .eyebrow { color:var(--cyan); }
+.legacy-portrait { position:relative; display:grid; place-items:center; width:52px; height:58px; flex-shrink:0; overflow:hidden; border-radius:7px; border:1px solid var(--border-light); background:var(--bg-elevated); color:var(--text-dim); font:700 22px var(--display-font); }
+.legacy-portrait img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+.legacy-people.legends .legacy-portrait { border-color:#bd995750; }
+.legacy-former-person { align-items:flex-start; }
+.legacy-person .legacy-member-period { color:var(--cyan); font-size:11px; }
+.legacy-grid .club-profile-audit { margin:0; }
+.legacy-former + .club-profile-audit { margin-top:22px; }
+.club-agent-glory .glory-timeline { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr)); border-left:0; padding-left:0; }
+.club-roster-section { margin-top:28px; }
+.club-roster-metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr)); gap:1px; border:1px solid var(--border); border-radius:9px; background:var(--border); overflow:hidden; margin:18px 0; }
+.club-roster-metrics > div { min-width:0; padding:16px 20px; background:var(--bg-card); }
+.club-roster-metrics span { display:block; color:var(--text-muted); font-size:10px; margin-bottom:7px; }
+.club-roster-metrics strong { font:700 24px/1.2 var(--display-font); overflow-wrap:anywhere; }
+@media (min-width:1600px) { .legacy-panel { padding:28px; } }
+@media (max-width:650px) {
+  .legacy-brand { display:grid; grid-template-columns:72px minmax(0,1fr); gap:18px 15px; }
+  .legacy-brand #editClubProfile { grid-column:1/-1; justify-self:start; margin-left:0; }
+  .legacy-shield { width:72px; height:86px; font-size:30px; }
+  .legacy-brand h1 { font-size:42px; }
+  .legacy-tags { font-size:10px; gap:8px; }
+  .legacy-panel { padding:18px; }
+  .legacy-section-title h2 { font-size:25px; }
+  .legacy-trophy-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+  .legacy-trophy { padding:14px; gap:8px; }
+  .legacy-trophy-icon { font-size:26px; }
+  .legacy-trophy strong { font-size:40px; }
+  .legacy-trophy .eyebrow { letter-spacing:0; font-size:8px; }
+  .legacy-campaign { grid-template-columns:minmax(0,1fr); gap:10px; padding:15px; }
+  .legacy-timeline { grid-template-columns:minmax(0,1fr); padding:0 0 0 12px; border-top:0; border-left:1px solid var(--border-light); gap:12px; }
+  .legacy-campaign::before { top:25px; left:-19px; }
+  .legacy-metrics { gap:20px; }
+  .legacy-metrics strong { font-size:30px; }
+  .legacy-metrics span { font-size:9px; max-width:95px; }
+  .legacy-intro { font-size:12px; }
+}
+@media (prefers-reduced-motion:no-preference) { .legacy-trophy,.legacy-person { transition:border-color .18s,background-color .18s; } .legacy-person:hover { border-color:var(--cyan-dim); background:var(--bg-elevated); } }
