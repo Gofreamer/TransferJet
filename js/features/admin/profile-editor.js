@@ -5,6 +5,7 @@
   const labels = { name: "Nome", nationality: "Nacionalidade", age: "Idade", rank: "Rank", functionRole: "Função", photo: "Foto (URL)", status: "Status", contractMode: "Tipo de contrato", contractStart: "Ciclo / temporada inicial", contractStartDate: "Data inicial (opcional)", contractUntil: "Ciclo / temporada de vencimento", contractEndDate: "Data exata de vencimento (opcional)", salary: "Salário", releaseClause: "Cláusula de rescisão", bio: "Biografia", description: "Descrição adicional", notes: "Observações", titles: "Títulos", trophy: "Total de títulos", careerHistory: "Passagens manuais", team: "Equipe atual", freeAgent: "Agente livre", leagueExit: "Saída efetiva da liga" };
   Object.assign(labels,{crest:"Brasão (URL)",cover:"Imagem de capa (URL)",founded:"Fundação (texto livre)",bestEra:"Melhor fase histórica",rivalries:"Rivalidades",legends:"Ídolos históricos",highlights:"Destaques históricos",placements:"Colocações",formerMembers:"Ex-membros e períodos"});
   function dialog() { return document.getElementById("profileEditorDialog"); }
+  labels.achievements = "Hall da Glória · conquistas detalhadas";
   function field(name, value, type = "text", label = labels[name] || name, options) {
     const content = options ? `<select data-field="${name}">${options.map(([key, text]) => `<option value="${e(key)}" ${String(value ?? "") === key ? "selected" : ""}>${e(text)}</option>`).join("")}</select>` : type === "textarea" ? `<textarea data-field="${name}" rows="3">${e(value)}</textarea>` : `<input data-field="${name}" type="${type}" value="${e(value)}" ${type === "number" ? 'min="0" step="any"' : ""}>`;
     return `<label>${e(label)}${content}</label>`;
@@ -72,7 +73,7 @@
     dialog().querySelectorAll("[data-pane]").forEach(el => { el.hidden = el.dataset.pane !== name; });
     dialog().querySelectorAll("[data-tab]").forEach(el => { el.setAttribute("aria-selected", String(el.dataset.tab === name)); });
   }
-  function openAgent(key) {
+  function openAgent(key, pane = "identity") {
     try {
       ProfileData.requireAdmin();
       const p = getAllPlayersFlat().find(p => p.key === key);
@@ -85,10 +86,14 @@
         <section data-pane="contract" hidden><p class="pe-help">Ciclos são texto livre (ex.: C.4). Datas são opcionais; nenhum ciclo será convertido em data.</p><div class="pe-grid">${field("contractMode",raw.contractMode || (raw.contractUntil ? "fixed" : "unspecified"),"text",labels.contractMode,[["unspecified","Prazo não informado"],["fixed","Prazo determinado"],["indefinite","Indeterminado"],["none","Sem contrato"]])}${["contractStart","contractUntil","contractStartDate","contractEndDate","salary","releaseClause"].map(key => field(key,value(key),key.endsWith("Date") ? "date" : ["salary","releaseClause"].includes(key) ? "number" : "text")).join("")}</div></section>
         <section data-pane="career" hidden><p class="pe-help">Passagens manuais são apenas históricas. Não transferem o agente, não alteram contratos ou valores e não escrevem na Jet League.</p><div id="peHistoryRows">${Object.entries(raw.careerHistory || {}).map(([id,row]) => historyRow(id,row)).join("")}</div><button type="button" class="btn-gray" data-action="add-history">Adicionar passagem</button></section>
         <section data-pane="exit" hidden><h3>Equipe atual: ${e(p.club)}</h3><p class="pe-help">A saída efetiva é uma ação separada. Ela atualiza o vínculo no Market e não cria transferência ou equipe na liga. O valor, a identidade e os históricos são preservados. Nenhum elenco da Jet League é alterado automaticamente.</p><div class="pe-grid"><label>Destino<select id="peExitKind"><option value="external">Equipe externa / internacional</option><option value="free">Agente livre</option></select></label><label>Nome da equipe externa<input id="peExitTeam"></label><label>Observação<textarea id="peExitNote"></textarea></label></div><button class="btn-danger" type="button" data-action="review-exit">Revisar saída efetiva da liga</button></section>`;
-      baseline(); tab("identity"); dialog().showModal();
+      const tabs = document.querySelector('#peForm .pe-tabs');
+      tabs.insertAdjacentHTML("beforeend",'<button role="tab" data-tab="glory" type="button">Hall da Glória</button>');
+      document.getElementById("peForm").insertAdjacentHTML("beforeend",`<section data-pane="glory" hidden><h3>Gerenciar conquistas</h3><p class="pe-help">Cada registro detalha uma conquista, sem aumentar os contadores. Para detalhar um título antigo, informe seu número na categoria (1, 2…). Prêmios individuais não contam como títulos coletivos. Campos desconhecidos podem ficar em branco.</p><datalist id="peAchievementTeams">${Object.keys(AppState.jet.rosters || {}).map(name=>`<option value="${e(name)}"></option>`).join("")}</datalist><div id="peAchievements">${Object.entries(raw.achievements || {}).map(([id,row])=>clubRow("achievements",id,row)).join("")}</div><button type="button" class="btn-gray" data-action="add-club-row" data-group="achievements">Adicionar conquista</button></section>`);
+      baseline(); tab(pane); dialog().showModal();
     } catch (error) { feedback(error.message); }
   }
   function summarize(field, value) {
+    if (field === "achievements") return Object.values(value || {}).map(row => `${ProfileData.achievementTypes[row.type]} · ${row.competitionName || "informação não registrada"} · ${row.result || "informação não registrada"} · ${row.teamName || "informação não registrada"} (${row.teamKind === "league" ? "equipe da liga" : "equipe externa / histórica"}) · ciclo: ${row.season || "informação não registrada"} · data: ${row.date || "informação não registrada"}${row.legacySlot ? " · título antigo #" + row.legacySlot : ""}${row.notes ? " · " + row.notes : ""}${row.officialId ? " · campeonato: " + row.officialId : ""}`).join("; ") || "Sem conquistas detalhadas";
     if (field === "careerHistory") return Object.values(value || {}).map(row => `${row.teamName}: ${row.fromCycle || row.fromDate || "início não informado"} → ${row.toCycle || row.toDate || "fim não informado"}`).join("; ") || "Sem passagens manuais";
     return value == null || value === "" ? "—" : typeof value === "object" ? JSON.stringify(value) : String(value);
   }
@@ -97,14 +102,21 @@
     formerMembers: [["name","Nome do ex-membro"],["fromCycle","Ciclo de entrada"],["toCycle","Ciclo de saída"],["fromDate","Data de entrada (opcional)","date"],["toDate","Data de saída (opcional)","date"],["notes","Observações"]]
   };
   function clubRow(group,id,row={}) {
+    if (group === "achievements") return achievementRow(id,row);
     return `<fieldset class="pe-record-row pe-history-row" data-group="${group}" data-id="${e(id)}"><legend>${labels[group]}</legend><div class="pe-grid">${clubRowFields[group].map(([key,label,type])=>`<label>${label}<input data-record-field="${key}" type="${type || "text"}" value="${e(row[key])}"></label>`).join("")}</div><button type="button" class="btn-danger" data-action="remove-club-row">Remover registro</button></fieldset>`;
   }
   function readClubRows() {
-    const groups = { placements:[],formerMembers:[] };
+    const groups = { placements:[],formerMembers:[],achievements:[] };
     dialog().querySelectorAll(".pe-record-row").forEach(row=>{
       const entry={id:row.dataset.id}; row.querySelectorAll("[data-record-field]").forEach(el=>{entry[el.dataset.recordField]=el.value;}); groups[row.dataset.group].push(entry);
     });
     return groups;
+  }
+  function achievementRow(id,row) {
+    const select = (key,label,options) => `<label>${label}<select data-record-field="${key}">${options.map(([value,title])=>`<option value="${e(value)}" ${String(row[key] || "")===value ? "selected" : ""}>${e(title)}</option>`).join("")}</select></label>`;
+    const official = ProfileData.officialCompetitions().map(entry=>[entry.id,`${entry.competitionName} · ${entry.season} · ${entry.teamName}`]);
+    if (row.officialId && !official.some(([id])=>id===row.officialId)) official.push([row.officialId,"Vínculo histórico preservado · " + row.officialId]);
+    return `<fieldset class="pe-record-row pe-history-row" data-group="achievements" data-id="${e(id)}"><legend>🏆 Conquista individualizada</legend><div class="pe-grid">${select("type","Tipo de conquista",Object.entries(ProfileData.achievementTypes))}${select("teamKind","Equipe representada",[["external","Nome livre / equipe externa ou histórica"],["league","Equipe cadastrada na Jet League"]])}${[["competitionName","Competição ou prêmio"],["result","Resultado / conquista"],["teamName","Nome da equipe (opcional)"],["season","Ciclo / temporada"],["date","Data opcional","date"],["legacySlot","Número do título antigo nesta categoria (opcional)","number"],["notes","Observações"]].map(([key,label,type])=>`<label>${label}<input data-record-field="${key}" type="${type || "text"}" ${key==="teamName" ? 'list="peAchievementTeams"' : ""} ${key==="legacySlot" ? 'min="1" step="1"' : ""} value="${e(row[key])}"></label>`).join("")}${select("officialId","Campeonato registrado (opcional)",[["","Preenchimento manual"],...official])}</div><p class="pe-help">${official.length ? "Ao selecionar um campeonato, seus dados explícitos preenchem a conquista para revisão." : "Sem campeonato com dados oficiais suficientes para relacionar. Use preenchimento manual."}</p><button type="button" class="btn-danger" data-action="remove-club-row">Excluir conquista</button></fieldset>`;
   }
   function openClub(name) {
     try {
@@ -139,6 +151,8 @@
         return;
       }
       const rows = readHistory();
+      const achievements = readClubRows().achievements;
+      if (JSON.stringify(achievements) !== JSON.stringify(session.initialClubRows.achievements)) input.achievements = achievements;
       const changedHistory = JSON.stringify(rows) !== session.initialHistory;
       const changes = ProfileData.prepareAgent(session.key, session.raw, input);
       if (changedHistory) changes.careerHistory = ProfileData.validateHistory(rows, session.raw.careerHistory, session.visible.id);
@@ -194,12 +208,21 @@
     if (action === "add-history") { const id = marketDb.ref("players/" + session.key + "/careerHistory").push().key; document.getElementById("peHistoryRows").insertAdjacentHTML("beforeend",historyRow(id)); }
     if (action === "remove-history" && confirm("Remover esta passagem do rascunho? A exclusão será aplicada somente ao confirmar a revisão.")) btn.closest(".pe-history-row").remove();
     if (action === "add-club-row") {
-      const group=btn.dataset.group; const id=marketDb.ref("settings/clubProfiles/"+ProfileData.clubKey(session.key)+"/"+group).push().key;
-      document.getElementById(group==="placements" ? "peClubPlacements":"peClubFormerMembers").insertAdjacentHTML("beforeend",clubRow(group,id));
+      const group=btn.dataset.group; const path=group==="achievements" ? "players/"+session.key+"/achievements" : "settings/clubProfiles/"+ProfileData.clubKey(session.key)+"/"+group; const id=marketDb.ref(path).push().key;
+      document.getElementById(group==="achievements" ? "peAchievements" : group==="placements" ? "peClubPlacements":"peClubFormerMembers").insertAdjacentHTML("beforeend",clubRow(group,id));
     }
     if (action === "remove-club-row" && confirm("Remover este registro do rascunho? A exclusão será aplicada somente após a revisão.")) btn.closest(".pe-record-row").remove();
   });
   document.addEventListener("change", event => {
+    if (session && event.target.dataset.recordField === "officialId" && event.target.closest('[data-group="achievements"]')) {
+      const official = ProfileData.officialCompetitions().find(row=>row.id===event.target.value);
+      if (official) {
+        const row = event.target.closest('.pe-record-row');
+        ["type","competitionName","season","result","teamName"].forEach(key=>{row.querySelector(`[data-record-field="${key}"]`).value=official[key];});
+        row.querySelector('[data-record-field="teamKind"]').value=Object.hasOwn(AppState.jet.rosters || {},official.teamName) ? "league" : "external";
+      }
+      return;
+    }
     if (!session || event.target.dataset.historyField !== "teamKind") return;
     const row = event.target.closest(".pe-history-row");
     row.querySelector(".pe-team-name").innerHTML = teamInput(event.target.value, row.querySelector('[data-history-field="teamName"]').value);

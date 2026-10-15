@@ -14,6 +14,68 @@ function setup() {
   return { c,raw,writes,stored:()=>stored,setStored:value=>{stored=value;} };
 }
 const passage = { id:'history-1',teamKind:'external',teamName:'FC Internacional',fromCycle:'C.1',toCycle:'C.2',fromDate:'',toDate:'',binding:'Empréstimo',notes:'Passagem informada pelo mestre' };
+const achievement = { id:'glory-1',type:'nacional',competitionName:'Nacional C.1',result:'Campeão',teamKind:'external',teamName:'Antiga Organização',season:'C.1',date:'',notes:'Título antigo',legacySlot:'1',officialId:'' };
+
+test('Hall da Glória associa título antigo sem alterar contadores ou outros domínios', async () => {
+  const db=setup(); const {c}=db; const raw={...db.raw,titles:{nacional:2,lji:1},trophy:3}; db.setStored(raw);
+  c.jetDb={ref(){throw Error('Jet não pode ser alterada');}};
+  const state=JSON.stringify(c.AppState);
+  const saved=await c.ProfileData.saveAgent('Alpha_Alice',{achievements:[achievement]},raw);
+  assert.deepEqual(saved.titles,raw.titles);assert.equal(saved.trophy,3);
+  assert.equal(saved.achievements['glory-1'].playerId,raw.id);
+  assert.equal(saved.team,raw.team);assert.equal(saved.contractUntil,raw.contractUntil);assert.equal(saved.marketValue,raw.marketValue);
+  assert.equal(JSON.stringify(c.AppState),state);
+  assert.deepEqual(Object.keys(saved.changeLog['event-1'].changes),['achievements']);
+});
+
+test('Hall valida associações únicas, prêmios individuais, datas e equipes históricas', () => {
+  const {c,raw}=setup(); const old={...raw,trophy:2};
+  assert.equal(c.ProfileData.validateAchievements([achievement],old,'Alpha_Alice')['glory-1'].legacySlot,1);
+  for(const rows of [
+    [achievement,{...achievement,id:'two',competitionName:'Outra final'}],
+    [{...achievement,legacySlot:3}], [{...achievement,type:'individual'}],
+    [{...achievement,date:'2026-02-30'}], [{...achievement,teamKind:'league'}],
+    [achievement,{...achievement,id:'two',legacySlot:''}]
+  ]) assert.throws(()=>c.ProfileData.validateAchievements(rows,old,'Alpha_Alice'));
+  const partial=c.ProfileData.validateAchievements([{id:'partial',type:'individual',teamKind:'external'}],raw,'Alpha_Alice');
+  assert.equal(partial.partial.teamName,'');assert.equal(partial.partial.season,'');assert.equal(partial.partial.legacySlot,null);
+  const historical={...achievement,teamKind:'league',teamKey:c.ProfileData.clubKey(achievement.teamName)};
+  assert.throws(()=>c.ProfileData.prepareAgent('Alpha_Alice',{...old,achievements:{one:{...achievement,legacySlot:2}}},{titles:{nacional:1}}),/Desassocie/);
+  assert.equal(c.ProfileData.validateAchievements([historical],{...old,achievements:{'glory-1':historical}},'Alpha_Alice')['glory-1'].teamKey,historical.teamKey);
+});
+
+test('Hall edita e exclui mantendo metadados e recusa concorrência sem perder atualizações de valor', async () => {
+  const db=setup();const {c}=db;const raw={...db.raw,titles:{nacional:1},achievements:{'glory-1':{...achievement,legacySlot:1,extra:'conservar'}}};
+  db.setStored({...raw,marketValue:30000000});
+  const saved=await c.ProfileData.saveAgent('Alpha_Alice',{achievements:[{...achievement,season:'C.2'}]},raw);
+  assert.equal(saved.achievements['glory-1'].extra,'conservar');assert.equal(saved.marketValue,30000000);
+  await assert.rejects(c.ProfileData.saveAgent('Alpha_Alice',{achievements:[]},raw),/outra sessão/);
+  const removed=await c.ProfileData.saveAgent('Alpha_Alice',{achievements:[]},saved);
+  assert.deepEqual(JSON.parse(JSON.stringify(removed.achievements)),{});assert.equal(removed.titles.nacional,1);
+});
+
+test('Hall relaciona somente campeonatos com dados explícitos suficientes', () => {
+  const {c,raw}=setup();c.AppState.jet.hallOfFame={incomplete:{winner:'Alpha'},official:{type:'nacional',competitionName:'Nacional C.1',season:'C.1',result:'Campeão',teamName:'Alpha'}};
+  assert.equal(c.ProfileData.officialCompetitions().length,1);
+  const row={...achievement,teamKind:'league',teamName:'Alpha',officialId:'official',legacySlot:''};
+  assert.equal(c.ProfileData.validateAchievements([row],raw,'Alpha_Alice')['glory-1'].officialId,'official');
+  assert.throws(()=>c.ProfileData.validateAchievements([{...row,season:'C.9'}],raw,'Alpha_Alice'),/vínculo oficial/);
+  assert.throws(()=>c.ProfileData.validateAchievements([{...row,officialId:'incomplete'}],raw,'Alpha_Alice'),/vínculo oficial/);
+});
+
+test('Hall projeta conquistas no clube somente por vínculo explícito, sem gravar títulos institucionais', () => {
+  const {c,raw}=setup();load(c,'js/features/market/profile-views.js');
+  c.AppState.market.players.Alpha_Alice={...raw,achievements:c.ProfileData.validateAchievements([{...achievement,teamKind:'league',teamName:'Beta',legacySlot:''}],raw,'Alpha_Alice')};
+  const before=JSON.stringify(c.AppState);
+  assert.match(c.ProfileViews.clubAchievements('Beta'),/Nacional C.1/);
+  assert.equal(c.ProfileViews.clubAchievements('Alpha'),'');
+  c.AppState.market.players.Alpha_Alice.achievements['glory-1'].teamKind='external';
+  assert.equal(c.ProfileViews.clubAchievements('Beta'),'');
+  c.AppState.market.players.Alpha_Alice.achievements['glory-1'].teamKind='league';
+  assert.equal(JSON.stringify(c.AppState),before);
+  const html=c.ProfileViews.achievements({...c.getAllPlayersFlat()[0],achievements:{one:{type:'individual',competitionName:'<img onerror=evil>'}}});
+  assert.match(html,/&lt;img/);assert.match(html,/informação não registrada/);
+});
 
 test('histórico externo conserva vínculo, valor, contrato, Fantasy e banco da liga', async () => {
   const {c,raw,writes}=setup(); const original=JSON.stringify(c.AppState);

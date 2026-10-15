@@ -56,3 +56,15 @@
 .club-profile-audit ul { padding: 15px; line-height: 1.8; }
 @media (max-width:600px) { .club-institution { padding:18px; } .club-facts { grid-template-columns:1fr; } .club-title-counts { grid-template-columns:1fr 1fr; } .club-cover { width:calc(100% + 36px); margin:-18px -18px 18px; } .club-institution-heading { align-items:flex-start; } .club-crest { width:60px; height:60px; } }
 @media (max-width: 600px) { .pe-header { padding: 20px 18px; } #peForm, #peReview { padding: 18px; } .pe-grid { grid-template-columns: minmax(0,1fr); gap: 14px; } .pe-footer { padding: 14px 18px; } .pe-header h2 { font-size: 25px; } .contract-summary dl { grid-template-columns: 1fr; } .pe-history-row { padding: 14px; } }
+/* Hall da Glória: registros declarados, sem recalcular títulos. */
+.glory-heading { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:1rem; }
+.glory-timeline { display:grid; gap:1rem; border-left:2px solid var(--accent,#2583ff); padding-left:1rem; margin-top:1.25rem; }
+.glory-card { display:grid; grid-template-columns:2.5rem minmax(0,1fr); gap:1rem; padding:1.25rem; border:1px solid var(--border); border-radius:12px; background:var(--bg-card,#101c2f); overflow-wrap:anywhere; }
+.glory-icon { font-size:2rem; }
+.glory-card h3 { margin:.4rem 0; font-size:1.25rem; }
+.glory-result { font-weight:700; color:var(--accent,#2583ff); }
+.glory-card dl { display:flex; flex-wrap:wrap; gap:1rem 2rem; margin:1rem 0; }
+.glory-card dt,.glory-card small,.glory-coverage { color:var(--text-muted); font-size:.8rem; }
+.glory-card dd { margin:.25rem 0 0; }
+.glory-notes { white-space:pre-wrap; }
+@media(max-width:600px) { .glory-card { padding:1rem; gap:.5rem; grid-template-columns:2rem minmax(0,1fr); } .glory-timeline { padding-left:.5rem; } }

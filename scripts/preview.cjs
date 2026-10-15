@@ -19,8 +19,12 @@ const server = http.createServer(async (req, res) => {
         const team = key.slice(0, divider);
         (rosters[team] ||= []).push({ n: key.slice(divider + 1), role: 'titular' });
       }
+      const demoKey = Object.keys(players)[0];
+      players[demoKey].achievements = {
+        'demo-award': { type:'individual', competitionName:'Prêmio de demonstração', result:'MVP · exemplo fictício', teamKind:'league', teamName:'Asgard', teamKey:'club_41-73-67-61-72-64', season:'Ciclo de demonstração', date:'', notes:'Exemplo exclusivo da prévia local. Não representa uma conquista real.', playerId:'legacy:' + demoKey, source:'manual' }
+      };
       res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8' });
-      const config = JSON.stringify({ players, rosters, transfers, rumors, season: 'Temporada 4' }).replace(/</g, '\\u003c');
+      const config = JSON.stringify({ players, rosters, transfers, rumors, season: 'Temporada 4', admin:true }).replace(/</g, '\\u003c');
       return res.end(`window.__testConfig=${config};(${firebaseMock.toString()})();`);
     }
     const file = pathname === '/' ? 'index.html' : pathname.slice(1);
@@ -34,7 +38,7 @@ const server = http.createServer(async (req, res) => {
     if (file === 'index.html') {
       body = body.replace(/<script src="https:\/\/www\.gstatic\.com\/firebasejs\/[^\"]+firebase-app-compat\.js"><\/script>/, '<script src="/__demo/firebase.js"></script>')
         .replace(/<script src="https:\/\/www\.gstatic\.com\/firebasejs\/[^\"]+firebase-(database|auth)-compat\.js"><\/script>/g, '')
-        .replace('<body>', '<body><div class="demo-banner" role="status">PRÉVIA LOCAL · Dados fictícios · Sem conexão com os bancos de produção</div>');
+        .replace('<body>', '<body><div class="demo-banner" role="status">PRÉVIA LOCAL · Dados fictícios · Administrador simulado · Alterações temporárias, sem conexão com produção</div>');
     }
     res.writeHead(200, { 'Content-Type': `${file.endsWith('.ttf') ? 'font/ttf' : file.endsWith('.css') ? 'text/css' : file.endsWith('.js') ? 'text/javascript' : 'text/html'}; charset=utf-8`, 'Cache-Control': 'no-store' });
     res.end(body);

@@ -60,12 +60,13 @@
   }
   function prepareAgent(key, raw, input) {
     if (!safeKey(key)) throw Error("Identificador inválido.");
-    const allowed = ["name", "nationality", "age", "rank", "functionRole", "photo", "status", "contractMode", "contractStart", "contractStartDate", "contractUntil", "contractEndDate", "salary", "releaseClause", "bio", "description", "notes", "titles"];
+    const allowed = ["name", "nationality", "age", "rank", "functionRole", "photo", "status", "contractMode", "contractStart", "contractStartDate", "contractUntil", "contractEndDate", "salary", "releaseClause", "bio", "description", "notes", "titles", "achievements"];
     const changes = {};
     for (const [field, value] of Object.entries(input)) {
       if (!allowed.includes(field)) throw Error("Campo protegido: " + field);
       let next;
-      if (["age", "salary", "releaseClause"].includes(field)) next = number(value, field === "age");
+      if (field === "achievements") next = validateAchievements(value, raw, key, input.titles);
+      else if (["age", "salary", "releaseClause"].includes(field)) next = number(value, field === "age");
       else if (field === "photo") next = image(value);
       else if (field.endsWith("Date")) next = date(value);
       else if (field === "titles") {
@@ -81,10 +82,53 @@
       if (!same(next, raw[field])) changes[field] = next;
     }
     const proposed = { ...raw, ...changes };
+    if ("titles" in changes && Object.values(proposed.achievements || {}).some(row => row.legacySlot && row.legacySlot > Number(changes.titles[row.type] || 0))) throw Error("Desassocie os detalhes dos títulos removidos antes de reduzir o contador.");
     if (("contractStartDate" in changes || "contractEndDate" in changes) && proposed.contractStartDate && proposed.contractEndDate && proposed.contractStartDate > proposed.contractEndDate) throw Error("O vencimento do contrato não pode preceder o início.");
     if ("status" in changes) changes.freeAgent = changes.status === "livre";
     if ("titles" in changes) changes.trophy = Object.values(changes.titles).reduce((sum,n) => sum + (Number(n) || 0), 0);
     return changes;
+  }
+  const achievementTypes = { nacional: "Nacional", lji: "L.J.I", mundial: "Mundial", eventoEspecial: "Evento Especial", individual: "Prêmio individual" };
+  function officialCompetitions() {
+    // Só expõe registros completos com campos explícitos; não infere resultados de partidas.
+    return Object.entries(AppState.jet.hallOfFame || {}).filter(([id,row]) => safeKey(id) && row &&
+      Object.hasOwn(achievementTypes,row.type) && ["competitionName","season","result","teamName"].every(key => typeof row[key] === "string" && row[key].trim()))
+      .map(([id,row]) => ({ id, type:row.type, competitionName:row.competitionName, season:row.season, result:row.result, teamName:row.teamName }));
+  }
+  function validateAchievements(rows, raw, key, editedTitles) {
+    if (!Array.isArray(rows)) throw Error("Conquistas inválidas.");
+    const output = {}, signatures = new Set(), slots = new Set();
+    const totals = { ...normalizeTitles(raw), ...(editedTitles || {}) };
+    rows.forEach(row => {
+      if (!safeKey(row.id) || output[row.id]) throw Error("Identificador de conquista inválido ou duplicado.");
+      const old = raw.achievements?.[row.id] || {};
+      const item = { ...old };
+      ["type","competitionName","result","teamKind","teamName","season","notes","officialId"].forEach(field => { item[field] = text(row[field]); });
+      item.date = date(row.date);
+      if (!Object.hasOwn(achievementTypes,item.type)) throw Error("Tipo de conquista inválido.");
+      if (!["league","external"].includes(item.teamKind)) throw Error("Escolha o tipo de equipe.");
+      if (item.teamKind === "league" && item.teamName) {
+        if (!Object.hasOwn(AppState.jet.rosters || {},item.teamName) && !(old.teamKind === "league" && old.teamName === item.teamName && old.teamKey === clubKey(item.teamName))) throw Error("Selecione uma equipe cadastrada ou use equipe externa / histórica.");
+        item.teamKey = clubKey(item.teamName);
+      } else item.teamKey = "";
+      item.legacySlot = number(row.legacySlot,true);
+      if (item.legacySlot != null) {
+        if (item.type === "individual" || item.legacySlot < 1 || item.legacySlot > Number(totals[item.type] || 0)) throw Error("Associe a um título antigo existente desta categoria ou deixe sem associação.");
+        const slot = item.type + ":" + item.legacySlot;
+        if (slots.has(slot)) throw Error("Este título antigo já possui detalhes associados.");
+        slots.add(slot);
+      }
+      if (item.officialId) {
+        const official = officialCompetitions().find(entry => entry.id === item.officialId);
+        const unchanged = ["officialId","type","competitionName","season","result","teamName"].every(field => item[field] === old[field]);
+        if ((!official || ["type","competitionName","season","result","teamName"].some(field => official[field] !== item[field])) && !unchanged) throw Error("O vínculo oficial não corresponde aos dados registrados. Revise ou escolha preenchimento manual.");
+      }
+      const signature = JSON.stringify([item.type,item.competitionName,item.result,item.teamKind,item.teamName,item.season,item.date].map(Market.normalize));
+      if (signatures.has(signature)) throw Error("Existe uma conquista equivalente. Edite o registro existente.");
+      signatures.add(signature);
+      output[row.id] = { ...item, playerId:raw.id || "legacy:" + key, source:"manual" };
+    });
+    return output;
   }
   async function saveAgent(key, input, expected, historyRows) {
     requireAdmin();
@@ -194,5 +238,5 @@
     if (!result.committed) throw failure || Error("Não foi possível confirmar a gravação institucional.");
     return result.snapshot.val();
   }
-  window.ProfileData = { requireAdmin, text, date, image, number, safeKey, clone, validateHistory, historySignature, contractLabel, prepareAgent, saveAgent, careerRows, prepareExit, saveExit, syncExit, clubKey, clubProfile, prepareClub, saveClub };
+  window.ProfileData = { requireAdmin, text, date, image, number, safeKey, clone, validateHistory, historySignature, contractLabel, prepareAgent, saveAgent, careerRows, prepareExit, saveExit, syncExit, clubKey, clubProfile, prepareClub, saveClub, achievementTypes, officialCompetitions, validateAchievements };
 })();

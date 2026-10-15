@@ -129,6 +129,12 @@ Validação: **50 testes automatizados e 30 cenários Brave aprovados**, com red
 
 ### Edição administrativa dos perfis
 
+**Hall da Glória individual:** a aba Hall da Glória e o botão **Gerenciar conquistas** permitem adicionar, revisar, editar e excluir registros em `players/{chave}/achievements`, com IDs estáveis e auditoria. Conquistas não incrementam os contadores existentes. O número opcional do título antigo associa um detalhe a uma unidade da categoria, sem duplicação; prêmios individuais ficam separados dos títulos coletivos. Dados ausentes aparecem como “informação não registrada”.
+
+Equipes externas e históricas aceitam texto livre. Um vínculo explícito com equipe da liga também exibe o registro no perfil do clube como conquista do agente, sem criar títulos institucionais. O seletor de campeonato aceita somente registros de `liga/hallOfFame` com os campos explícitos `type`, `competitionName`, `season`, `result` e `teamName`; na ausência deles, o cadastro permanece manual. Não há inferência a partir de partidas ou da equipe atual.
+
+Validação com o Hall da Glória: **67 testes automatizados e 37 cenários Brave**, usando somente Firebase simulado. Os testes incluem preservação dos contadores, edição e exclusão, dados incompletos, vínculo oficial, histórico por equipe, conflitos, cancelamento e navegação.
+
 Administradores autenticados encontram **Editar agente** e **Editar equipe** nos perfis. Os editores têm categorias, revisão antes de salvar, cancelamento, registro de alterações e proteção contra edições simultâneas. Atualizações do Firebase preservam o formulário aberto.
 
 Contratos aceitam ciclos livres, datas opcionais, prazo indeterminado e ausência de contrato, mantendo os campos antigos. Passagens manuais aceitam equipes da liga, equipes externas e períodos livres, com ciclos ou datas incompletas. Ficam em `players/{chave}/careerHistory`, vinculadas à identidade permanente; editar essas passagens não muda o elenco, o Fantasy, os valores nem as transferências oficiais.

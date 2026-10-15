@@ -92,6 +92,7 @@ function buildPlayerFromMarket(key, m, defaults = {}) {
     contractStartDate: m.contractStartDate || "",
     contractEndDate: m.contractEndDate || "",
     careerHistory: m.careerHistory || {},
+    achievements: m.achievements || {},
     bio: m.bio || "",
     description: m.description || "",
     notes: m.notes || "",
@@ -689,7 +690,7 @@ function openPlayerProfile(key) {
     </div>
 
     <div class="section">
-      <h2 class="section-h">Títulos</h2>
+      <h2 class="section-h">Hall da Glória</h2>
       <div class="titles-grid">
         <div class="title-card nacional ${(p.titles?.nacional||0) ? "has" : ""}">
           <div class="title-icon">🥇</div>
@@ -714,6 +715,7 @@ function openPlayerProfile(key) {
       </div>
     </div>
 
+    ${window.ProfileViews?.achievements(p) || ""}
     <div class="section">
       <h2 class="section-h">Performance ${p.statsRound ? `(${escapeHTML(p.statsRound)})` : ""}</h2>
       <div class="kpi-row">
@@ -925,6 +927,7 @@ function openClubProfile(clubName) {
 
     <div class="section">
       ${window.ProfileViews?.club(clubName) || ""}
+      ${window.ProfileViews?.clubAchievements(clubName) || ""}
       <h2 class="section-h">Elenco atual · Jet League</h2>
       <div class="table-wrap">
         <table>
