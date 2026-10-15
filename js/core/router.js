@@ -115,6 +115,7 @@
         else if (views.has(route.view)) original.showView(route.view);
       }
     } finally {
+      window.updateMarketInterface?.(route);
       rendering = false;
     }
   }

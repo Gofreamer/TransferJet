@@ -79,6 +79,7 @@ function updateConnectionStatus() {
   el.innerHTML = `<span class="status-dot ${status}"></span> ${status === "online" ? "Online" : status === "partial" ? "Parcial" : "Offline"}`;
   el.className = `connection-status ${status}`;
   el.title = ui.jetError || ui.marketError || (status === "online" ? "Jet League + Market conectados" : "Aguardando conexão com Jet League e Market");
+  document.dispatchEvent(new CustomEvent("connection:updated"));
 }
 
 window.updateConnectionStatus = updateConnectionStatus;

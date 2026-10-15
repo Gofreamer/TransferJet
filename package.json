@@ -2,6 +2,7 @@
   "name": "transferjet",
   "private": true,
   "scripts": {
+    "preview": "node scripts/preview.cjs",
     "test": "node --test tests/*.test.cjs",
     "test:browser": "node tests/browser.cjs"
   },

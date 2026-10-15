@@ -3,7 +3,8 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
-  <title>Jet Market — Global Agent Database</title>
+  <title>Jet Market — Mercado da Jet League</title>
+  <meta name="description" content="Agentes, equipes, transferências e inteligência de mercado da Jet League."/>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
@@ -13,39 +14,56 @@
 
   <link rel="stylesheet" href="./css/styles.css"/>
   <link rel="stylesheet" href="./css/fantasy.css"/>
+  <link rel="stylesheet" href="./css/market-ui.css"/>
 </head>
 <body>
-  <header>
-    <div class="logo" onclick="showView('home')">
-      <span>JET MARKET</span>
-      <small class="version-pill">BETA</small>
-    </div>
-    <nav class="nav">
-      <a class="active" href="?view=home" data-view="home">Visão Geral</a>
+  <a class="skip-link" href="#mainContent">Pular para o conteúdo</a>
+  <header class="site-header" id="siteNavigation">
+    <a class="logo" href="?view=home" onclick="event.preventDefault();showView('home')" aria-label="Jet Market, início">
+      <svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true"><path d="M7 8h28L19 33H7l12-17H3z" fill="currentColor"/></svg>
+      <span class="brand-name">JET MARKET<small>LEAGUE INTELLIGENCE</small></span>
+      <small class="version-pill">2.0</small>
+    </a>
+    <nav class="nav" aria-label="Navegação principal">
+      <span class="nav-label">EXPLORAR</span>
+      <a class="active" href="?view=home" data-view="home">Visão geral</a>
       <a href="?view=players" data-view="players">Agentes</a>
       <a href="?view=clubs" data-view="clubs">Equipes</a>
       <a href="?view=compare" data-view="compare">Comparar</a>
       <a href="?view=transfers" data-view="transfers">Transferências</a>
       <a href="?view=rumors" data-view="rumors">Rumores</a>
       <a href="?view=rankings" data-view="rankings">Rankings</a>
+      <span class="nav-label nav-universe">UNIVERSO JET</span>
       <button class="fx-entry-btn" onclick="enterFantasyMode()">Jet Fantasy</button>
       <a class="jc-entry-btn" href="https://forum-jet.pages.dev/" target="_blank" rel="noopener">Jet Cards</a>
-      <button id="adminBtn" onclick="openAdmin()">Admin</button>
-      <button id="themeToggle" onclick="toggleTheme()" title="Alternar tema">☀</button>
     </nav>
+    <div class="sidebar-footer">
+      <div class="sidebar-note"><span class="status-dot online"></span> A liga nunca para.<small>Seu próximo movimento começa aqui.</small></div>
+      <div class="sidebar-tools">
+      <button id="adminBtn" onclick="openAdmin()">Admin</button>
+      <button id="themeToggle" onclick="toggleTheme()" title="Alternar tema" aria-label="Alternar tema">☀</button>
+      </div>
+    </div>
   </header>
+  <button class="menu-backdrop" aria-label="Fechar navegação" onclick="toggleSiteMenu(false)" tabindex="-1"></button>
+  <div class="workspace-bar">
+    <button class="menu-toggle" id="menuToggle" aria-label="Abrir navegação" aria-controls="siteNavigation" aria-expanded="false" onclick="toggleSiteMenu()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+    <div class="workspace-path">Mercado <span aria-hidden="true">/</span> <strong id="currentPageLabel">Visão geral</strong></div>
+    <a class="league-link" href="https://teste-jet.pages.dev" target="_blank" rel="noopener">JET LEAGUE <span aria-hidden="true">↗</span></a>
+  </div>
 
   <section class="hero">
     <div class="hero-content">
       <div>
-        <h1 id="heroTitle">Global Agent Database</h1>
+        <div class="eyebrow">TRANSFERJET · CENTRAL DE MERCADO</div>
+        <h1 id="heroTitle">O mercado em jogo<span class="accent-dot">.</span></h1>
         <div class="badges">
           <span class="badge cyan">JET LEAGUE</span>
           <span class="badge" id="seasonBadge">—</span>
-          <span class="badge live">AO VIVO</span>
           <span class="window-badge closed" id="transferWindowBadge">JANELA FECHADA</span>
         </div>
-        <p class="hero-desc">Plataforma oficial de mercado, scouting e valorização de agentes da Jet League.</p>
+        <p class="hero-desc" id="heroDescription">Acompanhe os agentes, as equipes e os movimentos que definem a Jet League.</p>
+        <div class="hero-actions" id="heroActions"><button class="btn-primary" onclick="showView('players')">Explorar agentes <span aria-hidden="true">↗</span></button><button class="btn-gray" onclick="showView('transfers')">Ver transferências</button></div>
       </div>
       <div class="hero-stats" id="heroStats">
         <div class="stat-card">
@@ -72,28 +90,31 @@
     <span class="status-dot offline"></span> Conectando...
   </div>
 
-  <main>
+  <div class="data-notice hidden" id="dataNotice" role="status" aria-live="polite"></div>
+  <main id="mainContent" tabindex="-1">
     <!-- ==================== VISÃO GERAL ==================== -->
     <div id="view-home">
       <div class="kpi-row" id="kpiRow"></div>
 
-      <div class="section">
-        <h2 class="section-h">Feed do Mercado</h2>
+      <div class="dashboard-grid">
+      <div class="section dashboard-feed">
+        <div class="section-heading"><div><span class="eyebrow">EM PAUTA</span><h2 class="section-h">Radar do mercado</h2></div><span class="section-caption">Últimas movimentações</span></div>
         <div id="marketFeed"></div>
       </div>
 
-      <div class="section">
-        <h2 class="section-h">Movimentações Recentes</h2>
+      <div class="section dashboard-transfers">
+        <div class="section-heading"><div><span class="eyebrow">NEGÓCIOS</span><h2 class="section-h">Transferências recentes</h2></div><button class="text-button" onclick="showView('transfers')">Ver todas ↗</button></div>
         <div id="recentTransfers"></div>
       </div>
 
-      <div class="section" style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
+      </div>
+      <div class="section market-split">
         <div>
-          <h2 class="section-h">▲ Mais Valorizados</h2>
+          <h2 class="section-h">Maiores valores</h2>
           <div id="topGainers"></div>
         </div>
         <div>
-          <h2 class="section-h">▼ Mais Desvalorizados</h2>
+          <h2 class="section-h">Valores acessíveis</h2>
           <div id="topLosers"></div>
         </div>
       </div>
@@ -114,11 +135,11 @@
       <div class="section">
         <h2 class="section-h">Agentes <span class="count" id="playersCount">0</span></h2>
         <div class="filters">
-          <input type="text" id="playerSearch" placeholder="Buscar agente..." oninput="renderPlayers()"/>
-          <select id="playerClubFilter" onchange="renderPlayers()">
+          <input type="search" id="playerSearch" aria-label="Buscar agente por nome" placeholder="Buscar pelo nome do agente..." oninput="renderPlayers()"/>
+          <select id="playerClubFilter" aria-label="Filtrar por equipe" onchange="renderPlayers()">
             <option value="">Todos os times</option>
           </select>
-          <select id="playerRankFilter" onchange="renderPlayers()">
+          <select id="playerRankFilter" aria-label="Filtrar por rank" onchange="renderPlayers()">
             <option value="">Todos os ranks</option>
             <option value="Rank S">Rank S</option>
             <option value="Rank A">Rank A</option>
@@ -129,14 +150,14 @@
             <option value="Clandestino">Clandestino</option>
             <option value="Especial">Especial</option>
           </select>
-          <select id="playerRoleFilter" onchange="renderPlayers()">
+          <select id="playerRoleFilter" aria-label="Filtrar por função" onchange="renderPlayers()">
             <option value="">Todas as funções</option>
             <option value="titular">Titular</option>
             <option value="reserva">Reserva</option>
             <option value="emergencia">Emergência</option>
             <option value="livre">Agentes livres</option>
           </select>
-          <select id="playerValueFilter" onchange="renderPlayers()">
+          <select id="playerValueFilter" aria-label="Filtrar por valor" onchange="renderPlayers()">
             <option value="">Qualquer valor</option>
             <option value="30+">US$ 30 mi+</option>
             <option value="20-30">US$ 20–30 mi</option>
@@ -144,7 +165,7 @@
             <option value="5-10">US$ 5–10 mi</option>
             <option value="0-5">Até US$ 5 mi</option>
           </select>
-          <select id="playerSort" onchange="renderPlayers()">
+          <select id="playerSort" aria-label="Ordenar agentes" onchange="renderPlayers()">
             <option value="value-desc">Maior valor</option>
             <option value="value-asc">Menor valor</option>
             <option value="wr-desc">Melhor WR</option>
@@ -245,12 +266,12 @@
   </footer>
 
   <!-- Admin Panel -->
-  <div id="adminPanel">
+  <div id="adminPanel" role="dialog" aria-modal="true" aria-label="Painel administrativo">
     <div id="adminBox"></div>
   </div>
 
   <!-- AI Review Modal -->
-  <div id="aiReviewOverlay">
+  <div id="aiReviewOverlay" role="dialog" aria-modal="true" aria-labelledby="aiReviewTitle">
     <div id="aiReviewModal">
       <h3 id="aiReviewTitle">Revisar conteúdo da IA</h3>
       <div id="aiReviewBody"></div>
@@ -272,6 +293,7 @@
   <script src="./js/utils/photos.js"></script>
   <script src="./js/utils/valuation.js"></script>
   <script src="./js/utils/theme.js"></script>
+  <script src="./js/utils/interface.js"></script>
   <script src="./js/data/seed-market.js"></script>
   <script src="./js/services/firebase.js"></script>
   <script src="./js/services/listeners.js"></script>

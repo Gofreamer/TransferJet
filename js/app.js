@@ -222,12 +222,10 @@ function renderHome() {
 
   // KPIs
   const avgValue = players.length ? getTotalMarketValue() / players.length : 0;
-  const freeAgents = players.filter(p => !p.club).length;
+  const freeAgents = players.filter(p => p.freeAgent).length;
   document.getElementById("kpiRow").innerHTML = `
-    <div class="kpi"><div class="kpi-label">Total de Agentes</div><div class="kpi-value">${players.length}</div></div>
-    <div class="kpi"><div class="kpi-label">Equipes</div><div class="kpi-value">${clubs.length}</div></div>
-    <div class="kpi"><div class="kpi-label">Valor Total do Mercado</div><div class="kpi-value cyan">${formatUSD(getTotalMarketValue(), true)}</div></div>
     <div class="kpi"><div class="kpi-label">Valor Médio</div><div class="kpi-value cyan">${formatUSD(avgValue, true)}</div></div>
+    <div class="kpi"><div class="kpi-label">Agentes livres</div><div class="kpi-value">${freeAgents}</div></div>
     <div class="kpi"><div class="kpi-label">Transferências</div><div class="kpi-value">${transfers.length}</div></div>
     <div class="kpi"><div class="kpi-label">Rumores Ativos</div><div class="kpi-value">${rumors.filter(r => r.status !== "encerrada").length}</div></div>
   `;
@@ -257,20 +255,16 @@ function renderHome() {
       feedItems.push({
         type: "value",
         date: "9999",
-        html: `💎 <strong>${escapeHTML(p.name)}</strong> (${escapeHTML(p.club)}) valorizado em ${formatUSD(p.marketValue, true)}`
+        html: `<strong>${escapeHTML(p.name)}</strong> (${escapeHTML(p.club)}) avaliado em ${formatUSD(p.marketValue, true)}`
       });
     });
     feedItems.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
     const shown = feedItems.slice(0, 8);
     feedEl.innerHTML = shown.length ? `
-      <div class="table-wrap">
-        <table>
-          <tbody>
-            ${shown.map(item => `<tr><td style="padding:12px 14px">${item.html}</td><td style="color:var(--text-dim);font-size:0.8rem;white-space:nowrap">${item.date !== "9999" ? item.date : ""}</td></tr>`).join("")}
-          </tbody>
-        </table>
-      </div>
-    ` : `<p class="empty-state">Feed vazio por enquanto.</p>`;
+      <ul class="feed-list">
+        ${shown.map(item => `<li class="feed-item ${item.type}"><span class="feed-icon" aria-hidden="true">${item.type === "transfer" ? "⇄" : item.type === "rumor" ? "↗" : "◇"}</span><div class="feed-text">${item.html}</div><time class="feed-date">${item.date !== "9999" ? escapeHTML(item.date) : "Em destaque"}</time></li>`).join("")}
+      </ul>
+    ` : `<p class="empty-state">Nenhuma movimentação por enquanto. Novos registros aparecerão aqui.</p>`;
   }
 
   // Movimentações recentes
@@ -320,18 +314,7 @@ function renderHome() {
     </div>
   ` : `<p class="empty-state">Sem dados de valor ainda.</p>`;
 
-  // Gainers / Losers (usando peakValue como referência simples)
-  const withVar = players.filter(p => p.marketValue && p.peakValue).map(p => ({
-    ...p,
-    diff: p.marketValue - p.peakValue,
-    pct: ((p.marketValue - p.peakValue) / p.peakValue) * 100
-  }));
-
-  const gainers = [...withVar].filter(p => p.diff < 0).sort((a, b) => a.diff - b.diff).slice(0, 5); // mais longe do pico = mais "desvalorizado" no momento? 
-  // Na verdade, para demo, vamos inverter a lógica de forma mais interessante:
-  // Como os valores são seed, vamos simular variação positiva/negativa baseada em posição
-
-  // Para visualização: top por valor atual como "valorizados"
+  // Os blocos exibem valores atuais; não representam variação entre rodadas.
   const topGainersEl = document.getElementById("topGainers");
   const topLosersEl = document.getElementById("topLosers");
 
@@ -343,7 +326,7 @@ function renderHome() {
         ${top5.map(p => `<tr>
           <td><span class="player-link" onclick="openPlayerProfile('${escapeInlineJsSingle(p.key)}')">${escapeHTML(p.name)}</span></td>
           <td>${escapeHTML(p.club)}</td>
-          <td class="variation up">${formatUSD(p.marketValue, true)}</td>
+          <td class="market-amount">${formatUSD(p.marketValue, true)}</td>
         </tr>`).join("")}
       </tbody>
     </table></div>
@@ -357,7 +340,7 @@ function renderHome() {
         ${bottom5.map(p => `<tr>
           <td><span class="player-link" onclick="openPlayerProfile('${escapeInlineJsSingle(p.key)}')">${escapeHTML(p.name)}</span></td>
           <td>${escapeHTML(p.club)}</td>
-          <td class="variation down">${formatUSD(p.marketValue, true)}</td>
+          <td class="market-amount">${formatUSD(p.marketValue, true)}</td>
         </tr>`).join("")}
       </tbody>
     </table></div>
@@ -449,7 +432,7 @@ function renderPlayers() {
   listEl.innerHTML = players.map(p => {
     const wr = p.stats?.P ? Math.round(p.stats.winRate * 100) + "%" : "—";
     return `
-    <div class="card" onclick="openPlayerProfile('${escapeInlineJsSingle(p.key)}')">
+    <div class="card" role="button" tabindex="0" onclick="openPlayerProfile('${escapeInlineJsSingle(p.key)}')">
       <div class="card-with-photo">
         ${photoHTML(p, 52)}
         <div class="card-body">
@@ -495,7 +478,7 @@ function renderClubs() {
   }
 
   listEl.innerHTML = clubs.map((c, i) => `
-    <div class="card" onclick="openClubProfile('${escapeInlineJsSingle(c.name)}')">
+    <div class="card" role="button" tabindex="0" onclick="openClubProfile('${escapeInlineJsSingle(c.name)}')">
       <div class="card-title">${escapeHTML(c.name)}</div>
       <div class="card-sub">#${i + 1} em valor de mercado</div>
       <div class="card-value">${formatUSD(c.totalValue, true)}</div>
@@ -1013,11 +996,27 @@ function buildSyntheticHistory(p) {
 
 function renderValueChart(history) {
   const canvas = document.getElementById("valueChart");
-  if (!canvas || typeof Chart === "undefined" || !history.length) return;
+  if (!canvas) return;
+  if (typeof Chart === "undefined" || !history.length) {
+    const fallback = document.createElement("div");
+    fallback.className = "chart-state";
+    fallback.setAttribute("role", "status");
+    const message = document.createElement("strong");
+    message.textContent = !history.length ? "Histórico ainda indisponível" : "O gráfico não carregou";
+    const detail = document.createElement("span");
+    detail.textContent = !history.length ? "As alterações de valor aparecerão aqui." : "Confira a conexão e tente abrir o perfil novamente. Os valores do agente continuam disponíveis acima.";
+    fallback.append(message, detail);
+    canvas.replaceWith(fallback);
+    return;
+  }
 
   if (window._valueChartInstance) {
     window._valueChartInstance.destroy();
   }
+  const styles = getComputedStyle(document.documentElement);
+  const color = styles.getPropertyValue("--cyan").trim();
+  const muted = styles.getPropertyValue("--text-muted").trim();
+  const border = styles.getPropertyValue("--border").trim();
 
   window._valueChartInstance = new Chart(canvas, {
     type: "line",
@@ -1026,18 +1025,20 @@ function renderValueChart(history) {
       datasets: [{
         label: "Valor de Mercado",
         data: history.map(h => h.value),
-        borderColor: "#00e5ff",
-        backgroundColor: "rgba(0, 229, 255, 0.1)",
+        borderColor: color,
+        backgroundColor: styles.getPropertyValue("--cyan-glow").trim(),
         fill: true,
         tension: 0.3,
-        pointBackgroundColor: "#00e5ff",
-        pointRadius: 5,
-        pointHoverRadius: 7
+        pointBackgroundColor: color,
+        pointRadius: 3,
+        pointHoverRadius: 6,
+        borderWidth: 2
       }]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      animation: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? false : { duration: 180 },
       plugins: {
         legend: { display: false },
         tooltip: {
@@ -1048,16 +1049,16 @@ function renderValueChart(history) {
       },
       scales: {
         x: {
-          ticks: { color: "#8494a7", font: { size: 11 } },
-          grid: { color: "rgba(255,255,255,0.04)" }
+          ticks: { color: muted, font: { size: 10 }, maxRotation: 0 },
+          grid: { color: border }
         },
         y: {
           ticks: {
-            color: "#8494a7",
-            font: { size: 11 },
+            color: muted,
+            font: { size: 10 },
             callback: (v) => formatUSD(v, true)
           },
-          grid: { color: "rgba(255,255,255,0.04)" }
+          grid: { color: border }
         }
       }
     }
@@ -1131,6 +1132,13 @@ document.addEventListener("DOMContentLoaded", () => {
   startJetListeners();
   startMarketListeners();
   updateTransferWindowBadge();
+});
+
+document.addEventListener("theme:changed", () => {
+  const player = window.AppState.ui.selectedPlayer;
+  if (window.AppState.ui.currentView === "player-profile" && player) {
+    renderValueChart(player.valueHistory?.length ? player.valueHistory : buildSyntheticHistory(player));
+  }
 });
 
 window.renderCompare = renderCompare;

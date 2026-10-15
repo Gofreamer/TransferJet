@@ -62,6 +62,15 @@ const root = path.resolve(__dirname, '..');
       await page.waitForFunction(name => window.AppState.ui.currentView === name, name);
       assert.equal(await page.locator(`#view-${name}`).evaluate(el => !el.classList.contains('hidden')), true);
     }
+    async function screenshot(page, name) {
+      if (!process.env.SCREENSHOT_DIRECTORY) return;
+      await fs.mkdir(process.env.SCREENSHOT_DIRECTORY, { recursive: true });
+      await page.screenshot({ path: path.join(process.env.SCREENSHOT_DIRECTORY, name + '.png'), fullPage: true, animations: 'disabled' });
+    }
+    async function noOverflow(page) {
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true, 'A página não deve transbordar horizontalmente');
+      assert.equal(await page.locator('.hero-stats:visible .stat-value').evaluateAll(items => items.every(el => el.scrollWidth <= el.clientWidth + 1)), true, 'Indicadores não devem cortar valores');
+    }
 
     await scenario('Início → Agentes → Perfil → Voltar/Avançar; filtros, rolagem e histórico sem duplicação', async page => {
       await ready(page);
@@ -217,6 +226,80 @@ const root = path.resolve(__dirname, '..');
       assert.equal(await page.locator('#clubProfileContent h1').innerText(), '<img src=x onerror="window.__xss=1">');
       assert.equal(await page.evaluate(() => window.__xss), undefined);
     }, { specialName });
+
+    await scenario('dashboard e listas nos temas claro/escuro; navegação por teclado e gráfico indisponível', async page => {
+      await ready(page);
+      await noOverflow(page);
+      assert.equal(await page.locator('.nav [aria-current="page"]').getAttribute('data-view'), 'home');
+      await screenshot(page, 'dashboard-dark');
+      await page.locator('#themeToggle').click();
+      assert.equal(await page.locator('html').getAttribute('data-theme'), 'light');
+      await screenshot(page, 'dashboard-light');
+      await page.reload();
+      await page.waitForFunction(() => window.AppState.ui.jetLoaded && window.AppState.ui.marketLoaded);
+      assert.equal(await page.locator('html').getAttribute('data-theme'), 'light');
+      await page.locator('.nav a[data-view="players"]').click();
+      await noOverflow(page);
+      await screenshot(page, 'agents-light');
+      await page.locator('#playerSearch').fill('Alice');
+      await page.locator('#playersList .card').first().focus();
+      await page.keyboard.press('Enter');
+      await view(page, 'player-profile');
+      await page.waitForSelector('.chart-state');
+      assert.equal(await page.locator('.chart-state strong').innerText(), 'O gráfico não carregou');
+      await noOverflow(page);
+      await screenshot(page, 'profile-light');
+      assert.equal(await page.locator('.nav [aria-current="page"]').getAttribute('data-view'), 'players');
+    });
+
+    await scenario('menu mobile com teclado, foco, filtros, tabelas e modais sem transbordamento', async page => {
+      await ready(page);
+      await noOverflow(page);
+      await screenshot(page, 'mobile-home');
+      assert.equal(await page.locator('#siteNavigation').evaluate(el => el.inert), true);
+      await page.locator('#menuToggle').click();
+      assert.equal(await page.locator('#menuToggle').getAttribute('aria-expanded'), 'true');
+      await page.keyboard.press('Shift+Tab');
+      assert.equal(await page.evaluate(() => document.activeElement.id), 'themeToggle');
+      await page.keyboard.press('Tab');
+      assert.equal(await page.evaluate(() => document.activeElement.classList.contains('logo')), true);
+      await screenshot(page, 'mobile-menu');
+      await page.keyboard.press('Escape');
+      assert.equal(await page.evaluate(() => document.activeElement.id), 'menuToggle');
+      await page.locator('#menuToggle').click();
+      await page.locator('.nav a[data-view="players"]').click();
+      await view(page, 'players');
+      assert.equal(await page.locator('#menuToggle').getAttribute('aria-expanded'), 'false');
+      await page.locator('#playerSearch').fill('Alice');
+      await noOverflow(page);
+      await screenshot(page, 'mobile-agents');
+      await page.locator('#playersList .card').click();
+      await view(page, 'player-profile');
+      await page.waitForSelector('.chart-state');
+      await noOverflow(page);
+      await screenshot(page, 'mobile-profile');
+      await page.evaluate(() => { openAdmin(); renderAdminPanel('transfers'); });
+      await noOverflow(page);
+      assert.equal(await page.locator('#adminBox').evaluate(el => el.getBoundingClientRect().right <= innerWidth), true);
+      await screenshot(page, 'mobile-admin');
+      await page.evaluate(() => closeAdmin());
+      await page.locator('#menuToggle').click();
+      await page.locator('#themeToggle').click();
+      await page.keyboard.press('Escape');
+      await screenshot(page, 'mobile-light');
+      await page.evaluate(() => enterFantasyMode());
+      assert.equal(await page.locator('.workspace-bar').isVisible(), false);
+    }, {}, { width: 390, height: 844 });
+
+    await scenario('carregamento e conexão indisponível ficam explícitos no celular', async page => {
+      await ready(page, '?view=players');
+      assert.equal(await page.locator('#dataNotice').isVisible(), true);
+      assert.match(await page.locator('#dataNotice').innerText(), /Carregando/);
+      await page.locator('#menuToggle').click();
+      await page.locator('.nav a[data-view="home"]').click();
+      await noOverflow(page);
+      await screenshot(page, 'mobile-offline');
+    }, { offline: true }, { width: 320, height: 740 });
 
     console.log(`${passed} cenários de navegador passaram. Rede externa bloqueada; escritas restritas ao mock.`);
   } finally {

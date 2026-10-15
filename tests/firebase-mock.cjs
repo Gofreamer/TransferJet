@@ -17,12 +17,12 @@ module.exports = function firebaseMock() {
     players['Alpha_O\'Neil " & Friends'] = { name: config.specialName, team: 'Alpha', status: 'ativo', marketValue: 3000000, photo: 'https://example.invalid/" onload="window.__xss=1' };
   }
   const data = {
-    market: { players: config.empty ? null : players, transfers: {}, rumors: {}, settings: { transferWindowOpen: true }, fantasy: {
+    market: { players: config.empty ? null : config.players || players, transfers: config.transfers || {}, rumors: config.rumors || {}, settings: { transferWindowOpen: true }, fantasy: {
       settings: { currentRoundId: 'r1', marketStatus: 'OPEN', seasonId: 'T2' },
       participants: { human1: { displayName: 'Richard', type: 'human', budgetRemaining: 5000000, squad: { starters: [], bench: null, captainKey: null } } },
       rounds: { r1: { id: 'r1', rodadaNumber: 1, status: 'OPEN' } }, scores: {}, leaderboard: { byRound: {}, overall: {} }
     } },
-    jet: { liga: { rosters, teams: ['Alpha', 'Beta'], currentSeason: 'T2', matches: [], hallOfFame: {} } }
+    jet: { liga: { rosters: config.rosters || rosters, teams: Object.keys(config.rosters || rosters), currentSeason: config.season || 'T2', matches: [], hallOfFame: {} } }
   };
   window.__mockData = data;
   function get(group, path) {

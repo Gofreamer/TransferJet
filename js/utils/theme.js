@@ -5,9 +5,14 @@
 
   function applyTheme(theme) {
     document.documentElement.setAttribute("data-theme", theme);
-    localStorage.setItem(KEY, theme);
+    try { localStorage.setItem(KEY, theme); } catch (_) {}
     const btn = document.getElementById("themeToggle");
-    if (btn) btn.textContent = theme === "light" ? "☾" : "☀";
+    if (btn) {
+      btn.textContent = theme === "light" ? "☾" : "☀";
+      btn.setAttribute("aria-label", theme === "light" ? "Ativar tema escuro" : "Ativar tema claro");
+      btn.setAttribute("aria-pressed", String(theme === "light"));
+    }
+    document.dispatchEvent(new CustomEvent("theme:changed"));
   }
 
   function toggleTheme() {
@@ -16,7 +21,9 @@
   }
 
   function initTheme() {
-    const saved = localStorage.getItem(KEY) || "dark";
+    let saved = "dark";
+    try { saved = localStorage.getItem(KEY) || "dark"; } catch (_) {}
+    if (!["dark", "light"].includes(saved)) saved = "dark";
     applyTheme(saved);
   }
 
