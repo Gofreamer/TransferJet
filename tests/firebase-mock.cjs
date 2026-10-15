@@ -2,7 +2,9 @@
 module.exports = function firebaseMock() {
   const config = window.__testConfig || {};
   const listeners = [];
+  window.__mockSubscriptions = listeners;
   window.__writes = [];
+  let serial = 0;
   const rosters = { Alpha: [{ n: 'Alice', role: 'titular' }], Beta: [{ n: 'Bob', role: 'titular' }] };
   const players = {
     Alpha_Alice: { name: 'Alice', status: 'ativo', marketValue: 20000000, rank: 'Rank A', stats: { P: 10, V: 8, D: 2, winRate: 0.8 }, valueHistory: [{ season: 'T1', value: 18000000 }, { season: 'T2', value: 20000000 }] },
@@ -40,7 +42,11 @@ module.exports = function firebaseMock() {
           const delay = group === 'jet' ? config.jetDelay || 30 : config.marketDelay || 5;
           setTimeout(() => {
             if (config.offline && path !== '.info/connected') return;
-            if (config.denied && group === 'market' && path === 'players') return cancel?.(Error('permission_denied'));
+            if (group === 'market' && (config.denied && path === 'players' || config.fantasyDenied && path === 'fantasy/participants')) {
+              const index = listeners.findIndex(item => item.callback === callback);
+              if (index >= 0) listeners.splice(index, 1);
+              return cancel?.(Error('permission_denied'));
+            }
             callback(snapshot(get(group, path)));
           }, delay);
         },
@@ -49,7 +55,19 @@ module.exports = function firebaseMock() {
           if (i >= 0) listeners.splice(i, 1);
         },
         once: async () => snapshot(get(group, path)),
-        push: () => ({ key: 'mock-transfer-' + (window.__writes.length + 1) }),
+        push: () => ({ key: 'mock-transfer-' + (++serial) }),
+        async transaction(callback) {
+          const next = callback(structuredClone(get(group, path)));
+          if (next === undefined) return { committed: false, snapshot: snapshot(get(group, path)) };
+          window.__writes.push({ group, path, transaction: next });
+          const segments = path.split('/');
+          const leaf = segments.pop();
+          let target = data[group];
+          for (const segment of segments) target = target[segment] ||= {};
+          target[leaf] = structuredClone(next);
+          emit();
+          return { committed: true, snapshot: snapshot(next) };
+        },
         async update(updates) {
           window.__writes.push({ group, path, updates });
           for (const [key, value] of Object.entries(updates)) {

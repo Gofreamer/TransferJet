@@ -1,0 +1,44 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "players": {
+      ".read": true,
+      ".write": "auth != null && auth.token.email != null"
+    },
+    "transfers": {
+      ".read": true,
+      ".write": "auth != null && auth.token.email != null"
+    },
+    "rumors": {
+      ".read": true,
+      ".write": "auth != null && auth.token.email != null"
+    },
+    "settings": {
+      ".read": true,
+      ".write": "auth != null && auth.token.email != null"
+    },
+    "fantasy": {
+      ".read": true,
+      "settings": {
+        ".write": "auth != null && auth.token.admin === true"
+      },
+      "rounds": {
+        ".write": "auth != null && auth.token.admin === true"
+      },
+      "scores": {
+        ".write": "auth != null && auth.token.admin === true"
+      },
+      "leaderboard": {
+        ".write": "auth != null && auth.token.admin === true"
+      },
+      "participants": {
+        ".read": true,
+        "$pid": {
+          ".write": "auth != null && auth.token.admin === true",
+          ".validate": "newData.hasChildren(['displayName', 'type', 'squad', 'budgetRemaining']) && newData.child('displayName').isString() && newData.child('budgetRemaining').isNumber() && newData.child('budgetRemaining').val() >= 0"
+        }
+      }
+    }
+  }
+}

@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { context, load } = require('./helpers.cjs');
 
 function setup() {
-  const c = load(context(), 'js/core/state.js', 'js/utils/format.js', 'js/features/fantasy/fantasy-state.js', 'js/features/fantasy/fantasy-market.js', 'js/app.js', 'js/services/transfers.js');
+  const c = load(context(), 'js/core/state.js', 'js/utils/format.js', 'js/features/fantasy/fantasy-state.js', 'js/features/fantasy/fantasy-market.js', 'js/app.js', 'js/services/transfers.js', 'js/services/market.js', 'js/features/admin/admin-market.js');
   c.AppState.jet.rosters = { Alpha: [{ n: 'Alice', role: 'titular' }], Beta: [] };
   c.AppState.market.players = { Alpha_Alice: { marketValue: 20000000, status: 'ativo', valueHistory: [{ season: 'T1', value: 19000000 }] } };
   c.AppState.market.settings.transferWindowOpen = true;
@@ -134,7 +134,7 @@ test('edição recusada não modifica histórico em memória nem sobrescreve cam
     querySelectorAll: selector => selector === '.admin-title' ? [] : [{ dataset: { field: 'marketValue' }, value: '21000000' }]
   };
   let patch;
-  c.marketDb = { ref: () => ({ update: async data => { patch = data; throw Error('permission_denied'); } }) };
+  c.marketDb = { ref: () => ({ once: async () => {}, push: () => ({ key: 'event1' }), transaction: async callback => { patch = callback(c.AppState.market.players.Alpha_Alice); throw Error('permission_denied'); } }) };
   await c.savePlayerRow({ closest: () => row });
   assert.equal(JSON.stringify(c.AppState.market.players), before);
   assert.equal(patch.id, 'legacy:Alpha_Alice');

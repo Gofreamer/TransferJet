@@ -91,6 +91,7 @@ function logoutAdmin() {
 /* ========== ADMIN TABS ========== */
 function renderAdminPanel(tab = "values") {
   const box = document.getElementById("adminBox");
+  box.dataset.tab = tab;
   box.innerHTML = `
     <div class="admin-header">
       <h2>Admin · Jet Market</h2>
@@ -106,6 +107,7 @@ function renderAdminPanel(tab = "values") {
       <button class="admin-tab ${tab==='transfers'?'active':''}" onclick="renderAdminPanel('transfers')">Transferências</button>
       <button class="admin-tab ${tab==='rumors'?'active':''}" onclick="renderAdminPanel('rumors')">Rumores</button>
       <button class="admin-tab ${tab==='ai'?'active':''}" onclick="renderAdminPanel('ai')">IA</button>
+      <button class="admin-tab ${tab==='backup'?'active':''}" onclick="renderAdminPanel('backup')">Backup</button>
       <button class="admin-tab ${tab==='fantasy'?'active':''}" onclick="renderAdminPanel('fantasy')">Fantasy</button>
     </div>
     <div id="adminTabContent"></div>
@@ -117,6 +119,7 @@ function renderAdminPanel(tab = "values") {
   if (tab === "transfers") renderAdminTransfers();
   if (tab === "rumors") renderAdminRumors();
   if (tab === "ai") renderAdminAI();
+  if (tab === "backup") MarketAdmin.renderBackup();
   if (tab === "fantasy" && typeof renderFantasyAdmin === "function") renderFantasyAdmin();
 }
 
@@ -129,7 +132,8 @@ function renderAdminImport() {
     <p class="admin-sub">
       Formato esperado:<br>
       <code>Equipe | Agente | Rank | Função | Troféu | P | V | D</code><br>
-      <span style="font-size:0.8rem;color:var(--text-muted)">Match por <strong>nome</strong> (migra time automaticamente). Célula Troféu vazia <strong>não apaga</strong> títulos do perfil. Títulos detalhados (🥇🥈🏆🏅) se editam em Admin → Valores.</span><br>
+      <span style="font-size:0.8rem;color:var(--text-muted)">Match por <strong>ID</strong> ou nome sem ambiguidade. A chave do agente é preservada ao mudar de equipe. Célula Troféu vazia <strong>não apaga</strong> títulos do perfil. Títulos detalhados (🥇🥈🏆🏅) se editam em Admin → Valores.</span><br>
+      <strong>Fórmula vigente: limite de US$ 12 milhões para sugestões.</strong> Valores existentes acima disso são mantidos no modo padrão. Recalcular exige selecionar o modo e revisar os valores.<br>
       Hierarquia de rank: <strong>Especial &gt; S &gt; A &gt; B &gt; C &gt; D &gt; E</strong> · Reserva &gt; Emergência
     </p>
     <div class="admin-form-grid">
@@ -139,8 +143,8 @@ function renderAdminImport() {
       </div>
     </div>
     <div class="import-options">
-      <label><input type="radio" name="importMode" value="full" checked> Atualizar stats + recalcular valor</label>
-      <label><input type="radio" name="importMode" value="statsOnly"> Só atualizar stats (manter valores)</label>
+      <label><input type="radio" name="importMode" value="full"> Atualizar stats + recalcular valor</label>
+      <label><input type="radio" name="importMode" value="statsOnly" checked> Só atualizar stats (manter valores)</label>
     </div>
     <div class="admin-actions" style="margin-top:14px;gap:10px;display:flex;flex-wrap:wrap">
       <button class="btn-primary" onclick="processImportFile()">Importar e revisar</button>
@@ -164,8 +168,8 @@ function renderAdminImport() {
       </div>
     </div>
     <div class="import-options" style="margin-top:10px">
-      <label><input type="radio" name="syncMode" value="full" checked> Atualizar stats + recalcular valor</label>
-      <label><input type="radio" name="syncMode" value="statsOnly"> Só atualizar stats (manter valores)</label>
+      <label><input type="radio" name="syncMode" value="full"> Atualizar stats + recalcular valor</label>
+      <label><input type="radio" name="syncMode" value="statsOnly" checked> Só atualizar stats (manter valores)</label>
     </div>
     <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:0.85rem;color:var(--text-muted)">
       <input type="checkbox" id="syncForceResync"> Forçar reprocessar partidas já sincronizadas
@@ -257,7 +261,7 @@ function processImportFile() {
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
       const calculated = calculateValuesFromRows(rows);
-      const mode = document.querySelector('input[name="importMode"]:checked')?.value || "full";
+      const mode = document.querySelector('input[name="importMode"]:checked')?.value || "statsOnly";
       window._importPreviewData = calculated;
       status.textContent = `${calculated.length} agentes processados. Revise e confirme.`;
       showImportReviewModal(calculated, mode);
@@ -276,18 +280,9 @@ function calculateValuesFromRows(rows) {
   const allPlayers = getAllPlayersFlat();
   const marketPlayers = window.AppState.market.players || {};
 
-  // Índice por nome (primeiro match) e por key
-  const byName = {};
-  allPlayers.forEach(p => {
-    const n = p.name.toLowerCase();
-    if (!byName[n]) byName[n] = p;
-  });
-  // Também varre market keys que possam não estar no elenco Jet
+  const importPlayers = [...allPlayers];
   Object.entries(marketPlayers).forEach(([key, m]) => {
-    const name = (m.name || key.split("_").slice(1).join("_") || "").toLowerCase();
-    if (name && !byName[name]) {
-      byName[name] = { key, name: m.name || name, club: key.split("_")[0], ...m };
-    }
+    if (m && !importPlayers.some(p => p.key === key)) importPlayers.push({ ...m, key, id: m.id || "legacy:" + key, name: m.name || key.split("_").slice(1).join("_"), club: m.team || key.split("_")[0] });
   });
 
   for (const row of rows) {
@@ -303,25 +298,11 @@ function calculateValuesFromRows(rows) {
     const D = Number(row["D"] || row["Derrotas"] || 0) || 0;
 
     const newKey = team + "_" + name;
-    const nameKey = name.toLowerCase();
-    const found = byName[nameKey];
-
-    let existing = marketPlayers[newKey] || {};
-    let oldKey = null;
-    let migrated = false;
-
-    // Match por nome: se time mudou, migra o registro antigo
-    if (found) {
-      const foundKey = found.key;
-      if (foundKey !== newKey && marketPlayers[foundKey]) {
-        existing = { ...marketPlayers[foundKey] };
-        oldKey = foundKey;
-        migrated = true;
-        migrations.push({ name, from: found.club || foundKey.split("_")[0], to: team });
-      } else if (marketPlayers[foundKey]) {
-        existing = { ...marketPlayers[foundKey] };
-      }
-    }
+    const found = Market.resolveImportPlayer(importPlayers, { id: String(row["ID"] || row["id"] || "").trim(), name, team });
+    const existing = marketPlayers[found?.key || newKey] || {};
+    const oldKey = null;
+    const migrated = !!found && found.club !== team;
+    if (migrated) migrations.push({ name, from: found.club, to: team });
 
     // Títulos: célula vazia NÃO apaga o que já está salvo
     const prevTitles = normalizeTitlesAdmin(existing);
@@ -358,7 +339,7 @@ function calculateValuesFromRows(rows) {
     }
 
     results.push({
-      key: newKey,
+      key: found?.key || newKey,
       oldKey,
       migrated,
       name, team, rank, func,
@@ -491,7 +472,7 @@ function adminSelectOptions(options, current) {
   const list = [...options];
   if (cur && !list.includes(cur)) list.unshift(cur);
   return list.map(o =>
-    `<option value="${o}" ${o === cur ? "selected" : ""}>${o}</option>`
+    `<option value="${escapeHTML(o)}" ${o === cur ? "selected" : ""}>${escapeHTML(o)}</option>`
   ).join("");
 }
 
@@ -504,9 +485,12 @@ function renderAdminValues() {
       <input type="text" id="adminValueSearch" placeholder="Buscar agente..." oninput="filterAdminValues()" style="flex:1">
       <select id="adminValueClub" onchange="filterAdminValues()">
         <option value="">Todos os times</option>
-        ${[...new Set(players.map(p => p.club))].sort().map(c => `<option value="${c}">${c}</option>`).join("")}
+        ${[...new Set(players.map(p => p.club))].sort().map(c => `<option value="${escapeHTML(c)}">${escapeHTML(c)}</option>`).join("")}
       </select>
+      <select id="adminValueStatus" aria-label="Filtrar status administrativo" onchange="filterAdminValues()"><option value="">Todos os status</option>${ADMIN_STATUS_OPTIONS.map(s => `<option value="${escapeHTML(s)}">${escapeHTML(s)}</option>`).join("")}</select>
+      <select id="adminValueSeason" aria-label="Temporada de registro" onchange="filterAdminValues()"><option value="">Todas as temporadas de registro</option>${[...new Set(players.flatMap(p => [...Market.events(p).map(e => e.season), p.statsSeason]).filter(Boolean))].map(s => `<option value="${escapeHTML(s)}">${escapeHTML(s)}</option>`).join("")}</select>
     </div>
+    <details class="market-note"><summary>Verificar duplicidades (${Market.auditPlayers(window.AppState.market.players).length})</summary>${Market.auditPlayers(window.AppState.market.players).map(issue => `<p>${escapeHTML(issue)}</p>`).join("") || '<p>Nenhuma duplicidade de ID ou de nome/equipe identificada.</p>'}</details>
     <p style="font-size:0.8rem;color:var(--text-muted);margin:0 0 10px">
       Edite <strong>Rank</strong>, <strong>Função</strong>, <strong>Contrato</strong>, <strong>Status</strong>, valores e títulos — depois clique <strong>Salvar</strong> na linha.
       Rank: Especial &gt; S &gt; A &gt; B &gt; C &gt; D &gt; E. Títulos: 🥇 Nacional · 🥈 L.J.I · 🏆 Mundial · 🏅 Evento.
@@ -535,7 +519,7 @@ function renderAdminValues() {
           ${players.map(p => {
             const t = p.titles || {};
             return `
-            <tr data-key="${escapeHTML(p.key)}" data-name="${escapeHTML(p.name.toLowerCase())}" data-club="${escapeHTML(p.club)}">
+            <tr data-key="${escapeHTML(p.key)}" data-name="${escapeHTML(Market.normalize(p.name))}" data-club="${escapeHTML(p.club)}" data-status="${escapeHTML(p.status)}" data-seasons="${escapeHTML(JSON.stringify([...Market.events(p).map(e => e.season), p.statsSeason]))}">
               <td><strong>${escapeHTML(p.name)}</strong></td>
               <td>${escapeHTML(p.club)}</td>
               <td>
@@ -571,93 +555,32 @@ function renderAdminValues() {
               <td><input type="number" class="admin-input" data-field="salary" value="${p.salary || ""}" placeholder="—"></td>
               <td><input type="number" class="admin-input" data-field="releaseClause" value="${p.releaseClause || ""}" placeholder="—"></td>
               <td><input type="number" class="admin-input admin-input-sm" data-field="age" value="${p.age || ""}" placeholder="—"></td>
-              <td><input type="text" class="admin-input admin-input-sm" data-field="nationality" value="${p.nationality || ""}" placeholder="—"></td>
-              <td><button class="btn-primary btn-sm" onclick="savePlayerRow(this)">Salvar</button></td>
+              <td><input type="text" class="admin-input admin-input-sm" data-field="nationality" value="${escapeHTML(p.nationality || "")}" placeholder="—"></td>
+              <td><button class="btn-primary btn-sm" onclick="reviewPlayerRow(this)">Revisar</button></td>
             </tr>`;
           }).join("")}
         </tbody>
       </table>
     </div>
   `;
+  el.querySelectorAll(".admin-input").forEach(input => { input.dataset.original = input.value; });
+  el.querySelectorAll("tr[data-key]").forEach(row => { row._marketExpected = JSON.parse(JSON.stringify(window.AppState.market.players[row.dataset.key] || {})); });
 }
 
 function filterAdminValues() {
-  const search = (document.getElementById("adminValueSearch")?.value || "").toLowerCase();
+  const search = Market.normalize(document.getElementById("adminValueSearch")?.value || "");
   const club = document.getElementById("adminValueClub")?.value || "";
+  const status = document.getElementById("adminValueStatus")?.value || "";
+  const season = document.getElementById("adminValueSeason")?.value || "";
   document.querySelectorAll("#adminValuesTable tbody tr").forEach(tr => {
     const matchName = !search || tr.dataset.name.includes(search);
     const matchClub = !club || tr.dataset.club === club;
-    tr.style.display = matchName && matchClub ? "" : "none";
+    tr.style.display = matchName && matchClub && (!status || tr.dataset.status === status) && (!season || JSON.parse(tr.dataset.seasons || "[]").includes(season)) ? "" : "none";
   });
 }
 
 function savePlayerRow(btn) {
-  const tr = btn.closest("tr");
-  const key = tr.dataset.key;
-  const data = {};
-  tr.querySelectorAll(".admin-input:not(.admin-title)").forEach(input => {
-    const field = input.dataset.field;
-    if (!field) return;
-    let val = input.value.trim();
-    if (["marketValue", "peakValue", "age", "salary", "releaseClause"].includes(field)) {
-      val = val === "" ? null : Number(val);
-      if (val !== null) data[field] = val;
-      return;
-    }
-    // rank, functionRole, contractUntil, status, nationality — sempre grava (string)
-    if (["rank", "functionRole", "contractUntil", "status", "nationality"].includes(field)) {
-      data[field] = val;
-      return;
-    }
-    if (val !== null && val !== "") data[field] = val;
-  });
-
-  // Títulos por tipo
-  const titles = { nacional: 0, lji: 0, mundial: 0, eventoEspecial: 0 };
-  tr.querySelectorAll(".admin-title").forEach(input => {
-    const type = input.dataset.title;
-    if (type) titles[type] = Math.max(0, Number(input.value) || 0);
-  });
-  data.titles = titles;
-  data.trophy = (titles.nacional || 0) + (titles.lji || 0) + (titles.mundial || 0) + (titles.eventoEspecial || 0);
-
-  // Mantém valueHistory se existir
-  const existing = window.AppState.market.players[key] || {};
-  const payload = { ...data, id: existing.id || "legacy:" + key };
-
-  // Status com efeito real: livre / aposentado / demais
-  const st = String(data.status || existing.status || "ativo").toLowerCase();
-  payload.status = st;
-  if (st === "livre") {
-    payload.freeAgent = true;
-    if (!payload.name) payload.name = existing.name || key.split("_").slice(1).join("_");
-  } else if (st === "aposentado") {
-    payload.freeAgent = false;
-    if (!payload.name) payload.name = existing.name || key.split("_").slice(1).join("_");
-  } else {
-    // ativo, emprestado, lesionado, suspenso → vinculado ao elenco da JL
-    payload.freeAgent = false;
-  }
-
-  // Atualiza histórico de valor da temporada atual se o valor mudou
-  const season = window.AppState.jet.currentSeason || "Temporada 1";
-  if (data.marketValue != null) {
-    let history = Array.isArray(existing.valueHistory) ? existing.valueHistory.map(h => ({ ...h })) : [];
-    const idx = history.findIndex(h => h.season === season);
-    if (idx >= 0) history[idx].value = data.marketValue;
-    else history.push({ season, value: data.marketValue });
-    payload.valueHistory = history;
-    if (data.marketValue > (data.peakValue ?? existing.peakValue ?? 0)) {
-      payload.peakValue = data.marketValue;
-    }
-  }
-
-  return window.marketDb.ref("players/" + key).update(payload)
-    .then(() => {
-      btn.textContent = "✓";
-      setTimeout(() => btn.textContent = "Salvar", 1200);
-    })
-    .catch(err => alert("Erro ao salvar: " + err.message));
+  return MarketAdmin.saveRow(btn);
 }
 
 /* ========== TRANSFERÊNCIAS ========== */
@@ -1372,91 +1295,16 @@ function confirmAIReview() {
     const value = Number(document.getElementById("revSuggestedValue").value);
     const key = data.playerKey;
     const existing = window.AppState.market.players[key] || {};
-    const season = window.AppState.jet.currentSeason || "Temporada 1";
-    let history = existing.valueHistory || [];
-    const idx = history.findIndex(h => h.season === season);
-    if (idx >= 0) history[idx].value = value;
-    else history.push({ season, value });
-
-    const payload = {
-      ...existing,
-      marketValue: value,
-      peakValue: Math.max(existing.peakValue || 0, value),
-      valueHistory: history
-    };
-    window.marketDb.ref("players/" + key).set(payload)
+    Market.savePlayer(key, { marketValue: value }, { expected: existing, season: window.AppState.jet.currentSeason, source: "ai-reviewed" })
       .then(() => { alert("Valor atualizado!"); closeAIReviewModal(); if (isLogged) renderAdminValues(); })
       .catch(err => alert("Erro: " + err.message));
   }
 
   if (action === "import-values") {
-    const mode = window._aiReviewData.mode || "full";
-    const statsOnly = mode === "statsOnly";
-    const updates = {};
-    const deletes = [];
-    const season = window.AppState.jet.currentSeason || "Temporada 1";
-    const inputs = document.querySelectorAll(".imp-val");
-    const valueByIdx = {};
-    inputs.forEach(input => {
-      valueByIdx[Number(input.dataset.idx)] = Number(input.value);
-    });
-
-    data.forEach((r, i) => {
-      // Fonte: registro migrado (oldKey) ou o da nova key
-      const existing = r._existing || window.AppState.market.players[r.oldKey] || window.AppState.market.players[r.key] || {};
-      const value = statsOnly
-        ? (existing.marketValue ?? r.oldValue ?? r.newValue)
-        : (valueByIdx[i] != null ? valueByIdx[i] : r.newValue);
-
-      let history = existing.valueHistory || [];
-      if (!Array.isArray(history)) history = [];
-      if (!statsOnly) {
-        const hIdx = history.findIndex(h => h.season === season);
-        if (hIdx >= 0) history[hIdx].value = value;
-        else history.push({ season, value });
-      }
-
-      const titles = r.titles || normalizeTitlesAdmin(existing);
-      const trophyTotal = window.VALUATION.totalTitles(titles, r.trophy);
-
-      updates[r.key] = {
-        ...existing,
-        name: r.name,
-        team: r.team,
-        marketValue: value,
-        peakValue: statsOnly
-          ? (existing.peakValue || value)
-          : Math.max(existing.peakValue || 0, r.peak || value),
-        rank: r.rank,
-        functionRole: r.func,
-        trophy: trophyTotal,
-        titles,
-        stats: { P: r.P, V: r.V, D: r.D, winRate: r.wr },
-        statsRound: "Import " + new Date().toISOString().slice(0, 10),
-        nationality: r.nationality || existing.nationality || "Brasil",
-        age: r.age || existing.age || 24,
-        photo: r.photo || existing.photo || "",
-        salary: existing.salary ?? r.salary ?? null,
-        releaseClause: existing.releaseClause ?? r.releaseClause ?? null,
-        contractUntil: existing.contractUntil || "Temporada 4",
-        status: existing.status || "ativo",
-        valueHistory: history
-      };
-
-      // Remove key antiga se houve migração de time
-      if (r.oldKey && r.oldKey !== r.key) {
-        deletes.push(r.oldKey);
-        updates[r.oldKey] = null; // Firebase update com null = remove
-      }
-    });
-
-    window.marketDb.ref("players").update(updates)
-      .then(() => {
-        const migMsg = deletes.length ? ` (${deletes.length} migrados de time)` : "";
-        alert(`${Object.keys(updates).filter(k => updates[k] != null).length} agentes atualizados!${migMsg}`);
-        closeAIReviewModal();
-        if (isLogged) renderAdminImport();
-      })
+    const values = {};
+    document.querySelectorAll(".imp-val").forEach(input => { values[Number(input.dataset.idx)] = Number(input.value); });
+    return MarketAdmin.applyImport(data, window._aiReviewData.mode || "statsOnly", values)
+      .then(() => { alert(`${data.length} agentes atualizados com chaves preservadas.`); closeAIReviewModal(); if (isLogged) renderAdminImport(); })
       .catch(err => alert("Erro: " + err.message));
   }
 
@@ -1469,6 +1317,8 @@ function confirmAIReview() {
     closeAIReviewModal();
   }
 
+  if (action === "fantasy-analysis") { confirmFantasyAnalysis(); return; }
+
   if (action === "fantasy-process-round") {
     if (typeof confirmFantasyProcessRound === "function") {
       confirmFantasyProcessRound();
@@ -1477,95 +1327,11 @@ function confirmAIReview() {
   }
 
   if (action === "sync-jet-stats") {
-    const mode = window._aiReviewData.mode || "full";
-    const statsOnly = mode === "statsOnly";
-    const matchIds = window._aiReviewData.matchIdsToMark || [];
-    const season = window._aiReviewData.season || "";
-    const round = window._aiReviewData.round;
-    const ignoreAwards = !!window._aiReviewData.ignoreAwards;
-    const updates = {};
-    const seasonLabel = window.AppState.jet.currentSeason || season || "Temporada 1";
-    const inputs = document.querySelectorAll(".sync-val");
-    const valueByIdx = {};
-    inputs.forEach(input => {
-      valueByIdx[Number(input.dataset.idx)] = Number(input.value);
-    });
-
-    data.forEach((r, i) => {
-      const existing = r._existing || window.AppState.market.players[r.key] || {};
-      const value = statsOnly
-        ? (existing.marketValue ?? r.oldValue ?? null)
-        : (valueByIdx[i] != null ? valueByIdx[i] : r.newValue);
-
-      let history = existing.valueHistory || [];
-      if (!Array.isArray(history)) history = [];
-      if (!statsOnly && value != null) {
-        const hIdx = history.findIndex(h => h.season === seasonLabel);
-        if (hIdx >= 0) history[hIdx].value = value;
-        else history.push({ season: seasonLabel, value });
-      }
-
-      const titles = r.titles || normalizeTitlesAdmin(existing);
-      const trophyTotal = window.VALUATION.totalTitles
-        ? window.VALUATION.totalTitles(titles, r.trophy)
-        : (r.trophy || 0);
-
-      // Contadores de prêmios: só sobem se não estiver ignorando
-      const mvpCount = ignoreAwards
-        ? (Number(existing.mvpCount) || 0)
-        : (r.mvpCount != null ? r.mvpCount : (Number(existing.mvpCount) || 0));
-      const destaqueCount = ignoreAwards
-        ? (Number(existing.destaqueCount) || 0)
-        : (r.destaqueCount != null ? r.destaqueCount : (Number(existing.destaqueCount) || 0));
-
-      const payload = {
-        ...existing,
-        name: r.name,
-        team: r.team,
-        rank: r.rank || existing.rank,
-        functionRole: r.func || existing.functionRole,
-        trophy: trophyTotal,
-        titles,
-        stats: { P: r.P, V: r.V, D: r.D, winRate: r.wr },
-        mvpCount,
-        destaqueCount,
-        statsRound: `Sync Jet · ${season} · Rodada ${round}`,
-        nationality: r.nationality || existing.nationality || "Brasil",
-        age: r.age || existing.age || 24,
-        photo: r.photo || existing.photo || "",
-        salary: existing.salary ?? null,
-        releaseClause: existing.releaseClause ?? null,
-        contractUntil: existing.contractUntil || "Temporada 4",
-        status: existing.status || "ativo",
-        valueHistory: history
-      };
-
-      if (value != null) {
-        payload.marketValue = value;
-        payload.peakValue = statsOnly
-          ? (existing.peakValue || value)
-          : Math.max(existing.peakValue || 0, r.peak || value);
-      }
-
-      updates["players/" + r.key] = payload;
-    });
-
-    // Marca partidas como sincronizadas
-    matchIds.filter(Boolean).forEach(id => {
-      updates["settings/syncedMatches/" + id] = {
-        at: new Date().toISOString(),
-        season,
-        round,
-        mode
-      };
-    });
-
-    window.marketDb.ref().update(updates)
-      .then(() => {
-        alert(`${data.length} agentes atualizados · ${matchIds.length} partida(s) marcada(s) como sincronizada(s).`);
-        closeAIReviewModal();
-        if (isLogged) renderAdminImport();
-      })
+    const context = { ...window._aiReviewData, mode: window._aiReviewData.mode || "statsOnly", matchIds: window._aiReviewData.matchIdsToMark || [], season: window._aiReviewData.season || window.AppState.jet.currentSeason };
+    const values = {};
+    document.querySelectorAll(".sync-val").forEach(input => { values[Number(input.dataset.idx)] = Number(input.value); });
+    return MarketAdmin.applySync(data, context, values)
+      .then(() => { alert(`${data.length} agentes atualizados e partidas registradas na mesma operação.`); closeAIReviewModal(); if (isLogged) renderAdminImport(); })
       .catch(err => alert("Erro: " + err.message));
   }
 
@@ -1726,7 +1492,7 @@ function previewJetLeagueSync() {
   const status = document.getElementById("syncStatus");
   const season = document.getElementById("syncSeason")?.value;
   const round = Number(document.getElementById("syncRound")?.value);
-  const mode = document.querySelector('input[name="syncMode"]:checked')?.value || "full";
+  const mode = document.querySelector('input[name="syncMode"]:checked')?.value || "statsOnly";
   const force = !!document.getElementById("syncForceResync")?.checked;
   const ignoreAwards = !!document.getElementById("syncIgnoreAwards")?.checked;
 

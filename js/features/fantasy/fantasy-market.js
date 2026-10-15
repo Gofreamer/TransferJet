@@ -18,10 +18,10 @@ function squadPlayerKeys(squad) {
 }
 
 function validateSquad(squad, budgetRemaining, opts = {}) {
-  const settings = fantasySettings();
+  const settings = opts.settings || fantasySettings();
   const maxPerTeam = opts.maxPerTeam ?? settings.maxPerTeam ?? 2;
   const needStarters = settings.starters ?? 5;
-  const map = fantasyPlayerMap();
+  const map = opts.playerMap || fantasyPlayerMap();
   const errors = [];
 
   squad = typeof normalizeFantasySquad === "function" ? normalizeFantasySquad(squad) : squad;
@@ -37,6 +37,8 @@ function validateSquad(squad, budgetRemaining, opts = {}) {
 
   const all = squadPlayerKeys(squad);
   if (new Set(all).size !== all.length) errors.push("Agente duplicado no elenco");
+  all.forEach(key => { if (!map[key]) errors.push(`Agente indisponível: ${key}`); });
+  if (!Number.isFinite(Number(budgetRemaining)) || Number(budgetRemaining) < 0) errors.push("Saldo inválido");
 
   const counts = countTeamInSquad(squad, map);
   Object.entries(counts).forEach(([team, n]) => {
@@ -69,8 +71,22 @@ function fantasyPriceFromMarketValue(marketValue) {
 }
 
 function playerPrice(playerKey) {
-  const map = fantasyPlayerMap();
-  return fantasyPriceFromMarketValue(map[playerKey]?.marketValue || 0);
+  const player = (typeof getAllPlayersFlat === "function" ? getAllPlayersFlat() : []).find(p => p.key === playerKey);
+  return fantasyPriceFromMarketValue(player?.marketValue || 0);
+}
+
+function fantasyRefund(participant, key) {
+  const current = playerPrice(key);
+  const paid = Number(participant.acquisitions?.[key]?.boughtFor || 0);
+  return current > 0 ? current : (Number.isFinite(paid) && paid > 0 ? paid : 0);
+}
+
+function fantasyTargetSlot(participant) {
+  const explicit = window._fxTargetSlot;
+  if (explicit === "bench" || Number.isInteger(explicit)) return explicit;
+  const squad = normalizeFantasySquad(participant.squad);
+  const empty = firstEmptyStarterSlot(squad);
+  return empty >= 0 ? empty : (squad.bench ? null : "bench");
 }
 
 function canAfford(participant, playerKey) {
@@ -82,7 +98,9 @@ function tryAddToSquad(participant, playerKey, slot) {
   // slot: 0-4 starter index, or "bench"
   if (!isFantasyMarketOpen()) return { ok: false, error: "Mercado fechado" };
   const map = fantasyPlayerMap();
-  if (!map[playerKey]) return { ok: false, error: "Agente não encontrado" };
+  if (!map[playerKey]) return { ok: false, error: "Agente indisponível" };
+  if (slot !== "bench" && (!Number.isInteger(slot) || slot < 0 || slot > 4)) return { ok: false, error: slot === null ? "Elenco cheio. Escolha um slot para trocar." : "Slot inválido" };
+  if (!Number.isFinite(participant.budgetRemaining) || participant.budgetRemaining < 0) return { ok: false, error: "Saldo inválido" };
 
   const squad = typeof normalizeFantasySquad === "function" ? normalizeFantasySquad(participant.squad) : JSON.parse(JSON.stringify(participant.squad || emptySquad()));
   const currentKeys = squadPlayerKeys(squad);
@@ -97,7 +115,7 @@ function tryAddToSquad(participant, playerKey, slot) {
   if (slot === "bench") {
     if (squad.bench) {
       replaced = squad.bench;
-      budget += playerPrice(squad.bench);
+      budget += fantasyRefund(participant, squad.bench);
     }
     if (budget < price) return { ok: false, error: "Orçamento insuficiente" };
     squad.bench = playerKey;
@@ -106,7 +124,7 @@ function tryAddToSquad(participant, playerKey, slot) {
     if (idx < 0 || idx > 4) return { ok: false, error: "Slot inválido" };
     if (squad.starters[idx]) {
       replaced = squad.starters[idx];
-      budget += playerPrice(squad.starters[idx]);
+      budget += fantasyRefund(participant, squad.starters[idx]);
       if (squad.captainKey === replaced) squad.captainKey = null;
     }
     if (budget < price) return { ok: false, error: "Orçamento insuficiente" };
@@ -123,13 +141,15 @@ function tryAddToSquad(participant, playerKey, slot) {
     if (n > maxPerTeam) return { ok: false, error: `Máximo ${maxPerTeam} de ${team}` };
   }
 
+  const acquisitions = { ...(participant.acquisitions || {}) };
+  if (replaced) delete acquisitions[replaced];
   return {
     ok: true,
     squad,
     budgetRemaining: budget,
     replaced,
     acquisitions: {
-      ...(participant.acquisitions || {}),
+      ...acquisitions,
       [playerKey]: { boughtFor: price, at: new Date().toISOString() }
     }
   };
@@ -137,6 +157,7 @@ function tryAddToSquad(participant, playerKey, slot) {
 
 function tryRemoveFromSquad(participant, playerKey) {
   if (!isFantasyMarketOpen()) return { ok: false, error: "Mercado fechado" };
+  if (!Number.isFinite(participant.budgetRemaining) || participant.budgetRemaining < 0) return { ok: false, error: "Saldo inválido" };
   const squad = typeof normalizeFantasySquad === "function" ? normalizeFantasySquad(participant.squad) : JSON.parse(JSON.stringify(participant.squad || emptySquad()));
   let budget = participant.budgetRemaining || 0;
   let found = false;
@@ -144,20 +165,21 @@ function tryRemoveFromSquad(participant, playerKey) {
   squad.starters = (squad.starters || []).map(k => {
     if (k === playerKey) {
       found = true;
-      budget += playerPrice(playerKey);
       return null;
     }
     return k;
   });
   if (squad.bench === playerKey) {
     found = true;
-    budget += playerPrice(playerKey);
     squad.bench = null;
   }
   if (squad.captainKey === playerKey) squad.captainKey = null;
   if (!found) return { ok: false, error: "Não está no elenco" };
 
-  return { ok: true, squad, budgetRemaining: budget };
+  budget += fantasyRefund(participant, playerKey);
+  const acquisitions = { ...(participant.acquisitions || {}) };
+  delete acquisitions[playerKey];
+  return { ok: true, squad, budgetRemaining: budget, acquisitions };
 }
 
 function trySetCaptain(participant, playerKey) {

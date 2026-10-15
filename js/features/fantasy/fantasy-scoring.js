@@ -5,38 +5,55 @@ function normalizeNameFX(n) {
   return String(n || "").trim().toLowerCase().replace(/\s+/g, " ");
 }
 
-function getMatchesForRound(season, roundNumber) {
-  const matches = window.AppState.jet.matches || [];
-  const list = Array.isArray(matches) ? matches : Object.values(matches);
+function getMatchesForRound(season, roundNumber, source = window.AppState.jet.matches || []) {
+  const list = Object.entries(source).map(([id, match]) => match ? { ...match, id: match.id || id } : null);
   return list.filter(m => {
     if (!m) return false;
     const s = m.temporada || window.AppState.jet.currentSeason;
     const r = Number(m.rodada) || 0;
-    return s === season && r === Number(roundNumber);
+    const validScore = m.scoreA !== null && m.scoreB !== null && m.scoreA !== "" && m.scoreB !== ""
+      && Number.isFinite(Number(m.scoreA)) && Number.isFinite(Number(m.scoreB))
+      && Number(m.scoreA) >= 0 && Number(m.scoreB) >= 0 && Number(m.scoreA) !== Number(m.scoreB);
+    return s === season && r === Number(roundNumber) && validScore && Array.isArray(m.fights) && m.fights.length > 0
+      && !/cancel|pending|scheduled|agend|andamento|live/i.test(String(m.status || ""));
   });
 }
 
 /** Zebra: time com valor >= threshold% inferior ao adversário */
-function computeZebraFlags(match, threshold) {
-  const va = teamSquadValue(match.timeA);
-  const vb = teamSquadValue(match.timeB);
-  if (!va || !vb) return { underdog: null, favorite: null };
+function computeZebraFlags(match, threshold, teamValues) {
+  const va = teamValues ? teamValues[match.timeA] : teamSquadValue(match.timeA);
+  const vb = teamValues ? teamValues[match.timeB] : teamSquadValue(match.timeB);
+  if (!va || !vb || va === vb) return { underdog: null, favorite: null };
   const ratio = Math.min(va, vb) / Math.max(va, vb);
   if (ratio > 1 - threshold) return { underdog: null, favorite: null };
   if (va < vb) return { underdog: match.timeA, favorite: match.timeB };
   return { underdog: match.timeB, favorite: match.timeA };
 }
 
-function extractPlayedByTeam(match) {
-  const byName = {}; // nameKey -> team
-  const fights = Array.isArray(match.fights) ? match.fights : [];
-  fights.forEach(f => {
-    const a = f.teamA?.agents || (Array.isArray(f.teamA) ? f.teamA : []) || [];
-    const b = f.teamB?.agents || (Array.isArray(f.teamB) ? f.teamB : []) || [];
-    a.filter(Boolean).forEach(n => { byName[normalizeNameFX(n)] = match.timeA; });
-    b.filter(Boolean).forEach(n => { byName[normalizeNameFX(n)] = match.timeB; });
+function fantasyAgentMatches(ref, player, team, map) {
+  if (!ref) return false;
+  if (typeof ref === "object") {
+    const id = ref.playerId || ref.id;
+    const key = ref.playerKey || ref.key;
+    if (id) return id === player.id;
+    if (key) return key === player.key;
+    ref = ref.name || ref.n || ref.agent;
+  }
+  const name = normalizeNameFX(ref);
+  if (!name || (team && team !== player.club)) return false;
+  const sameName = Object.values(map).filter(p => (!team || p.club === team) && normalizeNameFX(p.name) === name);
+  return sameName.length === 1 && sameName[0].key === player.key;
+}
+
+function fantasyPlayedTeam(match, player, map) {
+  const teams = new Set();
+  (match.fights || []).forEach(fight => {
+    [[fight.teamA, match.timeA], [fight.teamB, match.timeB]].forEach(([side, team]) => {
+      const agents = Array.isArray(side) ? side : side?.agents || [];
+      if (agents.some(ref => fantasyAgentMatches(ref, player, team, map))) teams.add(team);
+    });
   });
-  return { byName, hasFights: fights.length > 0 };
+  return teams.size === 1 ? [...teams][0] : null;
 }
 
 /**
@@ -44,33 +61,24 @@ function extractPlayedByTeam(match) {
  * @returns {{ points: number, events: string[], played: boolean, detail: object }}
  */
 function scoreAgentInRound(playerKey, matches, opts = {}) {
-  const S = window.FANTASY.SCORING;
+  const S = opts.scoring || window.FANTASY.SCORING;
   const threshold = opts.zebraThreshold ?? fantasySettings().zebraThreshold ?? 0.2;
   // perSeries (padrão): soma cada série da rodada
   // perRoundOnce: no máximo uma participação/placar por rodada (melhor série por pontos base)
   const scoreMode = opts.scoreMode || fantasySettings().scoreMode || "perSeries";
-  const map = fantasyPlayerMap();
+  const map = opts.playerMap || fantasyPlayerMap();
   const player = map[playerKey];
   if (!player) return { points: 0, events: ["agente não encontrado"], played: false, detail: {} };
 
-  const nameKey = normalizeNameFX(player.name);
   let points = 0;
   const events = [];
   let playedAny = false;
   let seriesResults = [];
 
-  const highlightNames = new Set();
-  matches.forEach(m => {
-    if (m.destaqueRodada) highlightNames.add(normalizeNameFX(m.destaqueRodada));
-  });
-
   const seriesScores = []; // { points, events, meta }
 
   matches.forEach(m => {
-    const { byName, hasFights } = extractPlayedByTeam(m);
-    if (!hasFights) return;
-
-    const team = byName[nameKey];
+    const team = fantasyPlayedTeam(m, player, map);
     if (!team) return;
 
     playedAny = true;
@@ -101,13 +109,13 @@ function scoreAgentInRound(playerKey, matches, opts = {}) {
       }
     }
 
-    const mvpName = normalizeNameFX(m.seriesMvp?.agent || m.mvp || "");
-    if (mvpName && mvpName === nameKey) {
+    const mvp = m.seriesMvp || m.mvp;
+    if (fantasyAgentMatches(mvp, player, m.seriesMvp?.team || null, map)) {
       sp += S.mvp;
       se.push(`+${S.mvp} MVP da série`);
     }
 
-    const z = computeZebraFlags(m, threshold);
+    const z = computeZebraFlags(m, threshold, opts.teamValues);
     if (z.underdog && won && team === z.underdog) {
       sp += S.zebraWin;
       se.push(`+${S.zebraWin} vitória zebra`);
@@ -141,7 +149,7 @@ function scoreAgentInRound(playerKey, matches, opts = {}) {
     events.push(`${S.noShow} escalado e não entrou`);
   }
 
-  if (highlightNames.has(nameKey) && playedAny) {
+  if (playedAny && matches.some(m => fantasyAgentMatches(m.destaqueRodada, player, null, map))) {
     points += S.highlight;
     events.push(`+${S.highlight} Destaque da rodada`);
   }
@@ -150,7 +158,7 @@ function scoreAgentInRound(playerKey, matches, opts = {}) {
 }
 
 function scoreParticipantRound(participant, matches, opts = {}) {
-  const S = window.FANTASY.SCORING;
+  const S = opts.scoring || window.FANTASY.SCORING;
   const squad = typeof normalizeFantasySquad === "function" ? normalizeFantasySquad(participant.squad) : (participant.squad || emptySquad());
   const starters = (squad.starters || []).filter(Boolean);
   const captainKey = squad.captainKey;
@@ -166,6 +174,9 @@ function scoreParticipantRound(participant, matches, opts = {}) {
     }
     breakdown.push({
       playerKey: key,
+      playerId: (opts.playerMap || fantasyPlayerMap())[key]?.id || `legacy:${key}`,
+      name: (opts.playerMap || fantasyPlayerMap())[key]?.name || key,
+      club: (opts.playerMap || fantasyPlayerMap())[key]?.club || "",
       role: isCap ? "captain" : "starter",
       base: r.points,
       points: pts,
@@ -178,6 +189,9 @@ function scoreParticipantRound(participant, matches, opts = {}) {
   if (squad.bench) {
     breakdown.push({
       playerKey: squad.bench,
+      playerId: (opts.playerMap || fantasyPlayerMap())[squad.bench]?.id || `legacy:${squad.bench}`,
+      name: (opts.playerMap || fantasyPlayerMap())[squad.bench]?.name || squad.bench,
+      club: (opts.playerMap || fantasyPlayerMap())[squad.bench]?.club || "",
       role: "bench",
       base: 0,
       points: 0,
@@ -194,24 +208,22 @@ function scoreParticipantRound(participant, matches, opts = {}) {
  * Processa todos os participantes de uma rodada.
  */
 function processFantasyRound(roundMeta, participants, opts = {}) {
-  const season = roundMeta.seasonId || fantasySettings().seasonId || window.AppState.jet.currentSeason;
+  const snapshot = roundMeta.snapshot;
+  if (!snapshot) throw new Error("Escalação oficial ausente. Feche o mercado antes de processar.");
+  const season = roundMeta.seasonId;
   const roundNumber = roundMeta.rodadaNumber;
-  const matches = getMatchesForRound(season, roundNumber);
-  opts = { scoreMode: fantasySettings().scoreMode || "perSeries", zebraThreshold: fantasySettings().zebraThreshold, ...opts };
-  const jetMatchIds = matches.map(m => m.id).filter(Boolean);
-
+  const matches = getMatchesForRound(season, roundNumber, opts.matches || window.AppState.jet.matches || []);
+  opts = { scoreMode: snapshot.settings.scoreMode, zebraThreshold: snapshot.settings.zebraThreshold,
+    playerMap: snapshot.players, teamValues: snapshot.teamValues, scoring: snapshot.scoring };
+  const jetMatchIds = matches.map(m => m.id);
   const scores = {};
-  Object.entries(participants || {}).forEach(([id, p]) => {
-    if (!p || p.active === false) return;
-    const result = scoreParticipantRound(p, matches, { ...opts, scoreMode: opts.scoreMode || fantasySettings().scoreMode || "perSeries" });
-    scores[id] = {
-      total: result.total,
-      breakdown: result.breakdown,
-      processedAt: new Date().toISOString()
-    };
+  Object.entries(snapshot.participants).forEach(([id, p]) => {
+    const result = p.valid ? scoreParticipantRound(p, matches, opts) : { total: 0, breakdown: [] };
+    scores[id] = { ...result, displayName: p.displayName, teamName: p.teamName, valid: p.valid,
+      errors: p.errors || [], lockedAt: snapshot.capturedAt };
   });
 
-  return { scores, jetMatchIds, matchesCount: matches.length, season, roundNumber };
+  return { scores, jetMatchIds, matchesCount: matches.length, season, roundNumber, matchSnapshot: JSON.parse(JSON.stringify(matches)) };
 }
 
 window.getMatchesForRound = getMatchesForRound;

@@ -70,8 +70,10 @@ function fxOpenPlayerProfile(key) {
 window.FANTASY = window.FANTASY || {};
 
 function enterFantasyMode() {
-  ensureFantasyState();
-  window.AppState.fantasy.active = true;
+  const f = ensureFantasyState();
+  const entering = !f.active;
+  f.active = true;
+  if (entering && !f.ui.listenersStarted) startFantasyListeners();
   document.body.classList.add("fantasy-mode");
   applyFantasyAtmosphere();
   const shell = document.getElementById("fantasyShell");
@@ -148,6 +150,15 @@ function renderFantasyShell() {
     </div>
   `;
   const content = document.getElementById("fxContent");
+  const f = ensureFantasyState();
+  if (f.ui.lastError) {
+    content.innerHTML = `<div class="fx-state-card" role="status"><p>${fxEscapeHTML(f.ui.lastError)}</p><button class="fx-btn" onclick="startFantasyListeners()">Tentar novamente</button></div>`;
+    return;
+  }
+  if (!f.ui.participantsLoaded) {
+    content.innerHTML = `<p role="status">Carregando participantes do Fantasy…</p>`;
+    return;
+  }
   try {
     if (view === "hub") renderFantasyHub(content);
     else if (view === "squad") renderFantasySquad(content);
@@ -211,6 +222,14 @@ function fantasyLogout() {
   renderFantasyShell();
 }
 
+function fantasySquadDisplay(me) {
+  const f = ensureFantasyState();
+  const snapshot = f.rounds?.[fantasySettings().currentRoundId]?.snapshot;
+  const official = snapshot?.participants?.[f.session.participantId];
+  return { participant: official ? { ...me, ...official } : me, official,
+    players: official ? snapshot.players : Object.fromEntries(getAllPlayersFlat().map(p => [p.key, p])) };
+}
+
 /* ========== HUB ========== */
 function renderFantasyHub(container) {
   const me = getMyFantasyParticipant();
@@ -219,22 +238,22 @@ function renderFantasyHub(container) {
   const f = window.AppState.fantasy;
   const s = fantasySettings();
   const roundId = s.currentRoundId;
-  const overall = (f.leaderboard?.overall || {})[me.id === undefined ? f.session.participantId : f.session.participantId];
-  // find my id
   const myId = f.session.participantId;
-  const myOverall = (f.leaderboard?.overall || {})[myId] || {};
+  const totals = Object.keys(f.scores || {}).length ? fantasyOverallFromScores(f.scores) : (f.leaderboard?.overall || {});
+  const myOverall = totals[myId] || {};
   const myRound = roundId ? ((f.scores || {})[roundId] || {})[myId] : null;
   const equity = fantasyEquity(me);
   const open = isFantasyMarketOpen();
 
   // position
-  const ranked = Object.entries(f.leaderboard?.overall || {})
+  const ranked = Object.entries(totals)
     .map(([id, v]) => ({ id, points: v.points || 0 }))
     .sort((a, b) => b.points - a.points);
   const pos = ranked.findIndex(r => r.id === myId) + 1;
 
-  const map = fantasyPlayerMap();
-  const squad = normalizeFantasySquad(me.squad);
+  const display = fantasySquadDisplay(me);
+  const map = display.players;
+  const squad = normalizeFantasySquad(display.participant.squad);
   const analysis = roundId && f.rounds?.[roundId]?.analysisCache?.text;
 
   container.innerHTML = `
@@ -276,7 +295,7 @@ function renderFantasyHub(container) {
       ${analysis ? `
         <div class="fx-section fx-ai-box">
           <h2>🤖 Análise Fantasy</h2>
-          <p>${analysis}</p>
+          <p>${fxEscapeHTML(analysis)}</p>
         </div>
       ` : ""}
     </div>
@@ -288,9 +307,10 @@ function renderFantasySquad(container) {
   const me = getMyFantasyParticipant();
   if (!me) return renderFantasyLogin(container);
   const open = isFantasyMarketOpen();
-  const map = fantasyPlayerMap();
-  const squad = normalizeFantasySquad(me.squad);
-  const val = validateSquad(squad, me.budgetRemaining);
+  const display = fantasySquadDisplay(me);
+  const map = display.players;
+  const squad = normalizeFantasySquad(display.participant.squad);
+  const val = display.official ? { ok: display.official.valid, errors: display.official.errors || [] } : validateSquad(squad, me.budgetRemaining);
   const filled = squad.starters.filter(Boolean).length + (squad.bench ? 1 : 0);
 
   container.innerHTML = `
@@ -301,7 +321,7 @@ function renderFantasySquad(container) {
           <span>${filled}/6 agentes</span> · Orçamento: <strong>${typeof formatUSD==="function"?formatUSD(me.budgetRemaining||0,true):me.budgetRemaining}</strong>
         </div>
       </div>
-      ${!open ? `<div class="fx-notice locked">🔒 Mercado fechado — sua escalação está bloqueada para esta rodada.</div>` : ""}
+      ${!open ? `<div class="fx-notice locked">🔒 Mercado fechado — ${display.official ? "exibindo sua escalação oficial salva." : "aguardando o administrador salvar a cópia oficial."}</div>` : ""}
       ${open && filled === 0 ? `<div class="fx-notice info">Seu time está vazio. Abra o Mercado e escolha 5 titulares + 1 reserva. <button class="fx-link-btn" onclick="showFantasyView('market')">Ir ao Mercado →</button></div>` : ""}
       ${!val.ok ? `<div class="fx-errors">${val.errors.map(e=>`<div>• ${fxEscapeHTML(e)}</div>`).join("")}</div>` : `<div class="fx-ok">✓ Elenco válido e pronto para a rodada</div>`}
       <div class="fx-squad-edit">
@@ -331,37 +351,34 @@ function renderFantasySquad(container) {
   `;
 }
 
+async function fxRunSquadAction(operation, message) {
+  const id = ensureFantasyState().session.participantId;
+  if (!id || window._fxSquadBusy) return;
+  const targetSlot = window._fxTargetSlot;
+  window._fxSquadBusy = true;
+  try {
+    await mutateFantasySquad(id, operation);
+    fxToast(message, "success");
+    if (window._fxTargetSlot === targetSlot) window._fxTargetSlot = null;
+    renderFantasyShell();
+  } catch (error) {
+    fxToast(error.message || "Não foi possível salvar. Tente novamente.", "warn");
+  } finally { window._fxSquadBusy = false; }
+}
+
 async function fxRemove(key) {
-  const me = getMyFantasyParticipant();
-  const id = window.AppState.fantasy.session.participantId;
-  if (!me || !id) return;
-  const r = tryRemoveFromSquad(me, key);
-  if (!r.ok) return fxToast(r.error, "warn");
-  await updateFantasyParticipant(id, { squad: r.squad, budgetRemaining: r.budgetRemaining });
-  if (window.AppState.fantasy.participants[id]) {
-    window.AppState.fantasy.participants[id] = { ...window.AppState.fantasy.participants[id], squad: r.squad, budgetRemaining: r.budgetRemaining };
-  }
-  fxToast("Agente removido.", "success");
-  renderFantasyShell();
+  return fxRunSquadAction(me => tryRemoveFromSquad(me, key), "Agente removido.");
 }
 
 async function fxCaptain(key) {
-  const me = getMyFantasyParticipant();
-  const id = window.AppState.fantasy.session.participantId;
-  if (!me || !id) return;
-  const r = trySetCaptain(me, key);
-  if (!r.ok) return fxToast(r.error, "warn");
-  await updateFantasyParticipant(id, { squad: r.squad });
-  if (window.AppState.fantasy.participants[id]) {
-    window.AppState.fantasy.participants[id] = { ...window.AppState.fantasy.participants[id], squad: r.squad };
-  }
-  fxToast("Capitão definido.", "success");
-  renderFantasyShell();
+  return fxRunSquadAction(me => trySetCaptain(me, key), "Capitão definido.");
 }
 
 function fxOpenMarketForSlot(slot) {
   window._fxTargetSlot = slot;
-  showFantasyView("market");
+  const f = ensureFantasyState();
+  if (f.active && f.ui.view === "market") renderFantasyShell();
+  else showFantasyView("market");
 }
 
 function fxClearTargetSlot() {
@@ -373,8 +390,7 @@ function renderFantasyMarketView(container) {
   const me = getMyFantasyParticipant();
   if (!me) return renderFantasyLogin(container);
   const open = isFantasyMarketOpen();
-  const players = (typeof getAllPlayersFlat === "function" ? getAllPlayersFlat() : [])
-    .filter(p => p.marketValue > 0 && p.club !== "Livre")
+  const players = Object.values(fantasyPlayerMap())
     .sort((a, b) => (b.marketValue || 0) - (a.marketValue || 0));
   const clubs = [...new Set(players.map(p => p.club))].sort();
   const targetSlot = window._fxTargetSlot;
@@ -390,13 +406,13 @@ function renderFantasyMarketView(container) {
           ${targetLabel ? `<div class="fx-target-slot">Substituindo: <strong>${targetLabel}</strong> <button class="fx-link-btn" onclick="fxClearTargetSlot();renderFantasyShell()">cancelar</button></div>` : ""}
         </div>
         <div class="fx-budget">Disponível: <strong>${typeof formatUSD==="function"?formatUSD(me.budgetRemaining||0,true):me.budgetRemaining}</strong>
-          · Máx. 2 por equipe</div>
+          · Máx. ${Number(fantasySettings().maxPerTeam)} por equipe</div>
       </div>
       ${!open ? `<p class="fx-warn">🔒 Mercado fechado</p>` : ""}
       <div class="fx-filters">
         <select id="fxFilterClub" onchange="fxFilterMarket()">
           <option value="">Todas equipes</option>
-          ${clubs.map(c => `<option value="${c}">${c}</option>`).join("")}
+          ${clubs.map(c => `<option value="${fxEscapeHTML(c)}">${fxEscapeHTML(c)}</option>`).join("")}
         </select>
         <select id="fxFilterSort" onchange="fxFilterMarket()">
           <option value="value">Maior valor</option>
@@ -404,7 +420,10 @@ function renderFantasyMarketView(container) {
           <option value="wr">Melhor WR</option>
           <option value="name">Nome</option>
         </select>
-        <input type="search" id="fxFilterQ" class="fx-input" placeholder="Buscar..." oninput="fxFilterMarket()"/>
+        <select id="fxFilterRank" aria-label="Rank" onchange="fxFilterMarket()"><option value="">Todos os ranks</option>${[...new Set(players.map(p => p.rank).filter(Boolean))].sort().map(rank => `<option value="${fxEscapeHTML(rank)}">${fxEscapeHTML(rank)}</option>`).join("")}</select>
+        <input id="fxFilterMax" type="number" min="0" step="10000" placeholder="Preço Fantasy máximo" aria-label="Preço Fantasy máximo" oninput="fxFilterMarket()" class="fx-input"/>
+        <select id="fxFilterAvailability" aria-label="Disponibilidade" onchange="fxFilterMarket()"><option value="">Todos</option><option value="available">Posso escalar</option><option value="selected">No meu elenco</option></select>
+        <input type="search" aria-label="Buscar agente" id="fxFilterQ" class="fx-input" placeholder="Buscar..." oninput="fxFilterMarket()"/>
       </div>
       <div class="fx-market-grid" id="fxMarketGrid"></div>
     </div>
@@ -429,48 +448,42 @@ function fxFilterMarket() {
   if (sort === "wr") list = [...list].sort((a,b)=>(b.stats?.winRate||0)-(a.stats?.winRate||0));
   if (sort === "name") list = [...list].sort((a,b)=>a.name.localeCompare(b.name));
 
-  const mine = window._fxMarketMine || new Set();
-  const open = window._fxMarketOpen;
+  const me = getMyFantasyParticipant();
+  if (!me) return;
+  const mine = new Set(squadPlayerKeys(me.squad));
+  const open = isFantasyMarketOpen();
+  const rank = document.getElementById("fxFilterRank")?.value;
+  const maxRaw = document.getElementById("fxFilterMax")?.value;
+  const availability = document.getElementById("fxFilterAvailability")?.value;
+  if (rank) list = list.filter(p => p.rank === rank);
+  if (maxRaw !== undefined && maxRaw !== "") list = list.filter(p => playerPrice(p.key) <= Number(maxRaw));
+  const target = fantasyTargetSlot(me);
+  if (availability === "selected") list = list.filter(p => mine.has(p.key));
+  if (availability === "available") list = list.filter(p => tryAddToSquad(me, p.key, target).ok);
   if (!list.length) {
     grid.innerHTML = `<div class="fx-state-card"><div class="fx-state-icon">⌕</div><h3>Nenhum agente encontrado</h3><p>Ajuste os filtros ou aguarde os dados oficiais do TransferJet carregarem.</p></div>`;
     return;
   }
-  grid.innerHTML = list.slice(0, 80).map(p => {
+  grid.innerHTML = list.map(p => {
     const sel = mine.has(p.key);
+    const offer = tryAddToSquad(me, p.key, target);
+    const reason = sel ? "No seu elenco" : (offer.ok ? `Saldo após ${offer.replaced ? "troca" : "compra"}: ${formatUSD(offer.budgetRemaining, true)}` : offer.error);
+    const cost = offer.ok && offer.replaced ? ` · Custo líquido: ${formatUSD(me.budgetRemaining - offer.budgetRemaining, true)}` : "";
     const mainAction = open
       ? (sel
         ? `<button class="fx-btn sm ghost" onclick="event.stopPropagation();fxRemove('${fxEscapeInlineKey(p.key)}')">Remover</button>`
-        : `<button class="fx-btn sm primary" onclick="event.stopPropagation();fxAdd('${fxEscapeInlineKey(p.key)}')">Escalar</button>`)
+        : `<button class="fx-btn sm primary" ${offer.ok ? "" : "disabled"} onclick="event.stopPropagation();fxAdd('${fxEscapeInlineKey(p.key)}')">Escalar</button>`)
       : "";
     const actions = `<button class="fx-btn sm ghost" onclick="event.stopPropagation();fxOpenPlayerProfile('${fxEscapeInlineKey(p.key)}')">Perfil</button>${mainAction}`;
-    return fantasyCardHTML(p, { selected: sel, actions: actions ? `<div class="fx-card-actions">${actions}</div>` : "" });
+    return fantasyCardHTML(p, { selected: sel, actions: `<p class="fx-hint">${fxEscapeHTML(reason + cost)}</p><div class="fx-card-actions">${actions}</div>` });
   }).join("");
 }
 
 async function fxAdd(key) {
-  const me = getMyFantasyParticipant();
-  const id = window.AppState.fantasy.session.participantId;
-  if (!me || !id) return;
-  me.squad = normalizeFantasySquad(me.squad);
-  const explicitTarget = window._fxTargetSlot;
-  const slot = firstEmptyStarterSlot(me.squad);
-  const target = explicitTarget === "bench" || Number.isInteger(explicitTarget)
-    ? explicitTarget
-    : (slot >= 0 ? slot : (me.squad.bench ? null : "bench"));
-  if (target === null) return fxToast("Elenco cheio. Use 'Trocar' em um slot ou remova alguém antes.", "warn");
-  const r = tryAddToSquad(me, key, target);
-  if (!r.ok) return fxToast(r.error, "warn");
-  await updateFantasyParticipant(id, {
-    squad: r.squad,
-    budgetRemaining: r.budgetRemaining,
-    acquisitions: r.acquisitions
-  });
-  if (window.AppState.fantasy.participants[id]) {
-    window.AppState.fantasy.participants[id] = { ...window.AppState.fantasy.participants[id], squad: r.squad, budgetRemaining: r.budgetRemaining, acquisitions: r.acquisitions };
-  }
-  fxToast(explicitTarget !== null && explicitTarget !== undefined ? "Troca realizada." : "Agente escalado.", "success");
-  window._fxTargetSlot = null;
-  renderFantasyShell();
+  return fxRunSquadAction(me => {
+    const result = tryAddToSquad(me, key, fantasyTargetSlot(me));
+    return result;
+  }, "Escalação salva.");
 }
 
 /* ========== RANKING ========== */
@@ -478,16 +491,18 @@ function renderFantasyRanking(container) {
   const f = window.AppState.fantasy;
   const tab = window._fxRankTab || "overall";
   const myId = f.session?.participantId;
+  const rounds = Object.entries(f.rounds || {}).map(([id, round]) => ({ ...round, id })).sort((a,b) => (b.rodadaNumber || 0) - (a.rodadaNumber || 0));
+  const selectedRound = window._fxRankingRound || fantasySettings().currentRoundId || rounds[0]?.id;
 
   let rows = [];
   if (tab === "round") {
-    const rid = fantasySettings().currentRoundId;
+    const rid = selectedRound;
     const scores = (f.scores || {})[rid] || {};
     rows = Object.entries(scores).map(([id, sc]) => ({
       id,
       points: sc.total || 0,
-      name: f.participants[id]?.displayName || id,
-      team: f.participants[id]?.teamName || "",
+      name: sc.displayName || f.participants[id]?.displayName || id,
+      team: sc.teamName || f.participants[id]?.teamName || "",
       extra: ""
     }));
   } else if (tab === "equity") {
@@ -499,11 +514,12 @@ function renderFantasyRanking(container) {
       extra: "patrimônio"
     }));
   } else {
-    rows = Object.entries(f.leaderboard?.overall || {}).map(([id, v]) => ({
+    const totals = Object.keys(f.scores || {}).length ? fantasyOverallFromScores(f.scores) : (f.leaderboard?.overall || {});
+    rows = Object.entries(totals).map(([id, v]) => ({
       id,
       points: v.points || 0,
-      name: f.participants[id]?.displayName || id,
-      team: f.participants[id]?.teamName || "",
+      name: v.displayName || f.participants[id]?.displayName || id,
+      team: v.teamName || f.participants[id]?.teamName || "",
       extra: ""
     }));
     // include participants with 0
@@ -513,7 +529,7 @@ function renderFantasyRanking(container) {
       }
     });
   }
-  rows.sort((a, b) => b.points - a.points);
+  rows.sort((a, b) => b.points - a.points || a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
   const medals = ["🥇", "🥈", "🥉"];
 
   container.innerHTML = `
@@ -526,11 +542,13 @@ function renderFantasyRanking(container) {
           <button class="fx-nav-btn ${tab==="equity"?"active":""}" onclick="window._fxRankTab='equity';renderFantasyShell()">Patrimônio</button>
         </div>
       </div>
+      ${tab === "round" ? `<label class="fx-round-picker">Rodada <select aria-label="Rodada do ranking" onchange="window._fxRankingRound=this.value;renderFantasyShell()">${rounds.map(r => `<option value="${fxEscapeHTML(r.id)}" ${r.id === selectedRound ? "selected" : ""}>${fxEscapeHTML(r.seasonId || "")} · ${fxEscapeHTML(r.name || r.id)}</option>`).join("")}</select></label>` : ""}
+      ${myId ? renderFantasyEvolution(myId) : ""}
       <div class="fx-podium">
         ${rows.slice(0,3).map((r,i) => `
           <div class="fx-podium-card place-${i+1}">
             <div class="fx-podium-medal">${medals[i]}</div>
-            <div class="fx-podium-name">${r.name}</div>
+            <div class="fx-podium-name">${fxEscapeHTML(r.name)}</div>
             <div class="fx-podium-pts">${tab==="equity"?(typeof formatUSD==="function"?formatUSD(r.points,true):r.points):r.points+" pts"}</div>
           </div>
         `).join("")}
@@ -539,7 +557,7 @@ function renderFantasyRanking(container) {
         ${rows.map((r,i) => `
           <div class="fx-rank-row ${r.id===myId?"me":""}">
             <span class="fx-rank-pos">${i+1}º</span>
-            <span class="fx-rank-name">${r.name} <small>${r.team}</small></span>
+            <span class="fx-rank-name">${fxEscapeHTML(r.name)} <small>${fxEscapeHTML(r.team)}</small></span>
             <span class="fx-rank-pts">${tab==="equity"?(typeof formatUSD==="function"?formatUSD(r.points,true):r.points):r.points}</span>
           </div>
         `).join("")}
@@ -548,27 +566,44 @@ function renderFantasyRanking(container) {
   `;
 }
 
+function renderFantasyEvolution(id) {
+  const f = ensureFantasyState();
+  const entries = Object.entries(f.scores || {}).filter(([, scores]) => scores?.[id]).map(([rid, scores]) => ({
+    rid, points: Number(scores[id].total || 0), round: f.rounds[rid] || { id: rid }
+  })).sort((a,b) => String(a.round.snapshot?.capturedAt || a.round.processedAt || a.round.seasonId || "").localeCompare(String(b.round.snapshot?.capturedAt || b.round.processedAt || b.round.seasonId || "")) || (a.round.rodadaNumber || 0) - (b.round.rodadaNumber || 0));
+  if (!entries.length) return `<p class="fx-hint">Sua evolução aparece após a primeira rodada processada.</p>`;
+  let total = 0;
+  entries.forEach(e => { total = Math.round((total + e.points) * 10) / 10; e.total = total; });
+  const min = Math.min(0, ...entries.map(e => e.total));
+  const max = Math.max(1, ...entries.map(e => e.total));
+  const coords = entries.map((e,i) => `${20 + (entries.length === 1 ? 260 : i * 520 / (entries.length - 1))},${110 - (e.total-min)/(max-min)*90}`).join(" ");
+  const description = entries.map(e => `${e.round.name || e.rid}: ${e.points} pontos; acumulado ${e.total}`).join(". ");
+  return `<figure class="fx-evolution"><figcaption>Sua evolução · ${total} pts acumulados</figcaption>
+    <svg viewBox="0 0 560 130" role="img" aria-label="${fxEscapeHTML(description)}"><title>${fxEscapeHTML(description)}</title>
+      <line x1="20" y1="${110-(0-min)/(max-min)*90}" x2="540" y2="${110-(0-min)/(max-min)*90}" stroke="currentColor" opacity=".2"/>
+      <polyline points="${coords}" fill="none" stroke="currentColor" stroke-width="3"/>
+      ${coords.split(" ").map(point => { const [x,y] = point.split(","); return `<circle cx="${x}" cy="${y}" r="4" fill="currentColor"/>`; }).join("")}</svg>
+    <details><summary>Pontos por rodada</summary><ul>${entries.map(e => `<li>${fxEscapeHTML(e.round.seasonId || "")} · ${fxEscapeHTML(e.round.name || e.rid)}: ${e.points} pts · acumulado ${e.total}</li>`).join("")}</ul></details></figure>`;
+}
+
 /* ========== ROUNDS ========== */
 function renderFantasyRounds(container) {
-  const rounds = Object.values(window.AppState.fantasy.rounds || {}).sort((a,b) => (b.rodadaNumber||0)-(a.rodadaNumber||0));
-  const myId = window.AppState.fantasy.session?.participantId;
-  container.innerHTML = `
-    <div class="fx-section">
-      <h2>Rodadas</h2>
-      <div class="fx-rounds">
-        ${rounds.map(r => {
-          const sc = myId && (window.AppState.fantasy.scores||{})[r.id]?.[myId];
-          return `
-            <div class="fx-round-card status-${(r.status||"").toLowerCase()}">
-              <div class="fx-round-title">${r.name || "Rodada "+r.rodadaNumber}</div>
-              <div class="fx-round-meta">${r.seasonId || ""} · ${r.status}</div>
-              <div class="fx-round-pts">${sc ? sc.total+" pts" : "—"}</div>
-            </div>
-          `;
-        }).join("") || "<p class='fx-hint'>Nenhuma rodada ainda.</p>"}
-      </div>
-    </div>
-  `;
+  const f = ensureFantasyState();
+  const rounds = Object.entries(f.rounds || {}).map(([id, round]) => ({ ...round, id })).sort((a,b) => (b.rodadaNumber||0)-(a.rodadaNumber||0));
+  const myId = f.session?.participantId;
+  container.innerHTML = `<div class="fx-section"><h2>Rodadas</h2><div class="fx-rounds">${rounds.map(r => {
+    const sc = myId && f.scores?.[r.id]?.[myId];
+    const official = myId && r.snapshot?.participants?.[myId];
+    return `<article class="fx-round-card">
+      <div class="fx-round-title">${fxEscapeHTML(r.name || "Rodada " + r.rodadaNumber)}</div>
+      <div class="fx-round-meta">${fxEscapeHTML(r.seasonId || "")} · ${fxEscapeHTML(r.status || "")}</div>
+      ${r.snapshot ? `<p class="fx-hint">Escalações oficiais salvas: ${fxEscapeHTML(r.snapshot.capturedAt)}</p>` : `<p class="fx-hint">${r.status === "PROCESSED" ? "Histórico legado preservado, sem cópia oficial." : "Aguardando fechamento e cópia oficial."}</p>`}
+      <div class="fx-round-pts">${sc ? Number(sc.total) + " pts" : "—"}</div>
+      ${official?.valid === false || sc?.valid === false ? `<div class="fx-errors">Escalação inválida: ${(sc?.errors || official?.errors || []).map(fxEscapeHTML).join(" · ")}</div>` : ""}
+      ${sc?.breakdown?.length ? `<details><summary>Ver pontuação por agente</summary><ul class="fx-score-details">${sc.breakdown.map(b => `<li><strong>${fxEscapeHTML(b.name || b.playerKey)}</strong> · ${fxEscapeHTML(b.club || "")} · ${fxEscapeHTML(b.role)} · <strong>${Number(b.points)} pts</strong><ul>${(b.events || []).map(event => `<li>${fxEscapeHTML(event)}</li>`).join("")}</ul></li>`).join("")}</ul></details>` : ""}
+      ${r.analysisCache?.text ? `<section class="fx-analysis"><h3>Análise da rodada</h3><p>${fxEscapeHTML(r.analysisCache.text)}</p><small>${r.analysisCache.source === "reviewed" ? "Revisada pelo administrador" : "Análise legada"}</small></section>` : ""}
+    </article>`;
+  }).join("") || "<p class='fx-hint'>Nenhuma rodada ainda.</p>"}</div></div>`;
 }
 
 window.enterFantasyMode = enterFantasyMode;

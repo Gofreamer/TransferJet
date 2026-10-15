@@ -117,7 +117,7 @@ function fantasySettings() {
 
 function isFantasyMarketOpen() {
   const s = fantasySettings();
-  if (s.marketStatus === "LOCKED") return false;
+  if (s.marketStatus !== "OPEN" || window.AppState.fantasy.rounds?.[s.currentRoundId]?.snapshot) return false;
   if (s.marketClosesAt) {
     const t = new Date(s.marketClosesAt).getTime();
     if (!isNaN(t) && Date.now() >= t) return false;
@@ -158,7 +158,8 @@ function fantasyPlayerMap() {
     // Aposentado / livre / suspenso fora do pool do Fantasy
     const fx = typeof agentStatusEffects === "function" ? agentStatusEffects(p.status) : null;
     if (fx && fx.fantasyEligible === false) return;
-    if (p.retired || p.status === "aposentado" || p.status === "livre" || p.freeAgent) return;
+    if (p.retired || p.status === "aposentado" || p.status === "livre" || p.freeAgent || p.fantasyEligible === false) return;
+    if (!p.club || p.club === "Livre" || !Number.isFinite(Number(p.marketValue)) || Number(p.marketValue) <= 0) return;
     map[p.key] = p;
   });
   return map;

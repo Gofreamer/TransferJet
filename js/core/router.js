@@ -3,11 +3,12 @@
   const views = new Set(["home", "players", "clubs", "compare", "transfers", "rumors", "rankings"]);
   const fantasyViews = new Set(["hub", "squad", "market", "ranking", "rounds"]);
   const controls = {
-    players: ["playerSearch", "playerClubFilter", "playerRankFilter", "playerRoleFilter", "playerValueFilter", "playerSort"],
+    players: ["playerSearch", "playerClubFilter", "playerRankFilter", "playerRoleFilter", "playerStatusFilter", "playerValueFilter", "playerSort"],
     compare: ["compareA", "compareB", "compareC"],
     transfers: ["transferSeasonFilter", "transferClubFilter"],
     rankings: ["rankingType"],
-    "fantasy:market": ["fxFilterClub", "fxFilterSort", "fxFilterQ"]
+    "player-profile": ["historySource", "historySeason", "historyRound"],
+    "fantasy:market": ["fxFilterClub", "fxFilterSort", "fxFilterQ", "fxFilterRank", "fxFilterMax", "fxFilterAvailability"]
   };
   const original = {
     showView, openPlayerProfile, openClubProfile,
@@ -18,6 +19,7 @@
   let revision = 0;
   let active;
   let pendingScroll = null;
+  let refreshPending = false;
 
   function readRoute() {
     const params = new URL(location.href).searchParams;
@@ -152,10 +154,26 @@
     },
     refresh() {
       if (!started) return;
+      const focused = document.activeElement;
+      const editing = focused?.id && /^(INPUT|TEXTAREA|SELECT)$/.test(focused.tagName)
+        ? { id: focused.id, value: focused.value, start: focused.selectionStart, end: focused.selectionEnd } : null;
       const scroll = [window.scrollX, window.scrollY];
       render();
+      if (editing) {
+        const restored = document.getElementById(editing.id);
+        if (restored && restored !== focused) {
+          restored.value = editing.value;
+          restored.focus({ preventScroll: true });
+          if (editing.start != null && typeof restored.setSelectionRange === "function") restored.setSelectionRange(editing.start, editing.end);
+        }
+      }
       if (pendingScroll) restoreScroll();
       else window.scrollTo(...scroll);
+    },
+    requestRefresh(group) {
+      if (!started || (group === "fantasy" && active.view !== "fantasy") || refreshPending) return;
+      refreshPending = true;
+      requestAnimationFrame(() => { refreshPending = false; window.AppRouter.refresh(); });
     },
     playerURL: key => routeURL({ view: "player-profile", key }).toString()
   };

@@ -5,6 +5,7 @@
 */
 
 window.VALUATION = {
+  maxValue: 12000000, // Mantém a fórmula vigente; não limita edições manuais nem valores existentes.
   rankBase: {
     "Especial": 5000000,
     "Rank S": 3000000,
@@ -48,16 +49,11 @@ window.VALUATION = {
   },
 
   resolveRankBase(rank) {
-    if (this.rankBase[rank] != null) return this.rankBase[rank];
-    const r = String(rank || "").toLowerCase();
-    if (r.includes("especial")) return 5000000;
-    if (r.includes("s") && !r.includes("especial")) return 3000000;
-    if (r.includes("a")) return 2000000;
-    if (r.includes("b")) return 1500000;
-    if (r.includes("c")) return 1000000;
-    if (r.includes("d")) return 500000;
-    if (r.includes("e")) return 250000;
-    if (r.includes("clandest")) return 1500000;
+    const r = String(rank || "").trim().toLowerCase();
+    if (r === "especial") return 5000000;
+    if (/^clandestin[oa]$/.test(r) || r === "rank ?") return 1500000;
+    const letter = r.replace(/^rank\s+/, "").toUpperCase();
+    if (/^[SABCDE]$/.test(letter)) return this.rankBase[letter];
     return 1000000;
   },
 
@@ -125,7 +121,7 @@ window.VALUATION = {
       ? 0
       : Math.round(base * perf * vol * roleM * trop * tf * sampleGuard * consistency * awards / 50000) * 50000;
 
-    value = Math.max(0, Math.min(value, 12000000));
+    value = Math.max(0, Math.min(value, this.maxValue));
     const peak = value <= 0
       ? 0
       : Math.round(value * (1.05 + 0.1 * wr) / 50000) * 50000;

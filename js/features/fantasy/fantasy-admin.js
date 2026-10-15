@@ -16,7 +16,14 @@ function fxAdminMoney(value) {
 function renderFantasyAdmin() {
   const el = document.getElementById("adminTabContent");
   if (!el) return;
-  ensureFantasyState();
+  const f = ensureFantasyState();
+  if (!f.ui.listenersStarted) startFantasyListeners();
+  const loaded = ["settings", "participants", "rounds", "scores", "leaderboard"].every(field => f.ui[field + "Loaded"]);
+  el.dataset.fantasyLoading = String(!loaded || !!f.ui.lastError);
+  if (!loaded || f.ui.lastError) {
+    el.innerHTML = `<p role="status">${f.ui.lastError ? escapeHTML(f.ui.lastError) : "Carregando Fantasy…"}</p><button class="btn-gray" onclick="startFantasyListeners();renderFantasyAdmin()">Tentar novamente</button>`;
+    return;
+  }
   const s = fantasySettings();
   const parts = window.AppState.fantasy.participants || {};
   const humans = Object.entries(parts).filter(([,p]) => p && p.type !== "npc");
@@ -148,6 +155,7 @@ function renderFantasyAdmin() {
     <p class="admin-sub">Usa partidas oficiais da Jet League (fights + placar + MVP + destaque). Revise o preview antes de confirmar.</p>
     <div class="admin-actions" style="gap:8px;flex-wrap:wrap">
       <button class="btn-primary" onclick="fxAdminPreviewProcess()">Analisar e revisar pontuação</button>
+      <button class="btn-gray btn-sm" onclick="fxAdminReviewAnalysis()">Revisar análise narrativa</button>
       <button class="btn-gray btn-sm" onclick="fxAdminCreateRound()">Criar/atualizar rodada atual</button>
     </div>
     <div id="fxAdminProcessStatus" style="margin-top:10px;font-size:0.85rem;color:var(--text-muted)"></div>
@@ -164,18 +172,28 @@ function toLocalInput(iso) {
 }
 
 async function fxAdminOpenMarket() {
-  await saveFantasySettings({ marketStatus: "OPEN" });
-  alert("Mercado ABERTO");
-  renderFantasyAdmin();
+  try {
+    const settingsRef = window.marketDb.ref("fantasy/settings");
+    const settings = (await settingsRef.once("value")).val() || {};
+    const round = (await fantasyRoundRef(settings.currentRoundId).once("value")).val();
+    if (!round || round.snapshot || round.status === "PROCESSED") throw new Error("Esta rodada já foi congelada. Crie a próxima rodada para abrir o mercado.");
+    const result = await settingsRef.transaction(current => current?.currentRoundId === settings.currentRoundId ? { ...current, marketStatus: "OPEN" } : undefined);
+    if (!result.committed) throw new Error("Rodada alterada. Atualize o painel.");
+    alert("Mercado ABERTO"); renderFantasyAdmin();
+  } catch (error) { alert(error.message); }
 }
 async function fxAdminCloseMarket() {
-  await saveFantasySettings({ marketStatus: "LOCKED" });
-  alert("Mercado FECHADO");
-  renderFantasyAdmin();
+  try {
+    const round = await closeFantasyRound();
+    alert(`Mercado FECHADO. Escalações oficiais salvas em ${round.snapshot.capturedAt}.`);
+    renderFantasyAdmin();
+  } catch (error) { alert(error.message); }
 }
 
 async function fxAdminSaveConfig() {
-  const zebra = Number(document.getElementById("fxZebra")?.value) || 0.2;
+  try {
+  const zebraInput = Number(document.getElementById("fxZebra")?.value);
+  const zebra = Number.isFinite(zebraInput) ? Math.min(1, Math.max(0, zebraInput)) : 0.2;
   const budgetInitial = Math.max(1000000, Number(document.getElementById("fxBudget")?.value) || 5000000);
   const priceScale = Math.min(1, Math.max(0.01, Number(document.getElementById("fxPriceScale")?.value) || 0.10));
   const minFantasyPrice = Math.max(0, Number(document.getElementById("fxMinPrice")?.value) || 50000);
@@ -184,7 +202,14 @@ async function fxAdminSaveConfig() {
   const marketClosesAt = closesRaw ? new Date(closesRaw).toISOString() : null;
   const seasonId = document.getElementById("fxSeason")?.value || window.AppState.jet.currentSeason;
   const rodadaNumber = Math.max(1, Math.floor(Number(document.getElementById("fxRoundNum")?.value) || 1));
-  const currentRoundId = `r${rodadaNumber}`;
+  let currentRoundId = `r${rodadaNumber}`;
+  const previous = (await fantasyRoundRef(currentRoundId).once("value")).val();
+  if (previous?.seasonId && previous.seasonId !== seasonId) currentRoundId = `s${Array.from(seasonId).map(c => c.codePointAt(0).toString(16)).join("-")}_r${rodadaNumber}`;
+  const savedRound = await fantasyRoundRef(currentRoundId).transaction(current => {
+    if (current?.snapshot || current?.status === "PROCESSED" || current?.status === "PROCESSING") return;
+    return { ...(current || {}), id: currentRoundId, name: "Rodada " + rodadaNumber, seasonId, rodadaNumber, status: "OPEN" };
+  });
+  if (!savedRound.committed) throw new Error("Rodada congelada. Selecione outra rodada; o histórico foi preservado.");
 
   await saveFantasySettings({
     zebraThreshold: zebra,
@@ -193,18 +218,13 @@ async function fxAdminSaveConfig() {
     minFantasyPrice,
     scoreMode,
     marketClosesAt,
+    marketClosesAtMs: marketClosesAt ? new Date(marketClosesAt).getTime() : null,
     currentRoundId,
     seasonId
   });
-  await window.marketDb.ref("fantasy/rounds/" + currentRoundId).update({
-    id: currentRoundId,
-    name: "Rodada " + rodadaNumber,
-    seasonId,
-    rodadaNumber,
-    status: isFantasyMarketOpen() ? "OPEN" : "LOCKED"
-  });
   alert("Config salva");
   renderFantasyAdmin();
+  } catch (error) { alert(error.message); }
 }
 
 async function fxAdminCreateRound() {
@@ -212,6 +232,11 @@ async function fxAdminCreateRound() {
 }
 
 async function fxAdminSeed() {
+  const rounds = (await window.marketDb.ref("fantasy/rounds").once("value")).val() || {};
+  if (Object.values(rounds).some(round => round.snapshot || round.status === "PROCESSED" || round.status === "PROCESSING")) {
+    alert("Já existe histórico oficial. Crie a próxima rodada; o seed não pode reabrir ou sobrescrever rodadas antigas.");
+    return;
+  }
   if (!confirm("Isso (re)cria settings + 10 NPCs com novas escalações. Humanos não são apagados. Continuar?")) return;
   const season = window.AppState.jet.currentSeason || "Temporada 1";
   const existing = window.AppState.fantasy.participants || {};
@@ -240,6 +265,7 @@ async function fxAdminSeed() {
 
 
 async function fxAdminRepairData() {
+  if (!isFantasyMarketOpen()) { alert("Abra uma nova rodada antes de reparar escalações."); return; }
   if (!confirm("Reparar dados do Fantasy?\n\nHumanos terão formatos antigos normalizados. NPCs incompletos ou acima do orçamento serão remontados para 5 titulares + 1 reserva dentro dos US$ 5M. Pontos e histórico não serão apagados.")) return;
   const parts = window.AppState.fantasy.participants || {};
   const budgetInitial = Number(fantasySettings().budgetInitial || 5000000);
@@ -469,6 +495,7 @@ function fxAdminViewNpcSquad(id) {
 }
 
 async function fxAdminRebuildNpcs() {
+  if (!isFantasyMarketOpen()) { alert("Abra uma nova rodada antes de remontar NPCs."); return; }
   const parts = window.AppState.fantasy.participants || {};
   const updates = {};
   const activeNpcs = Object.entries(parts).filter(([, p]) => p && p.type === "npc" && p.active !== false);
@@ -570,17 +597,13 @@ async function fxAdminToggleNpc(id, turnOn) {
   renderFantasyAdmin();
 }
 
-function fxAdminPreviewProcess() {
-  const s = fantasySettings();
-  const roundId = s.currentRoundId || "r1";
-  const round = (window.AppState.fantasy.rounds || {})[roundId] || {
-    id: roundId,
-    seasonId: s.seasonId || window.AppState.jet.currentSeason,
-    rodadaNumber: Number(document.getElementById("fxRoundNum")?.value) || 1
-  };
-  const participants = window.AppState.fantasy.participants || {};
-  const result = processFantasyRound(round, participants, { zebraThreshold: s.zebraThreshold, scoreMode: s.scoreMode || "perSeries" });
-
+async function fxAdminPreviewProcess() {
+  try {
+  const roundId = fantasySettings().currentRoundId;
+  const prepared = await prepareFantasyRound(roundId);
+  if (prepared.alreadyProcessed) { alert("Rodada já processada. Pontos e histórico preservados."); return; }
+  const { round, result } = prepared;
+  const participants = round.snapshot.participants;
   const status = document.getElementById("fxAdminProcessStatus");
   if (status) {
     status.textContent = `${result.matchesCount} partida(s) · ${Object.keys(result.scores).length} participantes pontuados`;
@@ -607,9 +630,9 @@ function fxAdminPreviewProcess() {
   title.textContent = `Revisar pontuação Fantasy · ${roundId}`;
   body.innerHTML = `
     <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:10px">
-      Temporada <strong>${result.season}</strong> · Rodada Jet <strong>${result.roundNumber}</strong> ·
-      Matches: <strong>${result.matchesCount}</strong> · modo: <strong>${fantasySettings().scoreMode || "perSeries"}</strong>. Confirme para gravar scores e leaderboard.
-      ${((window.AppState.fantasy.rounds||{})[roundId]?.status)==="PROCESSED" ? "<br><span style='color:var(--orange)'>⚠ Rodada já processada — confirmar sobrescreve.</span>" : ""}
+      Temporada <strong>${escapeHTML(result.season)}</strong> · Rodada Jet <strong>${result.roundNumber}</strong> ·
+      Matches: <strong>${result.matchesCount}</strong> · modo: <strong>${escapeHTML(round.snapshot.settings.scoreMode)}</strong>. Confirme para gravar scores e leaderboard.
+
     </p>
     <div class="admin-table-wrap" style="max-height:400px;overflow:auto">
       <table class="admin-table">
@@ -618,9 +641,9 @@ function fxAdminPreviewProcess() {
           ${rows.map((r,i) => `
             <tr>
               <td>${i+1}</td>
-              <td>${r.name}</td>
+              <td>${escapeHTML(r.name)}</td>
               <td style="font-weight:700;color:var(--cyan)">${r.total}</td>
-              <td style="font-size:0.75rem;color:var(--text-muted)">${(r.breakdown||[]).filter(b=>b.role!=="bench").map(b=>`${b.playerKey.split("_").slice(1).join("_")}:${b.points}`).join(" · ")}</td>
+              <td style="font-size:0.75rem;color:var(--text-muted)">${(r.breakdown||[]).filter(b=>b.role!=="bench").map(b=>`${escapeHTML(b.name || b.playerKey)}:${b.points}`).join(" · ")}</td>
             </tr>
           `).join("")}
         </tbody>
@@ -628,69 +651,49 @@ function fxAdminPreviewProcess() {
     </div>
   `;
   overlay.classList.add("open");
+  } catch (error) { alert(error.message); }
 }
 
 async function confirmFantasyProcessRound() {
   const payload = window._aiReviewData?.data;
-  if (!payload) return;
-  const { result, round, roundId, rows } = payload;
-  const scoresUpdate = {};
-  Object.entries(result.scores).forEach(([id, sc]) => {
-    scoresUpdate[id] = sc;
-  });
-
-  // overall leaderboard: soma todas as rodadas (recalc simplificado: previous overall - old round + new)
-  const overall = { ...(window.AppState.fantasy.leaderboard?.overall || {}) };
-  const oldRoundScores = (window.AppState.fantasy.scores || {})[roundId] || {};
-  Object.keys({ ...oldRoundScores, ...result.scores }).forEach(id => {
-    const prevTotal = (overall[id]?.points || 0) - (oldRoundScores[id]?.total || 0) + (result.scores[id]?.total || 0);
-    overall[id] = {
-      points: Math.round(prevTotal * 10) / 10,
-      lastRoundPoints: result.scores[id]?.total || 0,
-      equity: fantasyEquity(window.AppState.fantasy.participants[id])
-    };
-  });
-
-  const byRound = {};
-  Object.entries(result.scores).forEach(([id, sc]) => { byRound[id] = sc.total; });
-
-  const updates = {};
-  updates["fantasy/scores/" + roundId] = result.scores;
-  updates["fantasy/leaderboard/byRound/" + roundId] = byRound;
-  updates["fantasy/leaderboard/overall"] = overall;
-  updates["fantasy/rounds/" + roundId] = {
-    ...(window.AppState.fantasy.rounds || {})[roundId],
-    ...round,
-    id: roundId,
-    status: "PROCESSED",
-    processedAt: new Date().toISOString(),
-    jetMatchIds: result.jetMatchIds,
-    winnerParticipantId: rows[0]?.id || null
-  };
-  updates["fantasy/settings/marketStatus"] = "LOCKED";
-
-  await window.marketDb.ref().update(updates);
-
-  // Análise narrativa (Gemini opcional) — nunca altera pontos
-  let analysisNote = "";
+  if (!payload || window._fxProcessing) return;
+  window._fxProcessing = true;
   try {
-    const analysis = await fxGenerateRoundAnalysis(roundId, rows, result);
-    if (analysis) {
-      await window.marketDb.ref("fantasy/rounds/" + roundId + "/analysisCache").set({
-        text: analysis,
-        at: new Date().toISOString(),
-        source: analysis.startsWith("[auto]") ? "fallback" : "gemini"
-      });
-      analysisNote = " Análise da rodada salva.";
-    }
-  } catch (e) {
-    console.warn("[Fantasy] análise", e);
-    analysisNote = " (análise IA indisponível — pontos ok)";
-  }
+    const outcome = await publishFantasyRound(payload.roundId, payload.result);
+    alert(outcome.alreadyProcessed ? "Rodada já processada. Histórico preservado." : "Rodada processada com as escalações oficiais.");
+    if (typeof closeAIReviewModal === "function") closeAIReviewModal();
+    renderFantasyAdmin();
+  } catch (error) { alert(error.message); }
+  finally { window._fxProcessing = false; }
+}
 
-  alert("Rodada processada! " + rows.length + " participantes." + analysisNote);
-  if (typeof closeAIReviewModal === "function") closeAIReviewModal();
-  renderFantasyAdmin();
+async function fxAdminReviewAnalysis() {
+  try {
+    const roundId = fantasySettings().currentRoundId;
+    const round = (await fantasyRoundRef(roundId).once("value")).val();
+    if (round?.status !== "PROCESSED") throw new Error("Processe a rodada antes de gerar a análise.");
+    const scores = (await window.marketDb.ref("fantasy/scores/" + roundId).once("value")).val() || {};
+    const rows = Object.entries(scores).map(([id, sc]) => ({ id, name: sc.displayName || id, total: sc.total })).sort((a,b) => b.total-a.total);
+    const draft = await fxGenerateRoundAnalysis(roundId, rows, { matchesCount: round.jetMatchIds?.length || 0 });
+    window._aiReviewData = { action: "fantasy-analysis", data: { roundId } };
+    document.getElementById("aiReviewTitle").textContent = "Revisar análise narrativa · " + roundId;
+    document.getElementById("aiReviewBody").innerHTML = `<p>Edite e confirme para publicar. Este texto não altera pontos.</p><textarea id="fxAnalysisDraft" class="fx-input" rows="8" style="width:100%">${escapeHTML(draft)}</textarea>`;
+    const overlay = document.getElementById("aiReviewOverlay");
+    overlay.querySelector(".review-actions .btn-primary").style.display = "";
+    overlay.classList.add("open");
+  } catch (error) { alert(error.message); }
+}
+
+async function confirmFantasyAnalysis() {
+  const roundId = window._aiReviewData?.data?.roundId;
+  const text = document.getElementById("fxAnalysisDraft")?.value.trim();
+  if (!text || !roundId) return;
+  try {
+    const result = await fantasyRoundRef(roundId).transaction(round => round?.status === "PROCESSED"
+      ? { ...round, analysisCache: { text: text.slice(0, 6000), at: new Date().toISOString(), source: "reviewed" } } : undefined);
+    if (!result.committed) throw new Error("Rodada indisponível.");
+    closeAIReviewModal(); renderFantasyAdmin();
+  } catch (error) { alert(error.message); }
 }
 
 /** Gera texto de análise a partir dos resultados já calculados (nunca inventa placar). */
@@ -700,7 +703,7 @@ async function fxGenerateRoundAnalysis(roundId, rows, result) {
   const fallback = `[auto] ${winner ? winner.name + " liderou a rodada com " + winner.total + " pts." : "Rodada processada."} ${result.matchesCount} série(s) oficiais consideradas.`;
 
   const gen = window.generateWithAI || window.marketGenerateWithAI;
-  if (typeof gen !== "function") return fallback;
+  if (!fantasySettings().geminiEnabled || typeof gen !== "function") return fallback;
 
   const prompt = `Você é o narrador do Jet Fantasy (e-sports). Com base APENAS nos dados abaixo, escreva 2 a 4 frases em português sobre a rodada.
 Não invente placares, nomes ou pontos. Não use markdown.
@@ -711,10 +714,7 @@ ${top}
 Texto objetivo, tom de transmissão esportiva premium.`;
 
   try {
-    const text = await Promise.race([
-      gen(prompt),
-      new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 12000))
-    ]);
+    const text = await gen(prompt, undefined, { timeoutMs: 12000 });
     const clean = String(text || "").trim();
     return clean || fallback;
   } catch (e) {
@@ -739,3 +739,10 @@ window.confirmFantasyProcessRound = confirmFantasyProcessRound;
 window.fxGenerateRoundAnalysis = fxGenerateRoundAnalysis;
 
 window.fxAdminRepairData = fxAdminRepairData;
+
+// Só preenche o painel após a carga inicial; atualizações não apagam formulários em edição.
+document.addEventListener("fantasy:updated", () => {
+  const box = document.getElementById("adminBox");
+  const content = document.getElementById("adminTabContent");
+  if (box?.dataset.tab === "fantasy" && content?.dataset.fantasyLoading === "true") renderFantasyAdmin();
+});

@@ -165,6 +165,29 @@ tbody tr:last-child td { border-bottom: 0; }
 .player-link { font-weight: 500; color: var(--text); text-underline-offset: 4px; }
 .player-link:hover { color: var(--cyan); }
 .market-amount { color: var(--cyan); font-weight: 600; }
+.market-note { color: var(--text-muted); line-height: 1.8; font-size: 12px; margin-bottom: 16px; }
+#marketHistoryRows { margin-top: 16px; }
+#marketEditDialog { background: var(--bg-card); color: var(--text); border: 1px solid var(--border); border-radius: 16px; width: min(720px, calc(100% - 24px)); max-height: calc(100dvh - 36px); padding: 24px; margin: auto; }
+#marketEditDialog::backdrop { background: #000b; }
+#marketEditDialog h2 { font-size: 20px; margin-bottom: 12px; }
+#marketEditDialog p { font-size: 12px; color: var(--text-muted); margin-bottom: 20px; }
+#marketEditDialog .review-actions { margin-top: 20px; justify-content: flex-end; }
+.market-movement { font-size: 10px; margin: 8px 0; line-height: 1.6; }
+.market-movement.up { color: var(--green); }
+.market-movement.down { color: var(--red); }
+.market-movement.neutral { color: var(--text-dim); }
+.transfer-timeline { list-style: none; border-left: 2px solid var(--border); margin: 20px 8px 30px; padding-left: 23px; }
+.transfer-timeline li { position: relative; padding: 0 0 22px; }
+.transfer-timeline li::before { content: ""; position: absolute; left: -29px; top: 5px; background: var(--cyan); width: 10px; height: 10px; border-radius: 50%; }
+.transfer-timeline li > div { display: flex; gap: 16px; margin-bottom: 6px; font-size: 10px; color: var(--text-dim); }
+.transfer-timeline strong { font-size: 14px; }
+.transfer-timeline p { color: var(--text-muted); font-size: 12px; margin-top: 4px; }
+#marketBackupReview { margin-top: 20px; }
+#marketBackupReview select, #marketBackupFile { display: block; max-width: 100%; margin: 14px 0; padding: 10px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 7px; }
+#marketRestorePreview { max-height: 260px; overflow: auto; padding: 16px; background: var(--bg); border-radius: 10px; font-size: 11px; margin-bottom: 18px; }
+#compareResult th:first-child, #compareResult td:first-child { position: sticky; left: 0; z-index: 1; min-width: 128px; background: var(--bg-card); border-right: 1px solid var(--border); }
+#compareResult th:first-child { background: var(--bg-elevated); }
+#compareResult th:not(:first-child), #compareResult td:not(:first-child) { min-width: 150px; }
 .status-badge { border-radius: 4px; font-size: 8px; padding: 4px 7px; }
 .rumor-card { border-radius: 12px; padding: 20px; background: var(--bg-card); border-color: var(--border); }
 .rumor-title { font-size: 13px; overflow-wrap: anywhere; }

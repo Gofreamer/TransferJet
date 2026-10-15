@@ -3,11 +3,12 @@
   const subscriptions = new Map();
   const errors = new Map();
 
-  function listen(group, db, path, receive) {
+  function listen(group, db, path, receive, onError) {
     const key = `${group}:${path}`;
     if (subscriptions.has(key)) return;
     const ref = db.ref(path);
     const callback = snap => {
+      if (subscriptions.get(key)?.callback !== callback) return;
       errors.delete(key);
       window.AppState.ui[`${group}Error`] = [...errors].find(([k]) => k.startsWith(group + ":"))?.[1] || null;
       receive(snap.val());
@@ -15,10 +16,12 @@
     };
     subscriptions.set(key, { ref, callback });
     ref.on("value", callback, error => {
+      if (subscriptions.get(key)?.callback !== callback) return;
       errors.set(key, error.message || "Falha ao carregar dados");
       window.AppState.ui[`${group}Error`] = errors.get(key);
       // O Firebase remove listeners cancelados; permite uma nova tentativa explícita.
       subscriptions.delete(key);
+      onError?.(error);
       updateConnectionStatus();
       document.dispatchEvent(new CustomEvent(`${group}:updated`));
     });
@@ -43,6 +46,19 @@
     }
   };
 
+  function stopGroup(group) {
+    subscriptions.forEach(({ ref, callback }, key) => {
+      if (key.startsWith(group + ":")) {
+        ref.off("value", callback);
+        subscriptions.delete(key);
+      }
+    });
+    for (const key of errors.keys()) if (key.startsWith(group + ":")) errors.delete(key);
+    window.AppState.ui[`${group}Error`] = null;
+  }
+
+  window.DataListeners = { listen, stopGroup };
+
   window.startMarketListeners = function () {
     const state = window.AppState;
     connection("market", window.marketDb);
@@ -65,6 +81,7 @@
     window.AppState.ui.marketError = null;
     window.AppState.ui.jetConnected = false;
     window.AppState.ui.marketConnected = false;
+    window.stopFantasyListeners?.();
     updateConnectionStatus();
   };
 })();

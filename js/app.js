@@ -90,6 +90,8 @@ function buildPlayerFromMarket(key, m, defaults = {}) {
     status,
     photo: m.photo || "",
     valueHistory: m.valueHistory || [],
+    valueEvents: m.valueEvents || {},
+    changeLog: m.changeLog || {},
     rank: m.rank || "—",
     functionRole: m.functionRole || defaults.functionRole || "",
     trophy: titlesTotal(titles),
@@ -99,14 +101,15 @@ function buildPlayerFromMarket(key, m, defaults = {}) {
     freeAgent: isFree,
     retired: !!fx.isRetired,
     canTransfer: fx.canTransfer !== false,
-    fantasyEligible: fx.fantasyEligible !== false,
+    fantasyEligible: fx.fantasyEligible !== false && m.fantasyEligible !== false,
     stats: {
       P: st.P ?? 0,
       V: st.V ?? 0,
       D: st.D ?? 0,
       winRate: st.winRate ?? (st.P ? st.V / st.P : 0)
     },
-    statsRound: m.statsRound || ""
+    statsRound: m.statsRound || "",
+    statsSeason: m.statsSeason || ""
   };
 }
 
@@ -387,21 +390,10 @@ function renderPlayers() {
   if (clubFilter) {
     const current = clubFilter.value;
     clubFilter.innerHTML = `<option value="">Todos os times</option>` +
-      clubs.map(c => `<option value="${c}" ${c === current ? "selected" : ""}>${c}</option>`).join("");
+      clubs.map(c => `<option value="${escapeHTML(c)}" ${c === current ? "selected" : ""}>${escapeHTML(c)}</option>`).join("");
   }
 
-  if (search) players = players.filter(p => p.name.toLowerCase().includes(search));
-  if (club) players = players.filter(p => p.club === club);
-  if (rankF) {
-    players = players.filter(p => {
-      const r = (p.rank || "").toLowerCase();
-      if (rankF === "Clandestino") return r.includes("clandestin");
-      if (rankF === "Especial") return r.includes("especial");
-      return r === rankF.toLowerCase() || r.includes(rankF.replace("Rank ", "").toLowerCase());
-    });
-  }
-  if (roleF === "livre") players = players.filter(p => p.freeAgent);
-  else if (roleF) players = players.filter(p => p.role === roleF && !p.freeAgent);
+  players = Market.filter(players, { search, club, rank: rankF, role: roleF, status: document.getElementById("playerStatusFilter")?.value || "" });
   if (valueF) {
     players = players.filter(p => {
       const v = p.marketValue || 0;
@@ -417,7 +409,13 @@ function renderPlayers() {
   if (sort === "value-desc") players.sort((a, b) => (b.marketValue || 0) - (a.marketValue || 0));
   else if (sort === "value-asc") players.sort((a, b) => (a.marketValue || 0) - (b.marketValue || 0));
   else if (sort === "wr-desc") players.sort((a, b) => (b.stats?.winRate || 0) - (a.stats?.winRate || 0));
-  else players.sort((a, b) => a.name.localeCompare(b.name));
+  else if (sort === "change-desc" || sort === "change-asc") {
+    players.sort((a, b) => {
+      const av = Market.variation(a), bv = Market.variation(b);
+      if (!av || !bv) return !av && !bv ? a.name.localeCompare(b.name) : !av ? 1 : -1;
+      return sort === "change-desc" ? bv.diff - av.diff : av.diff - bv.diff;
+    });
+  } else players.sort((a, b) => a.name.localeCompare(b.name));
 
   const countEl = document.getElementById("playersCount");
   if (countEl) countEl.textContent = players.length;
@@ -439,6 +437,7 @@ function renderPlayers() {
           <div class="card-title">${escapeHTML(p.name)}</div>
           <div class="card-sub">${escapeHTML(p.club)} · ${escapeHTML(p.rank || "—")}${p.stats?.P ? ` · ${p.stats.V}V-${p.stats.D}D (${wr})` : ""}</div>
           <div class="card-value">${p.marketValue ? formatUSD(p.marketValue, true) : '<span style="color:var(--text-muted);font-size:0.85rem">Sem valor</span>'}</div>
+          ${MarketUI.movementMarkup(p)}
           <div class="card-meta">
             <span class="tag ${escapeHTML(p.role)}">${roleLabel(p.role)}</span>
             ${typeof renderAgentStatusBadge === "function" ? renderAgentStatusBadge(p.status) : ""}
@@ -596,29 +595,35 @@ function renderCompare() {
   const result = document.getElementById("compareResult");
   if (!result) return;
 
-  if (keys.length < 2) {
-    result.innerHTML = `<p class="empty-state">Selecione pelo menos 2 agentes para comparar.</p>`;
+  if (keys.length < 2 || new Set(keys).size !== keys.length) {
+    result.innerHTML = `<p class="empty-state">Selecione de 2 a 3 agentes diferentes para comparar.</p>`;
     return;
   }
 
   const selected = keys.map(k => players.find(p => p.key === k)).filter(Boolean);
   const fields = [
-    { label: "Valor de Mercado", fn: p => p.marketValue ? formatUSD(p.marketValue) : "—", best: (a,b) => (a.marketValue||0) >= (b.marketValue||0) },
-    { label: "Pico de carreira", fn: p => p.peakValue ? formatUSD(p.peakValue, true) : "—", best: (a,b) => (a.peakValue||0) >= (b.peakValue||0) },
+    { label: "Valor de Mercado", fn: p => p.marketValue ? formatUSD(p.marketValue) : "—", metric: p => p.marketValue },
+    { label: "Pico de carreira", fn: p => p.peakValue ? formatUSD(p.peakValue, true) : "—", metric: p => p.peakValue },
     { label: "Rank", fn: p => p.rank || "—" },
     { label: "Equipe", fn: p => p.club },
     { label: "Função", fn: p => p.functionRole || roleLabel(p.role) },
     { label: "Partidas (P)", fn: p => p.stats?.P ?? "—" },
     { label: "Vitórias (V)", fn: p => p.stats?.V ?? "—" },
     { label: "Derrotas (D)", fn: p => p.stats?.D ?? "—" },
-    { label: "Win Rate", fn: p => p.stats?.P ? Math.round(p.stats.winRate * 100) + "%" : "—", best: (a,b) => (a.stats?.winRate||0) >= (b.stats?.winRate||0) },
+    { label: "Win Rate", fn: p => p.stats?.P ? Math.round(p.stats.winRate * 100) + "%" : "—", metric: p => p.stats?.P > 0 ? p.stats.winRate : null },
     { label: "Idade", fn: p => p.age || "—" },
     { label: "Nacionalidade", fn: p => p.nationality },
     { label: "Títulos", fn: p => { const t = p.titles || {}; const parts = []; if (t.nacional) parts.push("🥇"+t.nacional); if (t.lji) parts.push("🥈"+t.lji); if (t.mundial) parts.push("🏆"+t.mundial); if (t.eventoEspecial) parts.push("🏅"+t.eventoEspecial); return parts.length ? parts.join(" ") : "—"; } },
     { label: "Contrato até", fn: p => p.contractUntil },
+    { label: "Status", fn: p => agentStatusMeta(p.status).label },
+    { label: "Salário / temporada", fn: p => p.salary == null ? "—" : formatUSD(p.salary, true) },
+    { label: "Cláusula", fn: p => p.releaseClause == null ? "—" : formatUSD(p.releaseClause, true) },
+    { label: "Última alteração real", fn: p => Market.variation(p)?.text || "Sem registro" },
+    { label: "Transferências oficiais", fn: p => Object.values(window.AppState.market.transfers || {}).filter(t => Market.transferMatches(t, p, players)).length },
   ];
 
   result.innerHTML = `
+    <p class="market-note">Destaques comparam apenas métricas numéricas disponíveis. Em caso de empate, todos os maiores valores são destacados. No celular, deslize a tabela para ver os agentes lado a lado.</p>
     <div class="table-wrap">
       <table>
         <thead>
@@ -635,13 +640,10 @@ function renderCompare() {
         </thead>
         <tbody>
           ${fields.map(f => {
-            let bestIdx = 0;
-            if (f.best) {
-              selected.forEach((p, i) => { if (f.best(p, selected[bestIdx])) bestIdx = i; });
-            }
+            const winners = f.metric ? Market.compareWinners(selected, f.metric) : [];
             return `<tr>
               <td style="color:var(--text-muted);font-weight:600">${f.label}</td>
-              ${selected.map((p, i) => `<td style="text-align:center;font-weight:${f.best && i===bestIdx ? 700 : 400};color:${f.best && i===bestIdx ? "var(--cyan)" : "inherit"}">${f.fn(p)}</td>`).join("")}
+              ${selected.map((p, i) => `<td style="text-align:center;font-weight:${winners.includes(p.key) ? 700 : 400};color:${winners.includes(p.key) ? "var(--cyan)" : "inherit"}">${escapeHTML(f.fn(p))}</td>`).join("")}
             </tr>`;
           }).join("")}
         </tbody>
@@ -652,13 +654,15 @@ function renderCompare() {
 
 /* ========== CAREER HISTORY ========== */
 function getCareerHistory(playerKey, playerName, currentClub) {
+  const players = getAllPlayersFlat();
+  const player = players.find(p => p.key === playerKey) || { key: playerKey, id: "legacy:" + playerKey, name: playerName };
   const transfers = Object.values(window.AppState.market.transfers || {})
-    .filter(t => t.playerKey === playerKey || t.playerName === playerName)
+    .filter(t => Market.transferMatches(t, player, players))
     .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
 
   const timeline = [];
   if (transfers.length === 0) {
-    timeline.push({ club: currentClub, from: "Temporada 1", to: "Atual", fee: null });
+    timeline.push({ club: currentClub, from: "Sem início registrado", to: "Atual", fee: null });
     return timeline;
   }
 
@@ -676,6 +680,11 @@ function getCareerHistory(playerKey, playerName, currentClub) {
       type: t.type
     });
   });
+
+  if (timeline[timeline.length - 1].club !== currentClub) {
+    timeline[timeline.length - 1].to = "Último vínculo de transferência registrado";
+    timeline.push({ club: currentClub, from: "Início não registrado", to: "Atual", fee: null });
+  }
 
   return timeline;
 }
@@ -719,26 +728,9 @@ function renderRankings() {
         </tbody>
       </table></div>`;
   } else if (type === "players-gain" || type === "players-drop") {
-    const players = getAllPlayersFlat()
-      .filter(p => p.marketValue && p.peakValue && p.peakValue > 0)
-      .map(p => ({ ...p, diff: p.marketValue - p.peakValue, pct: ((p.marketValue - p.peakValue) / p.peakValue) * 100 }));
-    const sorted = type === "players-gain"
-      ? players.filter(p => p.diff >= 0).sort((a, b) => b.pct - a.pct)
-      : players.filter(p => p.diff < 0).sort((a, b) => a.pct - b.pct);
-    listEl.innerHTML = `
-      <div class="table-wrap"><table>
-        <thead><tr><th>#</th><th>Agente</th><th>Equipe</th><th>Valor</th><th>Pico</th><th>Variação</th></tr></thead>
-        <tbody>
-          ${sorted.map((p, i) => `<tr>
-            <td style="color:var(--text-muted);font-weight:700">#${i + 1}</td>
-            <td><span class="player-link" onclick="openPlayerProfile('${escapeInlineJsSingle(p.key)}')">${escapeHTML(p.name)}</span></td>
-            <td>${escapeHTML(p.club)}</td>
-            <td style="color:var(--cyan);font-weight:700">${formatUSD(p.marketValue, true)}</td>
-            <td>${formatUSD(p.peakValue, true)}</td>
-            <td class="variation ${p.diff >= 0 ? "up" : "down"}">${p.diff >= 0 ? "▲" : "▼"} ${Math.abs(p.pct).toFixed(1)}%</td>
-          </tr>`).join("")}
-        </tbody>
-      </table></div>`;
+    const rows = getAllPlayersFlat().map(p => ({ player: p, variation: Market.variation(p) })).filter(p => p.variation && (type === "players-gain" ? p.variation.diff > 0 : p.variation.diff < 0));
+    rows.sort((a, b) => type === "players-gain" ? b.variation.diff - a.variation.diff : a.variation.diff - b.variation.diff);
+    listEl.innerHTML = rows.length ? `<p class="market-note">Última alteração real por agente; estimativas e diferenças em relação ao pico não entram neste ranking.</p><div class="table-wrap"><table><thead><tr><th>Agente</th><th>Equipe</th><th>Antes</th><th>Atual</th><th>Variação</th><th>Data</th></tr></thead><tbody>${rows.map(({ player: p, variation: v }) => `<tr><td><span class="player-link" onclick="openPlayerProfile('${escapeInlineJsSingle(p.key)}')">${escapeHTML(p.name)}</span></td><td>${escapeHTML(p.club)}</td><td>${formatUSD(v.previousValue, true)}</td><td>${formatUSD(p.marketValue, true)}</td><td>${escapeHTML(v.text)}</td><td>${escapeHTML(new Date(v.at).toLocaleDateString("pt-BR"))}</td></tr>`).join("")}</tbody></table></div>` : '<p class="empty-state">Nenhuma variação real registrada para este ranking.</p>';
   } else if (type === "clubs-value") {
     const clubs = Object.keys(window.AppState.jet.rosters || {}).map(name => ({
       name,
@@ -790,10 +782,7 @@ function openPlayerProfile(key) {
   showView("player-profile");
 
   const content = document.getElementById("playerProfileContent");
-  const variation = p.peakValue ? formatVariation(p.marketValue, p.peakValue) : null;
-
-  // Monta histórico de valor para o gráfico (seed gera histórico sintético se não existir)
-  let history = p.valueHistory && p.valueHistory.length ? [...p.valueHistory] : buildSyntheticHistory(p);
+  const variation = Market.variation(p);
 
   content.innerHTML = `
     <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:20px">
@@ -830,7 +819,7 @@ function openPlayerProfile(key) {
       <div class="big-value">${p.marketValue ? formatUSD(p.marketValue) : "Sem valor definido"}</div>
       ${variation ? `
         <div class="variation-line ${variation.positive ? "up" : "down"}" style="color:${variation.positive ? "var(--green)" : "var(--red)"}">
-          ${variation.text} em relação ao pico
+          ${variation.text} na última alteração registrada
         </div>
       ` : ""}
       ${p.peakValue ? `<div style="margin-top:8px;font-size:0.85rem;color:var(--text-muted)">Maior valor da carreira: <strong style="color:var(--text)">${formatUSD(p.peakValue)}</strong></div>` : ""}
@@ -846,9 +835,7 @@ function openPlayerProfile(key) {
 
     <div class="section">
       <h2 class="section-h">Evolução do Valor</h2>
-      <div class="chart-container">
-        <canvas id="valueChart"></canvas>
-      </div>
+      ${MarketUI.historyMarkup(p)}
     </div>
 
     <div class="section">
@@ -890,15 +877,17 @@ function openPlayerProfile(key) {
     </div>
 
     <div class="section">
-      <h2 class="section-h">Histórico de Carreira</h2>
+      <h2 class="section-h">Transferências oficiais</h2>
+      ${MarketUI.transferTimeline(p)}
+      <h2 class="section-h">Histórico de clubes</h2>
       ${(() => {
         const career = getCareerHistory(p.key, p.name, p.club);
         return `<div class="table-wrap"><table>
           <thead><tr><th>Clube</th><th>Período</th><th>Taxa</th></tr></thead>
           <tbody>
             ${career.map(c => `<tr>
-              <td><strong>${c.club}</strong></td>
-              <td>${c.from} → ${c.to}</td>
+              <td><strong>${escapeHTML(c.club)}</strong></td>
+              <td>${escapeHTML(c.from)} → ${escapeHTML(c.to)}</td>
               <td>${c.fee != null ? formatUSD(c.fee, true) : "—"}</td>
             </tr>`).join("")}
           </tbody>
@@ -906,6 +895,7 @@ function openPlayerProfile(key) {
       })()}
     </div>
 
+    ${MarketUI.auditMarkup(p)}
     <div class="section">
       <h2 class="section-h">Informações</h2>
       <div class="kpi-row">
@@ -920,7 +910,7 @@ function openPlayerProfile(key) {
   `;
 
   // Render chart
-  requestAnimationFrame(() => renderValueChart(history));
+  requestAnimationFrame(() => MarketUI.renderHistory());
 }
 
 function copyPlayerLink(key) {
@@ -981,22 +971,13 @@ Não invente estatísticas. Tom profissional de mercado esportivo.`;
   }
 }
 
-function buildSyntheticHistory(p) {
-  if (!p.marketValue) return [];
-  const current = p.marketValue;
-  const peak = p.peakValue || current;
-  // Simula 4 temporadas de evolução
-  return [
-    { season: "Temporada 1", value: Math.round(current * 0.35) },
-    { season: "Temporada 2", value: Math.round(current * 0.55) },
-    { season: "Temporada 3", value: Math.round(Math.min(peak, current * 0.8)) },
-    { season: "Temporada 4", value: current }
-  ];
-}
-
 function renderValueChart(history) {
   const canvas = document.getElementById("valueChart");
   if (!canvas) return;
+  if (window._valueChartInstance) {
+    window._valueChartInstance.destroy();
+    window._valueChartInstance = null;
+  }
   if (typeof Chart === "undefined" || !history.length) {
     const fallback = document.createElement("div");
     fallback.className = "chart-state";
@@ -1010,9 +991,6 @@ function renderValueChart(history) {
     return;
   }
 
-  if (window._valueChartInstance) {
-    window._valueChartInstance.destroy();
-  }
   const styles = getComputedStyle(document.documentElement);
   const color = styles.getPropertyValue("--cyan").trim();
   const muted = styles.getPropertyValue("--text-muted").trim();
@@ -1021,7 +999,7 @@ function renderValueChart(history) {
   window._valueChartInstance = new Chart(canvas, {
     type: "line",
     data: {
-      labels: history.map(h => h.season),
+      labels: history.map(h => h.label || h.season),
       datasets: [{
         label: "Valor de Mercado",
         data: history.map(h => h.value),
@@ -1122,12 +1100,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
   if (typeof initTheme === "function") initTheme();
   if (typeof initAuth === "function") initAuth();
-  document.addEventListener("jet:updated", () => window.AppRouter.refresh());
+  document.addEventListener("jet:updated", () => window.AppRouter.requestRefresh("jet"));
   document.addEventListener("market:updated", () => {
     updateTransferWindowBadge();
-    window.AppRouter.refresh();
+    window.AppRouter.requestRefresh("market");
   });
-  document.addEventListener("fantasy:updated", () => queueMicrotask(() => window.AppRouter.refresh()));
+  document.addEventListener("fantasy:updated", () => window.AppRouter.requestRefresh("fantasy"));
   window.AppRouter.start();
   startJetListeners();
   startMarketListeners();
@@ -1137,7 +1115,7 @@ document.addEventListener("DOMContentLoaded", () => {
 document.addEventListener("theme:changed", () => {
   const player = window.AppState.ui.selectedPlayer;
   if (window.AppState.ui.currentView === "player-profile" && player) {
-    renderValueChart(player.valueHistory?.length ? player.valueHistory : buildSyntheticHistory(player));
+    MarketUI.renderHistory();
   }
 });
 
@@ -1148,13 +1126,3 @@ window.showView = showView;
 window.copyPlayerLink = copyPlayerLink;
 window.requestMarketAnalysis = requestMarketAnalysis;
 window.isTransferWindowOpen = isTransferWindowOpen;
-
-
-/* Boot Fantasy listeners */
-(function bootFantasy() {
-  function run() {
-    if (typeof startFantasyListeners === "function") startFantasyListeners();
-  }
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", run);
-  else run();
-})();

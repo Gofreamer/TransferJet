@@ -55,3 +55,43 @@ test('desconexão e acesso negado ficam explícitos; retry reinscreve somente o 
   connection.callback({ val: () => false });
   assert.equal(c.AppState.ui.marketConnected, false);
 });
+
+test('Fantasy carrega sob demanda, não duplica e participa do desligamento global', () => {
+  const { c, subscriptions, off } = setup();
+  load(c, 'js/features/fantasy/fantasy-state.js', 'js/features/fantasy/fantasy-data.js');
+  c.startJetListeners(); c.startMarketListeners();
+  assert.equal(subscriptions.length, 11);
+  c.startFantasyListeners(); c.startFantasyListeners();
+  assert.equal(subscriptions.length, 16);
+  c.stopDataListeners();
+  assert.equal(off(), 16);
+  assert.equal(c.ensureFantasyState().ui.listenersStarted, false);
+  c.startFantasyListeners();
+  assert.equal(subscriptions.length, 21);
+});
+
+test('Fantasy recupera somente a leitura cancelada e não esconde erros de outra coleção', () => {
+  const { c, subscriptions } = setup();
+  load(c, 'js/features/fantasy/fantasy-state.js', 'js/features/fantasy/fantasy-data.js');
+  c.startFantasyListeners();
+  subscriptions.find(s => s.path === 'fantasy/participants').cancel(Error('permission_denied'));
+  assert.match(c.ensureFantasyState().ui.lastError, /Não foi possível/);
+  subscriptions.find(s => s.path === 'fantasy/settings').callback({ val: () => ({}) });
+  assert.match(c.ensureFantasyState().ui.lastError, /Não foi possível/);
+  c.startFantasyListeners();
+  assert.equal(subscriptions.length, 6);
+  subscriptions.at(-1).callback({ val: () => ({ human: { displayName: 'Amigo' } }) });
+  assert.equal(c.ensureFantasyState().ui.lastError, null);
+  assert.equal(c.ensureFantasyState().participants.human.displayName, 'Amigo');
+});
+
+test('callbacks enfileirados de listeners desligados não sobrescrevem dados novos', () => {
+  const { c, subscriptions } = setup();
+  c.startMarketListeners(); const previous = subscriptions.find(s => s.path === 'players');
+  c.stopDataListeners(); c.startMarketListeners();
+  subscriptions.filter(s => s.path === 'players').at(-1).callback({ val: () => ({ new: {} }) });
+  previous.callback({ val: () => ({ obsolete: {} }) });
+  previous.cancel(Error('antigo'));
+  assert.equal(c.AppState.market.players.new !== undefined, true);
+  assert.equal(c.AppState.ui.marketError, null);
+});

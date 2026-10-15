@@ -28,6 +28,9 @@ const server = http.createServer(async (req, res) => {
     const target = path.resolve(root, file);
     if (!target.startsWith(root + path.sep)) throw Error('invalid path');
     let body = await fs.readFile(target, 'utf8');
+    if (file === 'js/services/ai.js') {
+      body += `\nwindow.marketGenerateWithAI = window.generateWithAI = async () => "IA de demonstração: esta prévia usa dados fictícios e não consulta o Gemini.";\nwindow.isAIReady = () => true;\nwindow.getLastAIError = () => null;`;
+    }
     if (file === 'index.html') {
       body = body.replace(/<script src="https:\/\/www\.gstatic\.com\/firebasejs\/[^\"]+firebase-app-compat\.js"><\/script>/, '<script src="/__demo/firebase.js"></script>')
         .replace(/<script src="https:\/\/www\.gstatic\.com\/firebasejs\/[^\"]+firebase-(database|auth)-compat\.js"><\/script>/g, '')

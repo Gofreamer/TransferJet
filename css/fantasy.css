@@ -259,3 +259,19 @@ body.fantasy-mode main.fx-hide-official > [id^="view-"] { display: none !importa
   .fx-squad-edit, .fx-squad-row, .fx-market-grid { grid-template-columns: 1fr; }
   .fx-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+/* Histórico oficial e filtros do mercado. */
+.fx-filters { flex-wrap: wrap; }
+.fx-filters > * { min-width: 0; max-width: 100%; }
+.fx-card .fx-hint { padding: 0 12px; overflow-wrap: anywhere; }
+.fx-btn:disabled { opacity: .55; cursor: not-allowed; }
+.fx-round-picker { display: flex; gap: 12px; align-items: center; margin: 16px 0; }
+.fx-round-picker select { max-width: 100%; }
+.fx-evolution { margin: 20px 0; padding: 16px; border: 1px solid var(--border); border-radius: 14px; color: var(--cyan, #48d5ed); }
+.fx-evolution svg { display: block; width: 100%; max-height: 180px; }
+.fx-evolution details, .fx-score-details { color: var(--text-primary, inherit); font-size: .85rem; }
+.fx-evolution summary, .fx-round-card summary { cursor: pointer; padding: 8px 0; }
+.fx-score-details > li { margin: 12px 0; }
+.fx-score-details ul { margin: 6px 0; padding-left: 18px; font-size: .8rem; }
+.fx-round-card { overflow-wrap: anywhere; }
+.fx-analysis { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 12px; }
+.fx-analysis p { white-space: pre-wrap; line-height: 1.6; }

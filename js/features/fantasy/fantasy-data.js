@@ -3,53 +3,32 @@ window.FANTASY = window.FANTASY || {};
 
 function startFantasyListeners() {
   const f = ensureFantasyState();
-  if (!window.marketDb) return;
-  if (f.ui.listenersStarted) return;
+  if (!window.marketDb || !window.DataListeners) return;
   f.ui.listenersStarted = true;
-
-  window.marketDb.ref("fantasy/settings").on("value", snap => {
-    const f = ensureFantasyState();
-    f.settings = { ...window.FANTASY.DEFAULTS, ...(snap.val() || {}) };
-    f.ui.connected = true;
-    document.dispatchEvent(new CustomEvent("fantasy:updated"));
-    if (f.active && typeof renderFantasyShell === "function") renderFantasyShell();
-  });
-
-  window.marketDb.ref("fantasy/participants").on("value", snap => {
-    const f = ensureFantasyState();
-    const raw = snap.val() || {};
-    const normalized = {};
-    Object.entries(raw).forEach(([id, participant]) => {
-      normalized[id] = typeof normalizeFantasyParticipant === "function"
-        ? normalizeFantasyParticipant(participant, id)
-        : participant;
+  const defaults = { settings: {}, participants: {}, rounds: {}, scores: {}, leaderboard: { byRound: {}, overall: {} } };
+  Object.keys(defaults).forEach(field => {
+    DataListeners.listen("fantasy", window.marketDb, "fantasy/" + field, value => {
+      const f = ensureFantasyState();
+      if (field === "settings") f.settings = { ...FANTASY.DEFAULTS, ...(value || {}) };
+      else if (field === "participants") f.participants = Object.fromEntries(Object.entries(value || {}).map(([id, p]) => [id, normalizeFantasyParticipant(p, id)]));
+      else f[field] = value || defaults[field];
+      f.ui[field + "Loaded"] = true;
+      f.ui.connected = !window.AppState.ui.fantasyError;
+      f.ui.lastError = window.AppState.ui.fantasyError ? "Não foi possível carregar parte dos dados do Fantasy." : null;
+      document.dispatchEvent(new CustomEvent("fantasy:updated"));
+    }, () => {
+      f.ui[field + "Loaded"] = true;
+      f.ui.connected = false;
+      f.ui.lastError = "Não foi possível carregar parte dos dados do Fantasy.";
     });
-    f.participants = normalized;
-    f.ui.participantsLoaded = true;
-    document.dispatchEvent(new CustomEvent("fantasy:updated"));
-    if (f.active && typeof renderFantasyShell === "function") renderFantasyShell();
-  }, error => {
-    const f = ensureFantasyState();
-    f.ui.participantsLoaded = true;
-    f.ui.lastError = "Não foi possível carregar os participantes do Fantasy.";
-    console.error("[Jet Fantasy] participants listener", error);
-    if (f.active && typeof renderFantasyShell === "function") renderFantasyShell();
   });
+}
 
-  window.marketDb.ref("fantasy/rounds").on("value", snap => {
-    ensureFantasyState().rounds = snap.val() || {};
-    document.dispatchEvent(new CustomEvent("fantasy:updated"));
-  });
-
-  window.marketDb.ref("fantasy/scores").on("value", snap => {
-    ensureFantasyState().scores = snap.val() || {};
-    document.dispatchEvent(new CustomEvent("fantasy:updated"));
-  });
-
-  window.marketDb.ref("fantasy/leaderboard").on("value", snap => {
-    ensureFantasyState().leaderboard = snap.val() || { byRound: {}, overall: {} };
-    document.dispatchEvent(new CustomEvent("fantasy:updated"));
-  });
+function stopFantasyListeners() {
+  window.DataListeners?.stopGroup("fantasy");
+  const f = ensureFantasyState();
+  f.ui.listenersStarted = false;
+  f.ui.connected = false;
 }
 
 function saveFantasySettings(partial) {
@@ -62,6 +41,25 @@ function saveFantasyParticipant(id, data) {
 
 function updateFantasyParticipant(id, partial) {
   return window.marketDb.ref("fantasy/participants/" + id).update(partial);
+}
+
+async function mutateFantasySquad(id, operation) {
+  const f = ensureFantasyState();
+  if (!id || id !== f.session.participantId) throw new Error("Entre no seu participante.");
+  const settings = (await window.marketDb.ref("fantasy/settings").once("value")).val();
+  f.settings = { ...window.FANTASY.DEFAULTS, ...(settings || {}) };
+  if (!isFantasyMarketOpen()) throw new Error("Mercado fechado");
+  let failure = "Participante não encontrado";
+  const result = await window.marketDb.ref("fantasy/participants/" + id).transaction(raw => {
+    if (!raw || !isFantasyMarketOpen()) { failure = "Mercado fechado ou participante indisponível"; return; }
+    const change = operation(normalizeFantasyParticipant(raw, id));
+    if (!change.ok) { failure = change.error; return; }
+    const { ok, replaced, ...fields } = change;
+    return { ...raw, ...fields };
+  });
+  if (!result.committed) throw new Error(failure);
+  f.participants[id] = normalizeFantasyParticipant(result.snapshot.val(), id);
+  return f.participants[id];
 }
 
 async function ensureFantasySeeded() {

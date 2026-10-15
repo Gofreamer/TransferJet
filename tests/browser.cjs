@@ -25,6 +25,7 @@ const root = path.resolve(__dirname, '..');
   try {
     browser = await chromium.launch({ headless: true, ...(process.env.TEST_BROWSER_PATH ? { executablePath: process.env.TEST_BROWSER_PATH } : {}) });
     async function scenario(name, run, config = {}, viewport = { width: 1280, height: 720 }) {
+      if (process.env.TEST_SCENARIO && !name.includes(process.env.TEST_SCENARIO)) return;
       const context = await browser.newContext({ viewport });
       const page = await context.newPage();
       page.setDefaultTimeout(10000);
@@ -40,6 +41,14 @@ const root = path.resolve(__dirname, '..');
         const url = route.request().url();
         if (url.startsWith(origin + '/')) return route.continue();
         if (url.includes('firebase-app-compat')) return route.fulfill({ contentType: 'text/javascript', body: `(${firebaseMock.toString()})();` });
+        if (config.aiMode && url.endsWith('/12.16.0/firebase-app.js')) return route.fulfill({
+          contentType: 'text/javascript', headers: { 'Access-Control-Allow-Origin': '*' },
+          body: `const apps=[]; export const getApps=()=>apps; export function initializeApp(config,name){const app={name};apps.push(app);return app;}`
+        });
+        if (config.aiMode && url.endsWith('/12.16.0/firebase-ai.js')) return route.fulfill({
+          contentType: 'text/javascript', headers: { 'Access-Control-Allow-Origin': '*' },
+          body: `export class GoogleAIBackend {} export const getAI=app=>app; export function getGenerativeModel(app,config){return {async generateContent(prompt,options){(window.__aiCalls||=[]).push({project:app.name,model:config.model}); await new Promise(resolve=>setTimeout(resolve,30)); if(window.__testConfig.aiMode==='quota') throw Error('429 RESOURCE_EXHAUSTED'); return {response:{text:()=> 'Análise simulada para revisão: Alice.'}};}};}`
+        });
         if (/firebase-(database|auth)-compat|chart\.umd|xlsx\.full/.test(url)) return route.fulfill({ contentType: 'text/javascript', body: '' });
         return route.abort();
       });
@@ -57,6 +66,7 @@ const root = path.resolve(__dirname, '..');
     async function ready(page, query = '') {
       await page.goto(origin + '/' + query);
       await page.waitForFunction(() => window.AppRouter && (window.AppState.ui.jetLoaded && window.AppState.ui.marketLoaded || window.__testConfig.offline || window.__testConfig.denied));
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     }
     async function view(page, name) {
       await page.waitForFunction(name => window.AppState.ui.currentView === name, name);
@@ -246,6 +256,8 @@ const root = path.resolve(__dirname, '..');
       await page.keyboard.press('Enter');
       await view(page, 'player-profile');
       await page.waitForSelector('.chart-state');
+      assert.equal(await page.locator('.chart-state strong').innerText(), 'Histórico ainda indisponível');
+      await page.locator('#historySource').selectOption('legacy');
       assert.equal(await page.locator('.chart-state strong').innerText(), 'O gráfico não carregou');
       await noOverflow(page);
       await screenshot(page, 'profile-light');
@@ -300,6 +312,299 @@ const root = path.resolve(__dirname, '..');
       await noOverflow(page);
       await screenshot(page, 'mobile-offline');
     }, { offline: true }, { width: 320, height: 740 });
+
+    await scenario('revisão administrativa salva dois valores reais sem reescrever histórico antigo', async page => {
+      await ready(page);
+      await page.evaluate(() => { openAdmin(); renderAdminPanel('values'); });
+      const row = page.locator('tr[data-key="Alpha_Alice"]');
+      await row.locator('[data-field="marketValue"]').fill('21000000');
+      await row.locator('button').click();
+      assert.equal(await page.locator('#marketEditDialog').isVisible(), true);
+      assert.equal(await page.evaluate(() => __writes.length), 0);
+      await page.locator('#marketCancelEdit').click();
+      assert.equal(await page.evaluate(() => __writes.length), 0);
+      await row.locator('button').click();
+      await page.locator('#marketConfirmEdit').click();
+      await page.waitForFunction(() => !document.getElementById('marketEditDialog').open);
+      await row.locator('[data-field="marketValue"]').fill('22000000');
+      await row.locator('button').click();
+      await page.locator('#marketConfirmEdit').click();
+      await page.waitForFunction(() => !document.getElementById('marketEditDialog').open);
+      assert.equal(await page.evaluate(() => Market.events(AppState.market.players.Alpha_Alice).length), 2);
+      assert.equal(await page.evaluate(() => AppState.market.players.Alpha_Alice.valueHistory.length), 2);
+      await page.evaluate(() => { closeAdmin(); openPlayerProfile('Alpha_Alice'); });
+      await page.waitForSelector('#marketHistoryRows tbody tr');
+      assert.equal(await page.locator('#marketHistoryRows tbody tr').count(), 2);
+      assert.match(await page.locator('.variation-line').innerText(), /última alteração registrada/);
+      await screenshot(page, 'market-history');
+      await page.locator('#historySource').selectOption('legacy');
+      assert.match(await page.locator('#historyOrigin').innerText(), /estimativas fictícias/);
+      await noOverflow(page);
+    }, { expectedWrites: 2 });
+
+    await scenario('filtros de status combinados e comparação com empates e agentes distintos', async page => {
+      await ready(page, '?view=players');
+      await page.evaluate(() => { __mockData.market.players.Alpha_Alice.status = 'suspenso'; __mockData.market.players.Beta_Bob.marketValue = 20000000; __mockEmit(); });
+      await page.locator('#playerSearch').fill('alice');
+      await page.locator('#playerClubFilter').selectOption('Alpha');
+      await page.locator('#playerRankFilter').selectOption('Rank A');
+      await page.locator('#playerStatusFilter').selectOption('suspenso');
+      await page.locator('#playerValueFilter').selectOption('20-30');
+      assert.equal(await page.locator('#playersList .card').count(), 1);
+      await page.locator('#playersList .card').click();
+      await page.goBack();
+      await view(page, 'players');
+      assert.equal(await page.locator('#playerStatusFilter').inputValue(), 'suspenso');
+      await page.evaluate(() => showView('compare'));
+      await page.locator('#compareA').selectOption('Alpha_Alice');
+      await page.locator('#compareB').selectOption('Beta_Bob');
+      assert.equal(await page.locator('#compareResult tbody tr').first().locator('td[style*="700"]').count(), 2);
+      assert.match(await page.locator('#compareResult').innerText(), /Salário/);
+      await noOverflow(page);
+      await screenshot(page, 'market-compare');
+      assert.equal(await page.locator('#compareResult .table-wrap').evaluate(el => { el.scrollLeft = el.scrollWidth; return el.scrollLeft > 0; }), true);
+      await page.locator('#compareC').selectOption('Alpha_Alice');
+      assert.match(await page.locator('#compareResult').innerText(), /diferentes/);
+      await page.evaluate(() => showView('rankings'));
+      await page.locator('#rankingType').selectOption('players-gain');
+      assert.match(await page.locator('#rankingsList').innerText(), /Nenhuma variação real/);
+    }, {}, { width: 390, height: 844 });
+
+    await scenario('importação revisada mantém preços por padrão e conserva chave após renomear e transferir', async page => {
+      await ready(page);
+      await page.evaluate(() => { openAdmin(); renderAdminPanel('import'); });
+      assert.equal(await page.locator('input[name="importMode"]:checked').inputValue(), 'statsOnly');
+      await page.evaluate(() => {
+        const rows = calculateValuesFromRows([{ ID: 'legacy:Alpha_Alice', Equipe: 'Beta', Agente: 'Alicia', Rank: 'Rank A', P: 10, V: 8, D: 2 }]);
+        showImportReviewModal(rows, 'statsOnly');
+      });
+      await page.locator('#aiReviewModal .btn-primary').click();
+      await page.waitForFunction(() => __writes.length === 1);
+      assert.equal(await page.evaluate(() => AppState.market.players.Alpha_Alice.marketValue), 20000000);
+      assert.equal(await page.evaluate(() => AppState.market.players.Alpha_Alice.name), 'Alicia');
+      assert.equal(await page.evaluate(() => AppState.market.players.Beta_Alicia), undefined);
+      await page.evaluate(() => {
+        const rows = calculateValuesFromRows([{ ID: 'legacy:Alpha_Alice', Equipe: 'Beta', Agente: 'Alicia', Rank: 'Rank A', P: 10, V: 8, D: 2 }]);
+        showImportReviewModal(rows, 'full');
+      });
+      await page.locator('.imp-val').fill('33000000');
+      await page.locator('#aiReviewModal .btn-primary').click();
+      await page.waitForFunction(() => __writes.length === 2);
+      assert.equal(await page.evaluate(() => AppState.market.players.Alpha_Alice.marketValue), 33000000);
+      assert.equal(await page.evaluate(() => Market.events(AppState.market.players.Alpha_Alice).length), 1);
+      assert.equal(await page.evaluate(() => Market.events(AppState.market.players.Alpha_Alice)[0].source), 'import');
+    }, { expectedWrites: 2 });
+
+    await scenario('carreira considera somente transferências oficiais identificadas', async page => {
+      await ready(page, '?player=Alpha_Alice');
+      assert.equal(await page.locator('.transfer-timeline li').count(), 1);
+      assert.match(await page.locator('.transfer-timeline').innerText(), /Beta.*→.*Alpha/);
+      assert.doesNotMatch(await page.locator('.transfer-timeline').innerText(), /Gamma/);
+      await screenshot(page, 'market-timeline');
+    }, { transfers: {
+      t1: { playerId: 'legacy:Alpha_Alice', playerKey: 'Alpha_Alice', playerName: 'Alice', status: 'oficial', from: 'Beta', to: 'Alpha', fee: 1000000, date: '2026-01-01', season: 'T2' },
+      t2: { playerKey: 'Alpha_Alice', playerName: 'Alice', status: 'negociando', from: 'Alpha', to: 'Gamma', fee: 2000000, date: '2026-02-01' }
+    } });
+
+    await scenario('backup exporta JSON e restaura apenas registro ausente, sem sobrescrever existente', async page => {
+      await ready(page);
+      await page.evaluate(() => { openAdmin(); renderAdminPanel('backup'); });
+      const downloadPromise = page.waitForEvent('download');
+      await page.getByRole('button', { name: 'Baixar backup JSON' }).click();
+      const download = await downloadPromise;
+      const backup = JSON.parse(await fs.readFile(await download.path(), 'utf8'));
+      assert.equal(backup.format, 'transferjet-market');
+      assert.equal(backup.data.players.Alpha_Alice.marketValue, 20000000);
+      const file = { format: 'transferjet-market', version: 1, data: { players: {
+        Alpha_Alice: { name: 'Alice', marketValue: 1 },
+        New_Carol: { name: 'Carol', team: 'New', id: 'carol1', marketValue: 1500000, status: 'ativo' }
+      } } };
+      await page.locator('#marketBackupFile').setInputFiles({ name: 'backup.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(file)) });
+      await page.waitForSelector('#marketRestoreChoice');
+      await page.locator('#marketRestoreChoice').selectOption({ label: 'players/Alpha_Alice' });
+      await page.locator('#marketRestoreConfirm').click();
+      await page.waitForFunction(() => document.getElementById('marketRestoreResult').textContent.includes('já existe'));
+      assert.equal(await page.evaluate(() => __writes.length), 0);
+      await page.locator('#marketRestoreChoice').selectOption({ label: 'players/New_Carol' });
+      await page.locator('#marketRestoreConfirm').click();
+      await page.waitForFunction(() => __writes.length === 1);
+      assert.equal(await page.evaluate(() => AppState.market.players.Alpha_Alice.marketValue), 20000000);
+      assert.equal(await page.evaluate(() => AppState.market.players.New_Carol.name), 'Carol');
+    }, { expectedWrites: 1 });
+
+    await scenario('Fantasy: filtros, compra, capitão, limite de equipe e troca com custo líquido', async page => {
+      await ready(page, '?fantasy=market');
+      await page.waitForSelector('#fxMarketGrid .fx-card');
+      await page.locator('#fxFilterRank').selectOption('Rank B');
+      assert.equal(await page.locator('#fxMarketGrid .fx-card').count(), 1);
+      await page.locator('#fxFilterMax').fill('50000');
+      assert.match(await page.locator('#fxMarketGrid').innerText(), /Nenhum agente/);
+      await page.locator('#fxFilterMax').fill('');
+      await page.locator('#fxFilterRank').selectOption('');
+      const alice = page.locator('#fxMarketGrid [data-key="Alpha_Alice"]');
+      await alice.getByRole('button', { name: 'Escalar', exact: true }).click();
+      await page.waitForFunction(() => AppState.fantasy.participants.human1.squad.starters[0] === 'Alpha_Alice');
+      assert.equal(await page.evaluate(() => getMyFantasyParticipant().budgetRemaining), 3000000);
+      await page.evaluate(() => fxCaptain('Alpha_Alice'));
+      assert.equal(await page.evaluate(() => getMyFantasyParticipant().squad.captainKey), 'Alpha_Alice');
+      await page.locator('#fxMarketGrid [data-key="Alpha_Agent 0"]').getByRole('button', { name: 'Escalar', exact: true }).click();
+      await page.waitForFunction(() => getMyFantasyParticipant().squad.starters[1] === 'Alpha_Agent 0');
+      await page.waitForFunction(() => !window._fxSquadBusy);
+      const blocked = page.locator('#fxMarketGrid [data-key="Alpha_Agent 1"]');
+      assert.equal(await blocked.getByRole('button', { name: 'Escalar', exact: true }).isDisabled(), true);
+      assert.match(await blocked.innerText(), /Máximo 2/);
+      await page.evaluate(() => fxOpenMarketForSlot(0));
+      assert.equal(await blocked.getByRole('button', { name: 'Escalar', exact: true }).isEnabled(), true);
+      assert.match(await blocked.innerText(), /Custo líquido/);
+      await page.locator('#fxFilterAvailability').selectOption('selected');
+      assert.equal(await page.locator('#fxMarketGrid .fx-card').count(), 2);
+      await screenshot(page, 'fantasy-market'); await noOverflow(page);
+    }, { expectedWrites: 3 });
+
+    const fantasyPlayers = {}; const fantasyRosters = {};
+    for (let i = 0; i < 9; i++) {
+      const club = 'Team ' + Math.floor(i / 2); const name = 'Agent ' + i;
+      (fantasyRosters[club] ||= []).push({ n: name, role: 'titular' });
+      fantasyPlayers[club + '_' + name] = { id: 'id' + i, name, team: club, marketValue: 1000000, status: 'ativo', rank: 'A' };
+    }
+    await scenario('Fantasy: fechamento oficial, revisão, confirmação repetida, ranking, histórico e análise revisada', async page => {
+      await ready(page, '?fantasy=squad');
+      await page.waitForFunction(() => AppState.fantasy.ui.participantsLoaded);
+      await page.evaluate(async () => {
+        const keys = Object.keys(__mockData.market.players);
+        __mockData.market.fantasy.participants.human1.squad = { starters: keys.slice(0,5), bench: keys[5], captainKey: keys[0] };
+        __mockData.market.fantasy.participants.human1.budgetRemaining = 4400000;
+        __mockData.market.fantasy.settings.geminiEnabled = false;
+        __mockData.jet.liga.matches = { m1: { temporada: 'T2', rodada: 1, timeA: 'Team 0', timeB: 'Team 1', scoreA: 2, scoreB: 0, fights: [{ teamA: ['Agent 0', 'Agent 1'], teamB: ['Agent 2', 'Agent 3'] }], seriesMvp: { agent: 'Agent 0' }, destaqueRodada: 'Agent 0' } };
+        __mockEmit();
+        await fxAdminCloseMarket();
+      });
+      assert.equal(await page.evaluate(() => __writes.length), 2);
+      assert.equal(await page.evaluate(() => __mockData.market.fantasy.rounds.r1.snapshot.participants.human1.valid), true);
+      await page.evaluate(async () => {
+        __mockData.market.players['Team 0_Agent 0'].name = 'Nome novo';
+        __mockData.market.players['Team 0_Agent 0'].team = 'Team 4';
+        __mockData.market.fantasy.participants.human1.squad.captainKey = 'Team 0_Agent 1';
+        __mockEmit(); await fxAdminPreviewProcess();
+      });
+      assert.equal(await page.locator('#aiReviewOverlay').evaluate(el => el.classList.contains('open')), true);
+      assert.match(await page.locator('#aiReviewBody').innerText(), /27/);
+      await page.evaluate(() => confirmAIReview());
+      await page.waitForFunction(() => __mockData.market.fantasy.rounds.r1.status === 'PROCESSED');
+      assert.equal(await page.evaluate(() => __writes.length), 4);
+      await page.evaluate(async () => { await fxAdminPreviewProcess(); await fxAdminOpenMarket(); await fxAdminCloseMarket(); });
+      assert.equal(await page.evaluate(() => __writes.length), 4);
+      await page.evaluate(() => showFantasyView('ranking'));
+      assert.match(await page.locator('.fx-rank-row.me').innerText(), /27/);
+      assert.equal(await page.locator('.fx-evolution svg').count(), 1);
+      await page.getByRole('button', { name: 'Rodada', exact: true }).click();
+      assert.equal(await page.locator('[aria-label="Rodada do ranking"]').inputValue(), 'r1');
+      await screenshot(page, 'fantasy-ranking');
+      await page.evaluate(() => showFantasyView('rounds'));
+      await page.locator('.fx-round-card summary').click();
+      assert.match(await page.locator('.fx-score-details').innerText(), /Agent 0/);
+      assert.equal(await page.locator('.fx-score-details').innerText().then(text => text.includes('Nome novo')), false);
+      await page.evaluate(() => fxAdminReviewAnalysis());
+      assert.equal(await page.locator('#fxAnalysisDraft').count(), 1);
+      assert.equal(await page.evaluate(() => __writes.length), 4, 'rascunho sem escrita');
+      await page.locator('#fxAnalysisDraft').fill('Análise revisada: Richard marcou 27 pontos.');
+      await page.evaluate(() => confirmAIReview());
+      await page.waitForFunction(() => __mockData.market.fantasy.rounds.r1.analysisCache?.source === 'reviewed');
+      await page.evaluate(() => showFantasyView('rounds'));
+      assert.match(await page.locator('.fx-analysis').innerText(), /Richard marcou 27/);
+      await noOverflow(page); await screenshot(page, 'fantasy-rounds');
+    }, { players: fantasyPlayers, rosters: fantasyRosters, expectedWrites: 5 }, { width: 390, height: 844 });
+
+    await scenario('Fantasy: agentes indisponíveis não aparecem e nomes especiais permanecem texto', async page => {
+      await ready(page, '?fantasy=market');
+      await page.waitForSelector('#fxMarketGrid .fx-card');
+      await page.evaluate(() => { __mockData.market.players.Alpha_Alice.status = 'suspenso'; __mockData.market.players.Beta_Bob.fantasyEligible = false; __mockEmit(); });
+      await page.waitForFunction(() => !document.querySelector('#fxMarketGrid [data-key="Alpha_Alice"]'));
+      assert.equal(await page.locator('#fxMarketGrid [data-key="Alpha_Alice"]').count(), 0);
+      assert.equal(await page.locator('#fxMarketGrid [data-key="Beta_Bob"]').count(), 0);
+      assert.equal(await page.evaluate(() => window.__xss || 0), 0);
+      await noOverflow(page);
+    }, { specialName: '<img src=x onerror="window.__xss=1">' }, { width: 320, height: 740 });
+
+    await scenario('Otimização: Fantasy sob demanda, atualizações agrupadas e nick preservado durante digitação', async page => {
+      await ready(page);
+      assert.equal(await page.evaluate(() => __mockSubscriptions.length), 11, 'Fantasy não lê ao abrir mercado');
+      await page.evaluate(() => {
+        window.__paints = 0; const refresh = AppRouter.refresh;
+        AppRouter.refresh = (...args) => { window.__paints++; return refresh(...args); };
+        for (let i=0; i<5; i++) document.dispatchEvent(new CustomEvent('fantasy:updated'));
+      });
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      assert.equal(await page.evaluate(() => __paints), 0, 'Fantasy inativo não redesenha o mercado');
+      await page.evaluate(() => { for (let i=0; i<10; i++) __mockEmit(); });
+      await page.waitForFunction(() => __paints === 1);
+      await page.evaluate(() => enterFantasyMode());
+      await page.waitForFunction(() => AppState.fantasy.ui.participantsLoaded);
+      await page.evaluate(() => fantasyLogout());
+      await page.locator('#fxLoginInput').fill('Richard');
+      await page.locator('#fxLoginInput').evaluate(el => { el.focus(); el.setSelectionRange(2,4); });
+      await page.evaluate(() => { window.__paints = 0; for (let i=0; i<10; i++) __mockEmit(); });
+      await page.waitForFunction(() => __paints === 1);
+      assert.equal(await page.locator('#fxLoginInput').inputValue(), 'Richard');
+      assert.deepEqual(await page.locator('#fxLoginInput').evaluate(el => [el === document.activeElement, el.selectionStart, el.selectionEnd]), [true, 2, 4]);
+      await page.locator('#fxContent').getByRole('button', { name: 'Entrar', exact: true }).click();
+      assert.equal(await page.evaluate(() => getMyFantasyParticipant().displayName), 'Richard');
+      await page.evaluate(() => { showFantasyView('market'); showFantasyView('squad'); });
+      assert.equal(await page.evaluate(() => __mockSubscriptions.length), 16);
+      await page.evaluate(() => stopDataListeners());
+      assert.equal(await page.evaluate(() => __mockSubscriptions.length), 0);
+    });
+
+    await scenario('Otimização: aba administrativa carrega Fantasy e preserva edição em andamento', async page => {
+      await ready(page);
+      await page.evaluate(() => { openAdmin(); renderAdminPanel('fantasy'); });
+      await page.waitForSelector('#fxBudget');
+      assert.equal(await page.evaluate(() => __mockSubscriptions.length), 16);
+      await page.locator('#fxBudget').fill('3500000');
+      await page.evaluate(() => __mockEmit());
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      assert.equal(await page.locator('#fxBudget').inputValue(), '3500000');
+      await page.evaluate(() => closeAdmin());
+    });
+
+    await scenario('Otimização: Fantasy informa leitura negada e recupera pelo botão sem duplicar listeners', async page => {
+      await ready(page, '?fantasy=hub');
+      await page.waitForSelector('#fxContent .fx-state-card');
+      assert.match(await page.locator('#fxContent').innerText(), /Não foi possível carregar/);
+      assert.equal(await page.evaluate(() => __mockSubscriptions.length), 15);
+      await page.evaluate(() => { __testConfig.fantasyDenied = false; });
+      await page.locator('#fxContent').getByRole('button', { name: 'Tentar novamente' }).click();
+      await page.waitForSelector('.fx-hub');
+      assert.equal(await page.evaluate(() => __mockSubscriptions.length), 16);
+      await noOverflow(page);
+    }, { fantasyDenied: true }, { width: 320, height: 740 });
+
+    await scenario('Otimização: Gemini compartilha chamada real do SDK simulado e exige revisão manual', async page => {
+      await ready(page, '?player=Alpha_Alice');
+      await page.evaluate(() => Promise.all([requestMarketAnalysis('Alpha_Alice'), requestMarketAnalysis('Alpha_Alice')]));
+      assert.equal(await page.evaluate(() => __aiCalls.length), 1);
+      assert.equal(await page.locator('#aiReviewOverlay').evaluate(el => el.classList.contains('open')), true);
+      assert.equal(await page.evaluate(() => __writes.length), 0);
+      await page.locator('#aiReviewOverlay').getByRole('button', { name: 'Cancelar', exact: true }).click();
+      assert.equal(await page.locator('#marketAnalysisText').innerText().then(text => text.includes('Análise simulada')), false);
+      await page.evaluate(() => requestMarketAnalysis('Alpha_Alice'));
+      await page.locator('#revAnalysisText').fill('Texto editado e revisado.');
+      await page.locator('#aiReviewOverlay').getByRole('button', { name: 'Confirmar e publicar', exact: true }).click();
+      assert.equal(await page.locator('#marketAnalysisText').innerText(), 'Texto editado e revisado.');
+      assert.equal(await page.evaluate(() => __aiCalls.length), 2);
+    }, { aiMode: 'success' });
+
+    await scenario('Otimização: quota Gemini tem mensagem clara e mantém o site navegável', async page => {
+      await ready(page, '?player=Alpha_Alice');
+      await page.evaluate(() => requestMarketAnalysis('Alpha_Alice'));
+      assert.match(await page.locator('#marketAnalysisText').innerText(), /Limite de uso/);
+      assert.equal(await page.evaluate(() => __aiCalls.length), 2);
+      await page.evaluate(() => requestMarketAnalysis('Alpha_Alice'));
+      assert.equal(await page.evaluate(() => __aiCalls.length), 2, 'pausa evita chamadas repetidas');
+      await page.evaluate(() => showView('players'));
+      await page.locator('#playerSearch').fill('Alice');
+      assert.equal(await page.locator('#playersList .card').count(), 1);
+    }, { aiMode: 'quota' });
 
     console.log(`${passed} cenários de navegador passaram. Rede externa bloqueada; escritas restritas ao mock.`);
   } finally {

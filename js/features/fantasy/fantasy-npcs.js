@@ -1,3 +1,10 @@
+function fantasyNpcSeed(key) {
+  const seed = `${fantasySettings().seasonId}|${fantasySettings().currentRoundId}|${key}`;
+  let hash = 2166136261;
+  for (const char of seed) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619) >>> 0;
+  return hash;
+}
+
 /* Jet Fantasy — 10 NPCs + escalação determinística (+ Gemini opcional) */
 window.FANTASY = window.FANTASY || {};
 
@@ -15,7 +22,7 @@ window.FANTASY.NPC_SEED = [
 ];
 
 function rankPlayersForStrategy(strategy, superfanTeam) {
-  let list = (typeof getAllPlayersFlat === "function" ? getAllPlayersFlat() : [])
+  let list = Object.values(fantasyPlayerMap())
     .filter(p => p.marketValue > 0 && p.club && p.club !== "Livre");
 
   const wr = p => p.stats?.winRate || 0;
@@ -54,7 +61,7 @@ function rankPlayersForStrategy(strategy, superfanTeam) {
       list.sort((a, b) => wr(b) - wr(a) || vol(b) - vol(a));
       break;
     case "chaos":
-      list = list.filter(p => val(p) < 2000000).sort(() => Math.random() - 0.5);
+      list = list.filter(p => val(p) < 2000000).sort((a, b) => fantasyNpcSeed(a.key) - fantasyNpcSeed(b.key) || a.key.localeCompare(b.key));
       break;
     case "balanced":
     default:
@@ -65,7 +72,7 @@ function rankPlayersForStrategy(strategy, superfanTeam) {
 
 /** Retorna os agentes elegíveis do Fantasy. */
 function fantasyEligiblePlayers() {
-  return (typeof getAllPlayersFlat === "function" ? getAllPlayersFlat() : [])
+  return Object.values(fantasyPlayerMap())
     .filter(p => p && p.key && Number(p.marketValue || 0) > 0 && p.club && p.club !== "Livre");
 }
 
@@ -258,7 +265,7 @@ function buildNpcAIContext() {
     ? getMatchesForRound(season, roundNumber)
     : [];
 
-  const agents = (typeof getAllPlayersFlat === "function" ? getAllPlayersFlat() : [])
+  const agents = Object.values(fantasyPlayerMap())
     .filter(p => p && p.key && p.marketValue > 0 && p.club && p.club !== "Livre")
     .map(p => ({
       key: p.key,
@@ -359,11 +366,7 @@ ${agentsText}
 Responda APENAS JSON válido, sem markdown e sem texto fora do JSON, neste formato:
 {"starters":["key1","key2","key3","key4","key5"],"bench":"key6","captainKey":"key1","comment":"comentário curto em português explicando a aposta"}`;
 
-    const timeoutMs = 18000;
-    const text = await Promise.race([
-      gen(prompt, "gemini-3.6-flash"),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout Gemini NPC")), timeoutMs))
-    ]);
+    const text = await gen(prompt, undefined, { timeoutMs: 18000 });
 
     const raw = String(text || "").trim();
     const m = raw.match(/\{[\s\S]*\}/);
