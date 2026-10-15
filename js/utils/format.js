@@ -1,5 +1,11 @@
 /* Jet Market — Formatadores */
 
+function escapeHTML(value) {
+  return String(value ?? "").replace(/[&<>"']/g, char => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;"
+  })[char]);
+}
+
 function formatUSD(value, compact = false) {
   if (value == null || isNaN(value)) return "—";
 
@@ -65,7 +71,7 @@ function agentStatusMeta(status) {
 function renderAgentStatusBadge(status) {
   if (!status || status === "ativo") return "";
   const m = agentStatusMeta(status);
-  return `<span class="tag agent-status-tag" style="background:${m.color}22;color:${m.color};border:1px solid ${m.color}44">${m.icon} ${m.label}</span>`;
+  return `<span class="tag agent-status-tag" style="background:${m.color}22;color:${m.color};border:1px solid ${m.color}44">${m.icon} ${escapeHTML(m.label)}</span>`;
 }
 
 /** Efeitos reais do status do agente no Market / UI / Fantasy */

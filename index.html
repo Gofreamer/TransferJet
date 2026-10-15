@@ -21,13 +21,13 @@
       <small class="version-pill">BETA</small>
     </div>
     <nav class="nav">
-      <a class="active" data-view="home" onclick="showView('home', this)">Visão Geral</a>
-      <a data-view="players" onclick="showView('players', this)">Agentes</a>
-      <a data-view="clubs" onclick="showView('clubs', this)">Equipes</a>
-      <a data-view="compare" onclick="showView('compare', this)">Comparar</a>
-      <a data-view="transfers" onclick="showView('transfers', this)">Transferências</a>
-      <a data-view="rumors" onclick="showView('rumors', this)">Rumores</a>
-      <a data-view="rankings" onclick="showView('rankings', this)">Rankings</a>
+      <a class="active" href="?view=home" data-view="home">Visão Geral</a>
+      <a href="?view=players" data-view="players">Agentes</a>
+      <a href="?view=clubs" data-view="clubs">Equipes</a>
+      <a href="?view=compare" data-view="compare">Comparar</a>
+      <a href="?view=transfers" data-view="transfers">Transferências</a>
+      <a href="?view=rumors" data-view="rumors">Rumores</a>
+      <a href="?view=rankings" data-view="rankings">Rankings</a>
       <button class="fx-entry-btn" onclick="enterFantasyMode()">Jet Fantasy</button>
       <a class="jc-entry-btn" href="https://forum-jet.pages.dev/" target="_blank" rel="noopener">Jet Cards</a>
       <button id="adminBtn" onclick="openAdmin()">Admin</button>
@@ -276,6 +276,7 @@
   <script src="./js/services/firebase.js"></script>
   <script src="./js/services/listeners.js"></script>
   <script src="./js/services/ai.js"></script>
+  <script src="./js/services/transfers.js"></script>
   <script src="./js/features/admin/admin.js"></script>
   <script src="./js/features/admin/admin-photos.js"></script>
   <script src="./js/features/fantasy/fantasy-state.js"></script>
@@ -288,5 +289,6 @@
   <script src="./js/features/fantasy/fantasy-admin.js"></script>
 
   <script src="./js/app.js"></script>
+  <script src="./js/core/router.js"></script>
 </body>
 </html>

@@ -26,9 +26,9 @@ function photoHTML(player, size = 48) {
   const initials = getPlayerInitials(player?.name);
   return `
     <div class="agent-photo" style="width:${size}px;height:${size}px;min-width:${size}px">
-      <img src="${url}" alt="${player?.name || ""}" loading="lazy"
+      <img src="${escapeHTML(url)}" alt="${escapeHTML(player?.name || "")}" loading="lazy"
            onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"/>
-      <span class="photo-fallback" style="display:none">${initials}</span>
+      <span class="photo-fallback" style="display:none">${escapeHTML(initials)}</span>
     </div>
   `;
 }

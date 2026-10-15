@@ -1,13 +1,13 @@
 /* Jet Fantasy — shell, navegação e views */
 
 function fxEscapeInlineKey(value) {
-  return String(value ?? "")
+  return fxEscapeHTML(String(value ?? "")
     .replace(/\\/g, "\\\\")
     .replace(/'/g, "\\'")
     .replace(/\r/g, "\\r")
     .replace(/\n/g, "\\n")
     .replace(/\u2028/g, "\\u2028")
-    .replace(/\u2029/g, "\\u2029");
+    .replace(/\u2029/g, "\\u2029"));
 }
 
 function fxEscapeHTML(value) {
@@ -63,9 +63,8 @@ function fxRenderFailure(container, error, view) {
 
 function fxOpenPlayerProfile(key) {
   if (!key) return;
-  exitFantasyMode();
   if (typeof openPlayerProfile === "function") {
-    setTimeout(() => openPlayerProfile(key), 0);
+    openPlayerProfile(key);
   }
 }
 window.FANTASY = window.FANTASY || {};
@@ -81,11 +80,11 @@ function enterFantasyMode() {
   document.querySelector(".hero")?.classList.add("fx-hide");
   document.querySelector("footer")?.classList.add("fx-hide");
   document.querySelector("main")?.classList.add("fx-hide-official");
-  ensureFantasySeeded().catch(() => {});
   renderFantasyShell();
 }
 
 function exitFantasyMode() {
+  clearTimeout(window._fxCountdownTimer);
   ensureFantasyState();
   window.AppState.fantasy.active = false;
   document.body.classList.remove("fantasy-mode", "market-open", "market-locked", "round-processed");
@@ -117,6 +116,7 @@ function showFantasyView(view) {
 }
 
 function renderFantasyShell() {
+  clearTimeout(window._fxCountdownTimer);
   const shell = document.getElementById("fantasyShell");
   if (!shell || !window.AppState.fantasy?.active) return;
   applyFantasyAtmosphere();
@@ -166,6 +166,7 @@ function startFxCountdown(iso) {
   const el = document.getElementById("fxCountdown");
   if (!el) return;
   function tick() {
+    if (!el.isConnected) return;
     const diff = new Date(iso).getTime() - Date.now();
     if (diff <= 0) {
       el.textContent = "Fechado";
@@ -176,7 +177,7 @@ function startFxCountdown(iso) {
     const m = Math.floor((diff % 3600000) / 60000);
     const sec = Math.floor((diff % 60000) / 1000);
     el.textContent = `Fecha em ${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(sec).padStart(2,"0")}`;
-    requestAnimationFrame(() => setTimeout(tick, 1000));
+    window._fxCountdownTimer = setTimeout(tick, 1000);
   }
   tick();
 }

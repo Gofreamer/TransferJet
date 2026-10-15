@@ -26,13 +26,13 @@ function showView(viewName, el) {
 
 
 function escapeInlineJsSingle(value) {
-  return String(value ?? "")
+  return escapeHTML(String(value ?? "")
     .replace(/\\/g, "\\\\")
     .replace(/'/g, "\\'")
     .replace(/\r/g, "\\r")
     .replace(/\n/g, "\\n")
     .replace(/\u2028/g, "\\u2028")
-    .replace(/\u2029/g, "\\u2029");
+    .replace(/\u2029/g, "\\u2029"));
 }
 
 /* ========== HELPERS DE DADOS ========== */
@@ -78,8 +78,9 @@ function buildPlayerFromMarket(key, m, defaults = {}) {
     || (isFree ? "Livre" : (key.split("_")[0] || "—"));
   return {
     key,
+    id: m.id || "legacy:" + key,
     name: m.name || defaults.name || key.split("_").slice(1).join("_") || key,
-    role: defaults.role || "titular",
+    role: defaults.role || m.role || "titular",
     club,
     marketValue: m.marketValue ?? null,
     peakValue: m.peakValue ?? null,
@@ -114,11 +115,18 @@ function getAllPlayersFlat() {
   const marketPlayers = window.AppState.market.players || {};
   const list = [];
   const seen = new Set();
+  const bindings = new Map();
+  Object.entries(marketPlayers).forEach(([key, m]) => {
+    if (m?.team && m.name) bindings.set(playerKey(m.team, m.name), key);
+  });
 
   for (const [club, agents] of Object.entries(rosters)) {
     (agents || []).forEach((p) => {
-      const key = playerKey(club, p.n);
+      // A chave antiga continua válida depois da transferência, inclusive no Fantasy.
+      const exactKey = playerKey(club, p.n);
+      const key = bindings.get(exactKey) || exactKey;
       const m = marketPlayers[key] || {};
+      if (seen.has(key) || (m.team && m.team !== club)) return;
       const status = (m.status || "ativo").toLowerCase();
       const fx = typeof agentStatusEffects === "function" ? agentStatusEffects(status) : {};
       // Aposentado/livre ainda no elenco da JL: tira do clube e trata como off-roster
@@ -145,7 +153,7 @@ function getAllPlayersFlat() {
     if (!m || seen.has(key)) return;
     const status = (m.status || "").toLowerCase();
     const fx = typeof agentStatusEffects === "function" ? agentStatusEffects(status) : {};
-    const include = !!m.freeAgent || fx.offRosterVisible || status === "livre" || status === "aposentado";
+    const include = !!m.team || !!m.freeAgent || fx.offRosterVisible || status === "livre" || status === "aposentado";
     if (!include) return;
 
     if (status === "aposentado" || fx.isRetired) {
@@ -154,6 +162,8 @@ function getAllPlayersFlat() {
         functionRole: m.functionRole || "Aposentado",
         status: "aposentado"
       }));
+    } else if (m.team && !m.freeAgent && !fx.isFree) {
+      list.push(buildPlayerFromMarket(key, m, { club: m.team }));
     } else {
       list.push(buildPlayerFromMarket(key, { ...m, status: status || "livre", freeAgent: true }, {
         club: "Livre",
@@ -180,8 +190,11 @@ function updateTransferWindowBadge() {
 }
 
 function getJetLeagueUrl() {
-  return (window.AppState.market.settings && window.AppState.market.settings.jetLeagueUrl) ||
-    "https://teste-jet.pages.dev";
+  const fallback = "https://teste-jet.pages.dev";
+  try {
+    const url = new URL(window.AppState.market.settings?.jetLeagueUrl || fallback);
+    return ["http:", "https:"].includes(url.protocol) ? url.href : fallback;
+  } catch (_) { return fallback; }
 }
 
 function getClubMarketValue(clubName) {
@@ -227,7 +240,7 @@ function renderHome() {
       feedItems.push({
         type: "transfer",
         date: t.date || "",
-        html: `<strong>${t.playerName}</strong> transferido: ${t.from} → <strong>${t.to}</strong> por ${formatUSD(t.fee, true)}`
+        html: `<strong>${escapeHTML(t.playerName)}</strong> transferido: ${escapeHTML(t.from)} → <strong>${escapeHTML(t.to)}</strong> por ${formatUSD(t.fee, true)}`
       });
     });
     rumors.filter(r => r.status !== "encerrada").forEach(r => {
@@ -235,7 +248,7 @@ function renderHome() {
       feedItems.push({
         type: "rumor",
         date: r.date || "",
-        html: `${st.icon} <strong>${r.interestedClub}</strong> interessado em <strong>${r.playerName}</strong> (${r.reliability}%)`
+        html: `${st.icon} <strong>${r.interestedClub}</strong> interessado em <strong>${escapeHTML(r.playerName)}</strong> (${r.reliability}%)`
       });
     });
     // Top valued as "destaque"
@@ -244,7 +257,7 @@ function renderHome() {
       feedItems.push({
         type: "value",
         date: "9999",
-        html: `💎 <strong>${p.name}</strong> (${p.club}) valorizado em ${formatUSD(p.marketValue, true)}`
+        html: `💎 <strong>${escapeHTML(p.name)}</strong> (${escapeHTML(p.club)}) valorizado em ${formatUSD(p.marketValue, true)}`
       });
     });
     feedItems.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
@@ -274,8 +287,8 @@ function renderHome() {
             ${recent.map(t => {
               const st = statusLabel(t.status);
               return `<tr>
-                <td><span class="player-link" onclick="openPlayerProfile('${escapeInlineJsSingle(t.playerKey)}')">${t.playerName}</span></td>
-                <td>${t.from} → <strong>${t.to}</strong></td>
+                <td><span class="player-link" onclick="openPlayerProfile('${escapeInlineJsSingle(t.playerKey)}')">${escapeHTML(t.playerName)}</span></td>
+                <td>${escapeHTML(t.from)} → <strong>${escapeHTML(t.to)}</strong></td>
                 <td style="color:var(--cyan);font-weight:700">${formatUSD(t.fee, true)}</td>
                 <td>${t.date || "—"}</td>
                 <td><span class="status-badge" style="background:${st.color}22;color:${st.color}">${st.icon} ${st.label}</span></td>
@@ -297,8 +310,8 @@ function renderHome() {
           ${byValue.map((p, i) => `
             <tr>
               <td style="color:var(--text-muted)">#${i + 1}</td>
-              <td><span class="player-link" onclick="openPlayerProfile('${escapeInlineJsSingle(p.key)}')">${p.name}</span></td>
-              <td>${p.club}</td>
+              <td><span class="player-link" onclick="openPlayerProfile('${escapeInlineJsSingle(p.key)}')">${escapeHTML(p.name)}</span></td>
+              <td>${escapeHTML(p.club)}</td>
               <td style="color:var(--cyan);font-weight:700">${formatUSD(p.marketValue, true)}</td>
             </tr>
           `).join("")}
@@ -328,8 +341,8 @@ function renderHome() {
       <thead><tr><th>Agente</th><th>Equipe</th><th>Valor</th></tr></thead>
       <tbody>
         ${top5.map(p => `<tr>
-          <td><span class="player-link" onclick="openPlayerProfile('${escapeInlineJsSingle(p.key)}')">${p.name}</span></td>
-          <td>${p.club}</td>
+          <td><span class="player-link" onclick="openPlayerProfile('${escapeInlineJsSingle(p.key)}')">${escapeHTML(p.name)}</span></td>
+          <td>${escapeHTML(p.club)}</td>
           <td class="variation up">${formatUSD(p.marketValue, true)}</td>
         </tr>`).join("")}
       </tbody>
@@ -342,8 +355,8 @@ function renderHome() {
       <thead><tr><th>Agente</th><th>Equipe</th><th>Valor</th></tr></thead>
       <tbody>
         ${bottom5.map(p => `<tr>
-          <td><span class="player-link" onclick="openPlayerProfile('${escapeInlineJsSingle(p.key)}')">${p.name}</span></td>
-          <td>${p.club}</td>
+          <td><span class="player-link" onclick="openPlayerProfile('${escapeInlineJsSingle(p.key)}')">${escapeHTML(p.name)}</span></td>
+          <td>${escapeHTML(p.club)}</td>
           <td class="variation down">${formatUSD(p.marketValue, true)}</td>
         </tr>`).join("")}
       </tbody>
@@ -361,7 +374,7 @@ function renderHome() {
       return `
         <div class="rumor-card">
           <div class="rumor-header">
-            <div class="rumor-title">${r.interestedClub} → ${r.playerName}</div>
+            <div class="rumor-title">${r.interestedClub} → ${escapeHTML(r.playerName)}</div>
             <span class="status-badge" style="background:${st.color}22;color:${st.color}">${st.icon} ${st.label}</span>
           </div>
           <div class="rumor-desc">${r.description}</div>
@@ -440,11 +453,11 @@ function renderPlayers() {
       <div class="card-with-photo">
         ${photoHTML(p, 52)}
         <div class="card-body">
-          <div class="card-title">${p.name}</div>
-          <div class="card-sub">${p.club} · ${p.rank || "—"}${p.stats?.P ? ` · ${p.stats.V}V-${p.stats.D}D (${wr})` : ""}</div>
+          <div class="card-title">${escapeHTML(p.name)}</div>
+          <div class="card-sub">${escapeHTML(p.club)} · ${escapeHTML(p.rank || "—")}${p.stats?.P ? ` · ${p.stats.V}V-${p.stats.D}D (${wr})` : ""}</div>
           <div class="card-value">${p.marketValue ? formatUSD(p.marketValue, true) : '<span style="color:var(--text-muted);font-size:0.85rem">Sem valor</span>'}</div>
           <div class="card-meta">
-            <span class="tag ${p.role}">${roleLabel(p.role)}</span>
+            <span class="tag ${escapeHTML(p.role)}">${roleLabel(p.role)}</span>
             ${typeof renderAgentStatusBadge === "function" ? renderAgentStatusBadge(p.status) : ""}
             ${renderTitlesBadges(p.titles)}
             ${p.functionRole && p.functionRole.includes("Capitão") ? `<span class="tag" style="background:rgba(0,229,255,0.15);color:var(--cyan)">Capitão</span>` : ""}
@@ -483,7 +496,7 @@ function renderClubs() {
 
   listEl.innerHTML = clubs.map((c, i) => `
     <div class="card" onclick="openClubProfile('${escapeInlineJsSingle(c.name)}')">
-      <div class="card-title">${c.name}</div>
+      <div class="card-title">${escapeHTML(c.name)}</div>
       <div class="card-sub">#${i + 1} em valor de mercado</div>
       <div class="card-value">${formatUSD(c.totalValue, true)}</div>
       <div class="card-meta">
@@ -491,7 +504,7 @@ function renderClubs() {
         <span class="tag">Média ${formatUSD(c.avg, true)}</span>
       </div>
       <div style="margin-top:8px;font-size:0.8rem;color:var(--text-muted)">
-        Mais valioso: <strong style="color:var(--text)">${c.topAgent}</strong>
+        Mais valioso: <strong style="color:var(--text)">${escapeHTML(c.topAgent)}</strong>
       </div>
     </div>
   `).join("");
@@ -531,9 +544,9 @@ function renderTransfers() {
           ${transfers.map(t => {
             const st = statusLabel(t.status);
             return `<tr>
-              <td><span class="player-link" onclick="openPlayerProfile('${escapeInlineJsSingle(t.playerKey)}')">${t.playerName}</span></td>
-              <td>${t.from}</td>
-              <td><strong>${t.to}</strong></td>
+              <td><span class="player-link" onclick="openPlayerProfile('${escapeInlineJsSingle(t.playerKey)}')">${escapeHTML(t.playerName)}</span></td>
+              <td>${escapeHTML(t.from)}</td>
+              <td><strong>${escapeHTML(t.to)}</strong></td>
               <td style="color:var(--cyan);font-weight:700">${formatUSD(t.fee)}</td>
               <td>${t.type || "—"}</td>
               <td>${t.date || "—"}</td>
@@ -563,7 +576,7 @@ function renderRumors() {
       <div class="rumor-card">
         <div class="rumor-header">
           <div>
-            <div class="rumor-title">${r.interestedClub} tem interesse em ${r.playerName}</div>
+            <div class="rumor-title">${r.interestedClub} tem interesse em ${escapeHTML(r.playerName)}</div>
             <div style="font-size:0.8rem;color:var(--text-muted);margin-top:2px">${r.currentClub} → ${r.interestedClub}</div>
           </div>
           <span class="status-badge" style="background:${st.color}22;color:${st.color}">${st.icon} ${st.label}</span>
@@ -582,7 +595,7 @@ function renderRumors() {
 /* ========== RENDER: COMPARE ========== */
 function renderCompare() {
   const players = getAllPlayersFlat().sort((a, b) => a.name.localeCompare(b.name));
-  const opts = players.map(p => `<option value="${p.key}">${p.name} (${p.club})</option>`).join("");
+  const opts = players.map(p => `<option value="${escapeHTML(p.key)}">${escapeHTML(p.name)} (${escapeHTML(p.club)})</option>`).join("");
 
   ["compareA", "compareB", "compareC"].forEach(id => {
     const el = document.getElementById(id);
@@ -631,8 +644,8 @@ function renderCompare() {
             ${selected.map(p => `<th style="text-align:center">
               <div style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:8px 0">
                 ${photoHTML(p, 48)}
-                <span class="player-link" onclick="openPlayerProfile('${escapeInlineJsSingle(p.key)}')">${p.name}</span>
-                <span style="font-size:0.75rem;color:var(--text-muted)">${p.club}</span>
+                <span class="player-link" onclick="openPlayerProfile('${escapeInlineJsSingle(p.key)}')">${escapeHTML(p.name)}</span>
+                <span style="font-size:0.75rem;color:var(--text-muted)">${escapeHTML(p.club)}</span>
               </div>
             </th>`).join("")}
           </tr>
@@ -698,9 +711,9 @@ function renderRankings() {
         <tbody>
           ${players.map((p, i) => `<tr>
             <td style="color:var(--text-muted);font-weight:700">#${i + 1}</td>
-            <td><span class="player-link" onclick="openPlayerProfile('${escapeInlineJsSingle(p.key)}')">${p.name}</span></td>
-            <td>${p.club}</td>
-            <td>${p.rank || "—"}</td>
+            <td><span class="player-link" onclick="openPlayerProfile('${escapeInlineJsSingle(p.key)}')">${escapeHTML(p.name)}</span></td>
+            <td>${escapeHTML(p.club)}</td>
+            <td>${escapeHTML(p.rank || "—")}</td>
             <td style="color:var(--cyan);font-weight:700">${formatUSD(p.marketValue)}</td>
             <td>${p.stats?.P ? Math.round(p.stats.winRate*100)+"%" : "—"}</td>
           </tr>`).join("")}
@@ -714,8 +727,8 @@ function renderRankings() {
         <tbody>
           ${players.map((p, i) => `<tr>
             <td style="color:var(--text-muted);font-weight:700">#${i + 1}</td>
-            <td><span class="player-link" onclick="openPlayerProfile('${escapeInlineJsSingle(p.key)}')">${p.name}</span></td>
-            <td>${p.club}</td>
+            <td><span class="player-link" onclick="openPlayerProfile('${escapeInlineJsSingle(p.key)}')">${escapeHTML(p.name)}</span></td>
+            <td>${escapeHTML(p.club)}</td>
             <td>${p.stats.P}-${p.stats.V}-${p.stats.D}</td>
             <td style="color:var(--green);font-weight:700">${Math.round(p.stats.winRate*100)}%</td>
             <td>${p.marketValue ? formatUSD(p.marketValue, true) : "—"}</td>
@@ -735,8 +748,8 @@ function renderRankings() {
         <tbody>
           ${sorted.map((p, i) => `<tr>
             <td style="color:var(--text-muted);font-weight:700">#${i + 1}</td>
-            <td><span class="player-link" onclick="openPlayerProfile('${escapeInlineJsSingle(p.key)}')">${p.name}</span></td>
-            <td>${p.club}</td>
+            <td><span class="player-link" onclick="openPlayerProfile('${escapeInlineJsSingle(p.key)}')">${escapeHTML(p.name)}</span></td>
+            <td>${escapeHTML(p.club)}</td>
             <td style="color:var(--cyan);font-weight:700">${formatUSD(p.marketValue, true)}</td>
             <td>${formatUSD(p.peakValue, true)}</td>
             <td class="variation ${p.diff >= 0 ? "up" : "down"}">${p.diff >= 0 ? "▲" : "▼"} ${Math.abs(p.pct).toFixed(1)}%</td>
@@ -756,7 +769,7 @@ function renderRankings() {
         <tbody>
           ${clubs.map((c, i) => `<tr>
             <td style="color:var(--text-muted);font-weight:700">#${i + 1}</td>
-            <td><span class="player-link" onclick="openClubProfile('${escapeInlineJsSingle(c.name)}')">${c.name}</span></td>
+            <td><span class="player-link" onclick="openClubProfile('${escapeInlineJsSingle(c.name)}')">${escapeHTML(c.name)}</span></td>
             <td style="color:var(--cyan);font-weight:700">${formatUSD(c.value)}</td>
             <td>${c.size}</td>
             <td>${formatUSD(c.size ? c.value / c.size : 0, true)}</td>
@@ -773,10 +786,10 @@ function renderRankings() {
         <tbody>
           ${transfers.map((t, i) => `<tr>
             <td style="color:var(--text-muted);font-weight:700">#${i + 1}</td>
-            <td>${t.playerName}</td>
-            <td>${t.from} → ${t.to}</td>
+            <td>${escapeHTML(t.playerName)}</td>
+            <td>${escapeHTML(t.from)} → ${escapeHTML(t.to)}</td>
             <td style="color:var(--cyan);font-weight:700">${formatUSD(t.fee)}</td>
-            <td>${t.season}</td>
+            <td>${escapeHTML(t.season)}</td>
           </tr>`).join("")}
         </tbody>
       </table></div>
@@ -799,32 +812,31 @@ function openPlayerProfile(key) {
   // Monta histórico de valor para o gráfico (seed gera histórico sintético se não existir)
   let history = p.valueHistory && p.valueHistory.length ? [...p.valueHistory] : buildSyntheticHistory(p);
 
-  const shareKey = encodeURIComponent(p.key);
   content.innerHTML = `
     <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:20px">
       <button onclick="showView('players')" style="background:none;border:1px solid var(--border);color:var(--text-muted);padding:6px 12px;border-radius:8px;cursor:pointer;font-size:0.85rem">
         ← Voltar para Agentes
       </button>
       <button class="share-btn" onclick="copyPlayerLink('${escapeInlineJsSingle(p.key)}')">🔗 Copiar link</button>
-      ${!p.freeAgent ? `<a class="ext-link" href="${getJetLeagueUrl()}" target="_blank" rel="noopener">Ver na Jet League ↗</a>` : ""}
+      ${!p.freeAgent ? `<a class="ext-link" href="${escapeHTML(getJetLeagueUrl())}" target="_blank" rel="noopener">Ver na Jet League ↗</a>` : ""}
       <button class="btn-ai btn-sm" onclick="requestMarketAnalysis('${escapeInlineJsSingle(p.key)}')">✨ Análise de mercado (IA)</button>
     </div>
 
     <div class="profile-header">
       <div class="profile-photo" style="padding:0;overflow:hidden">
-        <img src="${getPlayerPhoto(p)}" alt="${p.name}" style="width:100%;height:100%;object-fit:cover"
-             onerror="this.parentElement.innerHTML='${getPlayerInitials(p.name)}'"/>
+        <img src="${escapeHTML(getPlayerPhoto(p))}" alt="${escapeHTML(p.name)}" style="width:100%;height:100%;object-fit:cover"
+             onerror="this.parentElement.textContent='${escapeInlineJsSingle(getPlayerInitials(p.name))}'"/>
       </div>
       <div class="profile-info">
-        <h1>${p.name}</h1>
+        <h1>${escapeHTML(p.name)}</h1>
         <div class="profile-meta">
-          <span class="tag ${p.freeAgent ? "free-agent-tag" : ""}">${p.club}</span>
+          <span class="tag ${p.freeAgent ? "free-agent-tag" : ""}">${escapeHTML(p.club)}</span>
           ${typeof renderAgentStatusBadge === "function" ? renderAgentStatusBadge(p.status) : ""}
-          <span class="tag ${p.role}">${roleLabel(p.role)}</span>
-          <span class="tag">${p.rank || "—"}</span>
-          <span class="tag">${p.nationality}</span>
-          ${p.age ? `<span class="tag">${p.age} anos</span>` : ""}
-          <span class="tag">Contrato até ${p.contractUntil}</span>
+          <span class="tag ${escapeHTML(p.role)}">${roleLabel(p.role)}</span>
+          <span class="tag">${escapeHTML(p.rank || "—")}</span>
+          <span class="tag">${escapeHTML(p.nationality)}</span>
+          ${p.age ? `<span class="tag">${escapeHTML(p.age)} anos</span>` : ""}
+          <span class="tag">Contrato até ${escapeHTML(p.contractUntil)}</span>
           ${renderTitlesBadges(p.titles)}
         </div>
       </div>
@@ -883,14 +895,14 @@ function openPlayerProfile(key) {
     </div>
 
     <div class="section">
-      <h2 class="section-h">Performance ${p.statsRound ? `(${p.statsRound})` : ""}</h2>
+      <h2 class="section-h">Performance ${p.statsRound ? `(${escapeHTML(p.statsRound)})` : ""}</h2>
       <div class="kpi-row">
-        <div class="kpi"><div class="kpi-label">Rank</div><div class="kpi-value" style="font-size:1.1rem">${p.rank || "—"}</div></div>
+        <div class="kpi"><div class="kpi-label">Rank</div><div class="kpi-value" style="font-size:1.1rem">${escapeHTML(p.rank || "—")}</div></div>
         <div class="kpi"><div class="kpi-label">Partidas</div><div class="kpi-value" style="font-size:1.1rem">${p.stats?.P ?? "—"}</div></div>
         <div class="kpi"><div class="kpi-label">Vitórias</div><div class="kpi-value" style="font-size:1.1rem;color:var(--green)">${p.stats?.V ?? "—"}</div></div>
         <div class="kpi"><div class="kpi-label">Derrotas</div><div class="kpi-value" style="font-size:1.1rem;color:var(--red)">${p.stats?.D ?? "—"}</div></div>
         <div class="kpi"><div class="kpi-label">Win Rate</div><div class="kpi-value cyan" style="font-size:1.1rem">${p.stats?.P ? Math.round(p.stats.winRate*100)+"%" : "—"}</div></div>
-        <div class="kpi"><div class="kpi-label">Função</div><div class="kpi-value" style="font-size:1rem">${p.functionRole || roleLabel(p.role)}</div></div>
+        <div class="kpi"><div class="kpi-label">Função</div><div class="kpi-value" style="font-size:1rem">${escapeHTML(p.functionRole || roleLabel(p.role))}</div></div>
       </div>
     </div>
 
@@ -914,34 +926,26 @@ function openPlayerProfile(key) {
     <div class="section">
       <h2 class="section-h">Informações</h2>
       <div class="kpi-row">
-        <div class="kpi"><div class="kpi-label">Equipe Atual</div><div class="kpi-value" style="font-size:1.1rem">${p.club}</div></div>
-        <div class="kpi"><div class="kpi-label">Nacionalidade</div><div class="kpi-value" style="font-size:1.1rem">${p.nationality}</div></div>
+        <div class="kpi"><div class="kpi-label">Equipe Atual</div><div class="kpi-value" style="font-size:1.1rem">${escapeHTML(p.club)}</div></div>
+        <div class="kpi"><div class="kpi-label">Nacionalidade</div><div class="kpi-value" style="font-size:1.1rem">${escapeHTML(p.nationality)}</div></div>
         <div class="kpi"><div class="kpi-label">Idade</div><div class="kpi-value" style="font-size:1.1rem">${p.age || "—"}</div></div>
-        <div class="kpi"><div class="kpi-label">Contrato</div><div class="kpi-value" style="font-size:1.1rem">${p.contractUntil}</div></div>
+        <div class="kpi"><div class="kpi-label">Contrato</div><div class="kpi-value" style="font-size:1.1rem">${escapeHTML(p.contractUntil)}</div></div>
         <div class="kpi"><div class="kpi-label">Salário</div><div class="kpi-value" style="font-size:1rem">${p.salary != null ? formatUSD(p.salary, true) : "—"}</div></div>
         <div class="kpi"><div class="kpi-label">Cláusula</div><div class="kpi-value" style="font-size:1rem">${p.releaseClause != null ? formatUSD(p.releaseClause, true) : "—"}</div></div>
       </div>
     </div>
   `;
 
-  // Deep link na URL
-  try {
-    const url = new URL(window.location.href);
-    url.searchParams.set("player", p.key);
-    history.replaceState(null, "", url.toString());
-  } catch (_) {}
-
   // Render chart
   requestAnimationFrame(() => renderValueChart(history));
 }
 
 function copyPlayerLink(key) {
-  const url = new URL(window.location.href);
-  url.searchParams.set("player", key);
-  navigator.clipboard.writeText(url.toString()).then(() => {
+  const url = window.AppRouter.playerURL(key);
+  Promise.resolve().then(() => navigator.clipboard.writeText(url)).then(() => {
     alert("Link copiado!");
   }).catch(() => {
-    prompt("Copie o link:", url.toString());
+    prompt("Copie o link:", url);
   });
 }
 
@@ -1076,7 +1080,7 @@ function openClubProfile(clubName) {
       ← Voltar para Equipes
     </button>
 
-    <h1 style="font-size:1.6rem;font-weight:800;margin-bottom:8px">${clubName}</h1>
+    <h1 style="font-size:1.6rem;font-weight:800;margin-bottom:8px">${escapeHTML(clubName)}</h1>
     <div class="profile-meta" style="margin-bottom:24px">
       <span class="tag">${agents.length} agentes</span>
     </div>
@@ -1097,10 +1101,10 @@ function openClubProfile(clubName) {
             ${agents.map(p => `
               <tr>
                 <td style="width:44px">${photoHTML(p, 36)}</td>
-                <td><span class="player-link" onclick="openPlayerProfile('${escapeInlineJsSingle(p.key)}')">${p.name}</span></td>
-                <td><span class="tag ${p.role}">${roleLabel(p.role)}</span></td>
+                <td><span class="player-link" onclick="openPlayerProfile('${escapeInlineJsSingle(p.key)}')">${escapeHTML(p.name)}</span></td>
+                <td><span class="tag ${escapeHTML(p.role)}">${roleLabel(p.role)}</span></td>
                 <td style="color:var(--cyan);font-weight:700">${p.marketValue ? formatUSD(p.marketValue, true) : "—"}</td>
-                <td>${p.nationality}</td>
+                <td>${escapeHTML(p.nationality)}</td>
                 <td>${p.age || "—"}</td>
               </tr>
             `).join("")}
@@ -1116,52 +1120,16 @@ document.addEventListener("DOMContentLoaded", () => {
   console.log("[Jet Market] Iniciando...");
 
   if (typeof initTheme === "function") initTheme();
-  startJetListeners();
-  startMarketListeners();
   if (typeof initAuth === "function") initAuth();
-
-  // Deep link ?player=Key
-  try {
-    const params = new URLSearchParams(window.location.search);
-    const playerParam = params.get("player");
-    if (playerParam) {
-      window._pendingPlayerDeepLink = decodeURIComponent(playerParam);
-    }
-  } catch (_) {}
-
-  document.addEventListener("jet:updated", () => {
-    const view = window.AppState.ui.currentView;
-    if (view === "home") renderHome();
-    if (view === "players") renderPlayers();
-    if (view === "clubs") renderClubs();
-  });
-
+  document.addEventListener("jet:updated", () => window.AppRouter.refresh());
   document.addEventListener("market:updated", () => {
     updateTransferWindowBadge();
-    const view = window.AppState.ui.currentView;
-    if (view === "home") renderHome();
-    if (view === "players") renderPlayers();
-    if (view === "clubs") renderClubs();
-    if (view === "compare") renderCompare();
-    if (view === "transfers") renderTransfers();
-    if (view === "rumors") renderRumors();
-    if (view === "rankings") renderRankings();
-
-    if (window._pendingPlayerDeepLink) {
-      const key = window._pendingPlayerDeepLink;
-      window._pendingPlayerDeepLink = null;
-      setTimeout(() => openPlayerProfile(key), 300);
-    }
+    window.AppRouter.refresh();
   });
-
-  document.addEventListener("jet:updated", () => {
-    if (window._pendingPlayerDeepLink && Object.keys(window.AppState.jet.rosters || {}).length) {
-      const key = window._pendingPlayerDeepLink;
-      // wait also for market
-    }
-  });
-
-  renderHome();
+  document.addEventListener("fantasy:updated", () => queueMicrotask(() => window.AppRouter.refresh()));
+  window.AppRouter.start();
+  startJetListeners();
+  startMarketListeners();
   updateTransferWindowBadge();
 });
 

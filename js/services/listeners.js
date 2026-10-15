@@ -1,127 +1,84 @@
-/* Jet Market — Listeners (Jet League + Market) */
+/* Leituras idempotentes. Abrir o site nunca inicializa nem sobrescreve o banco. */
+(function () {
+  const subscriptions = new Map();
+  const errors = new Map();
 
-function startJetListeners() {
-  const state = window.AppState;
-
-  window.jetDb.ref(window.JET_PATHS.rosters).on("value", (snap) => {
-    state.jet.rosters = snap.val() || {};
-    state.jet.lastUpdated = Date.now();
-    state.ui.jetConnected = true;
-    document.dispatchEvent(new CustomEvent("jet:updated"));
-    updateConnectionStatus();
-  });
-
-  window.jetDb.ref(window.JET_PATHS.teams).on("value", (snap) => {
-    state.jet.teams = snap.val() || [];
-    document.dispatchEvent(new CustomEvent("jet:updated"));
-  });
-
-  window.jetDb.ref(window.JET_PATHS.currentSeason).on("value", (snap) => {
-    state.jet.currentSeason = snap.val() || "Temporada 1";
-    document.dispatchEvent(new CustomEvent("jet:updated"));
-  });
-
-  window.jetDb.ref(window.JET_PATHS.matches).on("value", (snap) => {
-    state.jet.matches = snap.val() || [];
-  });
-
-  window.jetDb.ref(window.JET_PATHS.hallOfFame).on("value", (snap) => {
-    state.jet.hallOfFame = snap.val() || {};
-  });
-}
-
-function startMarketListeners() {
-  const state = window.AppState;
-
-  window.marketDb.ref("players").on("value", (snap) => {
-    const data = snap.val();
-    if (!data || Object.keys(data).length === 0) {
-      // Se estiver vazio, faz seed automático dos valores fictícios
-      seedMarketData();
-      return;
-    }
-    state.market.players = data;
-    state.ui.marketConnected = true;
-    document.dispatchEvent(new CustomEvent("market:updated"));
-    updateConnectionStatus();
-  });
-
-  window.marketDb.ref("transfers").on("value", (snap) => {
-    state.market.transfers = snap.val() || {};
-    document.dispatchEvent(new CustomEvent("market:updated"));
-  });
-
-  window.marketDb.ref("rumors").on("value", (snap) => {
-    state.market.rumors = snap.val() || {};
-    document.dispatchEvent(new CustomEvent("market:updated"));
-  });
-
-  window.marketDb.ref("settings").on("value", (snap) => {
-    const s = snap.val();
-    state.market.settings = {
-      currency: "USD",
-      currencySymbol: "US$",
-      transferWindowOpen: false,
-      jetLeagueUrl: "https://teste-jet.pages.dev",
-      ...(state.market.settings || {}),
-      ...(s || {})
+  function listen(group, db, path, receive) {
+    const key = `${group}:${path}`;
+    if (subscriptions.has(key)) return;
+    const ref = db.ref(path);
+    const callback = snap => {
+      errors.delete(key);
+      window.AppState.ui[`${group}Error`] = [...errors].find(([k]) => k.startsWith(group + ":"))?.[1] || null;
+      receive(snap.val());
+      updateConnectionStatus();
     };
-    if (typeof updateTransferWindowBadge === "function") updateTransferWindowBadge();
-    document.dispatchEvent(new CustomEvent("market:updated"));
-  });
-}
+    subscriptions.set(key, { ref, callback });
+    ref.on("value", callback, error => {
+      errors.set(key, error.message || "Falha ao carregar dados");
+      window.AppState.ui[`${group}Error`] = errors.get(key);
+      // O Firebase remove listeners cancelados; permite uma nova tentativa explícita.
+      subscriptions.delete(key);
+      updateConnectionStatus();
+      document.dispatchEvent(new CustomEvent(`${group}:updated`));
+    });
+  }
 
-function seedMarketData() {
-  console.log("[Jet Market] Banco vazio → aplicando seed de valores fictícios...");
-  const updates = {
-    players: window.SEED_MARKET_PLAYERS,
-    transfers: window.SEED_TRANSFERS,
-    rumors: window.SEED_RUMORS,
-    settings: {
-      currency: "USD",
-      currencySymbol: "US$",
-      transferWindowOpen: false,
-      jetLeagueUrl: "https://teste-jet.pages.dev",
-      seededAt: Date.now(),
-      statsRound: "Rodada 12"
+  function connection(group, db) {
+    listen(group, db, ".info/connected", value => {
+      window.AppState.ui[`${group}Connected`] = value === true;
+    });
+  }
+
+  window.startJetListeners = function () {
+    const state = window.AppState;
+    connection("jet", window.jetDb);
+    for (const field of ["rosters", "teams", "currentSeason", "matches", "hallOfFame"]) {
+      listen("jet", window.jetDb, window.JET_PATHS[field], value => {
+        state.jet[field] = value || (field === "currentSeason" ? "Temporada 1" : field === "teams" || field === "matches" ? [] : {});
+        if (field === "rosters") state.ui.jetLoaded = true;
+        state.jet.lastUpdated = Date.now();
+        document.dispatchEvent(new CustomEvent("jet:updated"));
+      });
     }
   };
-  window.marketDb.ref().update(updates).then(() => {
-    console.log("[Jet Market] Seed aplicado com sucesso");
-  }).catch(err => {
-    console.error("[Jet Market] Erro ao aplicar seed:", err);
-    // Fallback local para visualização mesmo sem escrita
-    window.AppState.market.players = window.SEED_MARKET_PLAYERS;
-    window.AppState.market.transfers = window.SEED_TRANSFERS;
-    window.AppState.market.rumors = window.SEED_RUMORS;
-    window.AppState.ui.marketConnected = true;
-    document.dispatchEvent(new CustomEvent("market:updated"));
+
+  window.startMarketListeners = function () {
+    const state = window.AppState;
+    connection("market", window.marketDb);
+    for (const field of ["players", "transfers", "rumors", "settings"]) {
+      listen("market", window.marketDb, field, value => {
+        state.market[field] = field === "settings"
+          ? { currency: "USD", currencySymbol: "US$", transferWindowOpen: false, jetLeagueUrl: "https://teste-jet.pages.dev", ...(value || {}) }
+          : value || {};
+        if (field === "players") state.ui.marketLoaded = true;
+        document.dispatchEvent(new CustomEvent("market:updated"));
+      });
+    }
+  };
+
+  window.stopDataListeners = function () {
+    subscriptions.forEach(({ ref, callback }) => ref.off("value", callback));
+    subscriptions.clear();
+    errors.clear();
+    window.AppState.ui.jetError = null;
+    window.AppState.ui.marketError = null;
+    window.AppState.ui.jetConnected = false;
+    window.AppState.ui.marketConnected = false;
     updateConnectionStatus();
-  });
-}
+  };
+})();
 
 function updateConnectionStatus() {
   const el = document.getElementById("connectionStatus");
   if (!el) return;
-
-  const jetOk = window.AppState.ui.jetConnected;
-  const marketOk = window.AppState.ui.marketConnected;
-
-  if (jetOk && marketOk) {
-    el.innerHTML = `<span class="status-dot online"></span> Online`;
-    el.className = "connection-status online";
-    el.title = "Jet League + Market conectados";
-  } else if (jetOk) {
-    el.innerHTML = `<span class="status-dot partial"></span> Parcial`;
-    el.className = "connection-status partial";
-    el.title = "Jet League online · Market conectando";
-  } else {
-    el.innerHTML = `<span class="status-dot offline"></span> Offline`;
-    el.className = "connection-status offline";
-    el.title = "Conectando aos bancos...";
-  }
+  const ui = window.AppState.ui;
+  const jetOk = ui.jetConnected && !ui.jetError;
+  const marketOk = ui.marketConnected && !ui.marketError;
+  const status = jetOk && marketOk ? "online" : jetOk || marketOk ? "partial" : "offline";
+  el.innerHTML = `<span class="status-dot ${status}"></span> ${status === "online" ? "Online" : status === "partial" ? "Parcial" : "Offline"}`;
+  el.className = `connection-status ${status}`;
+  el.title = ui.jetError || ui.marketError || (status === "online" ? "Jet League + Market conectados" : "Aguardando conexão com Jet League e Market");
 }
 
-window.startJetListeners = startJetListeners;
-window.startMarketListeners = startMarketListeners;
 window.updateConnectionStatus = updateConnectionStatus;

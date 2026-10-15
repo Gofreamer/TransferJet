@@ -535,9 +535,9 @@ function renderAdminValues() {
           ${players.map(p => {
             const t = p.titles || {};
             return `
-            <tr data-key="${p.key}" data-name="${p.name.toLowerCase()}" data-club="${p.club}">
-              <td><strong>${p.name}</strong></td>
-              <td>${p.club}</td>
+            <tr data-key="${escapeHTML(p.key)}" data-name="${escapeHTML(p.name.toLowerCase())}" data-club="${escapeHTML(p.club)}">
+              <td><strong>${escapeHTML(p.name)}</strong></td>
+              <td>${escapeHTML(p.club)}</td>
               <td>
                 <select class="admin-input" data-field="rank" style="min-width:100px">
                   ${adminSelectOptions(ADMIN_RANK_OPTIONS, p.rank)}
@@ -623,7 +623,7 @@ function savePlayerRow(btn) {
 
   // Mantém valueHistory se existir
   const existing = window.AppState.market.players[key] || {};
-  const payload = { ...existing, ...data };
+  const payload = { ...data, id: existing.id || "legacy:" + key };
 
   // Status com efeito real: livre / aposentado / demais
   const st = String(data.status || existing.status || "ativo").toLowerCase();
@@ -642,17 +642,17 @@ function savePlayerRow(btn) {
   // Atualiza histórico de valor da temporada atual se o valor mudou
   const season = window.AppState.jet.currentSeason || "Temporada 1";
   if (data.marketValue != null) {
-    let history = payload.valueHistory || [];
+    let history = Array.isArray(existing.valueHistory) ? existing.valueHistory.map(h => ({ ...h })) : [];
     const idx = history.findIndex(h => h.season === season);
     if (idx >= 0) history[idx].value = data.marketValue;
     else history.push({ season, value: data.marketValue });
     payload.valueHistory = history;
-    if (!payload.peakValue || data.marketValue > payload.peakValue) {
+    if (data.marketValue > (data.peakValue ?? existing.peakValue ?? 0)) {
       payload.peakValue = data.marketValue;
     }
   }
 
-  window.marketDb.ref("players/" + key).set(payload)
+  return window.marketDb.ref("players/" + key).update(payload)
     .then(() => {
       btn.textContent = "✓";
       setTimeout(() => btn.textContent = "Salvar", 1200);
@@ -663,7 +663,7 @@ function savePlayerRow(btn) {
 /* ========== TRANSFERÊNCIAS ========== */
 function renderAdminTransfers() {
   const players = getAllPlayersFlat().sort((a, b) => a.name.localeCompare(b.name));
-  const clubs = Object.keys(window.AppState.jet.rosters || {}).sort();
+  const clubs = [...new Set([...Object.keys(window.AppState.jet.rosters || {}), ...players.map(p => p.club), "Livre"])].filter(c => c !== "Aposentado").sort();
   const el = document.getElementById("adminTabContent");
 
   el.innerHTML = `
@@ -673,7 +673,7 @@ function renderAdminTransfers() {
         <label>Agente</label>
         <select id="trPlayer">
           <option value="">Selecione...</option>
-          ${players.map(p => `<option value="${p.key}" data-name="${p.name}" data-club="${p.club}">${p.name} (${p.club})</option>`).join("")}
+          ${players.map(p => `<option value="${escapeHTML(p.key)}" data-name="${escapeHTML(p.name)}" data-club="${escapeHTML(p.club)}">${escapeHTML(p.name)} (${escapeHTML(p.club)})</option>`).join("")}
         </select>
       </div>
       <div>
@@ -769,14 +769,16 @@ function renderAdminTransfersList() {
   `;
 }
 
-function saveTransfer() {
+let transferSaving = false;
+async function saveTransfer() {
+  if (transferSaving) return;
   const playerSelect = document.getElementById("trPlayer");
   const opt = playerSelect.selectedOptions[0];
   if (!opt || !opt.value) return alert("Selecione o agente");
 
   const from = document.getElementById("trFrom").value;
   const to = document.getElementById("trTo").value;
-  const fee = Number(document.getElementById("trFee").value) || 0;
+  const fee = Number(document.getElementById("trFee").value);
   if (!from || !to) return alert("Preencha origem e destino");
 
   const status = document.getElementById("trStatus").value;
@@ -794,7 +796,6 @@ function saveTransfer() {
     }
   }
 
-  const id = "t" + Date.now();
   const payload = {
     playerKey: opt.value,
     playerName: opt.dataset.name,
@@ -805,67 +806,44 @@ function saveTransfer() {
     status
   };
 
-  window.marketDb.ref("transfers/" + id).set(payload)
-    .then(() => {
-      // Migra registro do Market (valor, títulos, histórico) para a nova key
-      if (status === "oficial") {
-        migrateMarketPlayerOnTransfer(opt.value, opt.dataset.name, from, to);
-      }
-      alert("Transferência registrada!");
-      if (status === "oficial" && confirm("Aplicar também no elenco da Jet League?\n(Requer permissão de escrita no Firebase da liga)")) {
-        syncTransferToJetLeague(payload);
-      }
-      renderAdminTransfers();
-    })
-    .catch(err => alert("Erro: " + err.message));
-}
-
-/** Move o registro do Market quando o agente troca de time (preserva valor, títulos, histórico). */
-function migrateMarketPlayerOnTransfer(oldKey, playerName, fromClub, toClub) {
-  const newKey = toClub + "_" + playerName;
-  if (oldKey === newKey) return Promise.resolve();
-
-  const existing = window.AppState.market.players[oldKey];
-  if (!existing) {
-    // Tenta achar por nome em qualquer key
-    const found = Object.entries(window.AppState.market.players || {}).find(([k, m]) => {
-      const n = (m.name || k.split("_").slice(1).join("_") || "").toLowerCase();
-      return n === playerName.toLowerCase();
-    });
-    if (!found) return Promise.resolve();
-    const [foundKey, foundData] = found;
-    if (foundKey === newKey) return Promise.resolve();
-    const payload = { ...foundData, name: playerName, team: toClub };
-    return window.marketDb.ref("players/" + newKey).set(payload)
-      .then(() => window.marketDb.ref("players/" + foundKey).remove());
-  }
-
-  const payload = { ...existing, name: playerName, team: toClub };
-  return window.marketDb.ref("players/" + newKey).set(payload)
-    .then(() => window.marketDb.ref("players/" + oldKey).remove())
-    .catch(err => console.warn("Migração Market falhou:", err));
-}
-
-function syncTransferToJetLeague(t) {
-  // Move player between rosters on Jet League DB (write)
-  window.jetDb.ref("liga/rosters").once("value").then(snap => {
-    const rosters = snap.val() || {};
-    const fromList = rosters[t.from] || [];
-    const idx = fromList.findIndex(p => p.n === t.playerName);
-    if (idx < 0) {
-      alert("Agente não encontrado no elenco de origem na Jet League.");
-      return;
+  transferSaving = true;
+  try {
+    await recordTransfer(payload, agent);
+    alert("Transferência registrada!");
+    if (status === "oficial" && confirm("Aplicar também no elenco da Jet League?\n(Requer permissão de escrita no Firebase da liga)")) {
+      await syncTransferToJetLeague(payload);
     }
-    const player = fromList.splice(idx, 1)[0];
-    if (!rosters[t.to]) rosters[t.to] = [];
-    rosters[t.to].push(player);
-    return window.jetDb.ref("liga/rosters").set(rosters);
-  }).then(() => {
-    if (arguments.length) alert("Elenco da Jet League atualizado!");
-  }).catch(err => {
-    alert("Não foi possível escrever na Jet League (regras de segurança).\n" + (err.message || ""));
-    console.error(err);
-  });
+    renderAdminTransfers();
+  } catch (err) {
+    alert("Erro ao registrar transferência: " + err.message);
+  } finally {
+    transferSaving = false;
+  }
+}
+
+async function syncTransferToJetLeague(t) {
+  try {
+    const ref = window.jetDb.ref("liga/rosters");
+    // Carrega o cache antes da transação; null local não deve abortar uma origem existente.
+    await ref.once("value");
+    const result = await ref.transaction(current => {
+      if (!current || t.from === t.to) return;
+      const rosters = JSON.parse(JSON.stringify(current));
+      const from = rosters[t.from] || [];
+      const to = rosters[t.to] || [];
+      const matches = from.filter(p => p.n === t.playerName);
+      if (matches.length !== 1 || to.some(p => p.n === t.playerName)) return;
+      rosters[t.from] = from.filter(p => p.n !== t.playerName);
+      if (t.to !== "Livre") rosters[t.to] = [...to, matches[0]];
+      return rosters;
+    }, undefined, false);
+    if (!result.committed) throw new Error("Origem ausente, duplicada ou agente já presente no destino.");
+    alert("Elenco da Jet League atualizado!");
+    return true;
+  } catch (err) {
+    alert("A transferência foi salva no Market, mas o elenco da Jet League não foi alterado.\n" + err.message);
+    return false;
+  }
 }
 
 function deleteTransfer(id) {
@@ -887,7 +865,7 @@ function renderAdminRumors() {
         <label>Agente</label>
         <select id="ruPlayer">
           <option value="">Selecione...</option>
-          ${players.map(p => `<option value="${p.key}" data-name="${p.name}" data-club="${p.club}">${p.name} (${p.club})</option>`).join("")}
+          ${players.map(p => `<option value="${escapeHTML(p.key)}" data-name="${escapeHTML(p.name)}" data-club="${escapeHTML(p.club)}">${escapeHTML(p.name)} (${escapeHTML(p.club)})</option>`).join("")}
         </select>
       </div>
       <div>

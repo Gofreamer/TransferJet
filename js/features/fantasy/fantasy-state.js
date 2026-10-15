@@ -53,12 +53,23 @@ function ensureFantasyState() {
       scores: {},
       leaderboard: { byRound: {}, overall: {} },
       session: {
-        participantId: localStorage.getItem("fantasyParticipantId") || null,
-        displayName: localStorage.getItem("fantasyDisplayName") || null
+        participantId: null,
+        displayName: null
       },
       ui: { view: "hub", connected: false },
       active: false
     };
+  }
+  const f = window.AppState.fantasy;
+  if (!f.ui.sessionRestored) {
+    // O estado base já existe no boot; a restauração também precisa acontecer aqui.
+    try {
+      f.session = {
+        participantId: localStorage.getItem("fantasyParticipantId") || null,
+        displayName: localStorage.getItem("fantasyDisplayName") || null
+      };
+    } catch (_) { /* O Fantasy também funciona com armazenamento local bloqueado. */ }
+    f.ui.sessionRestored = true;
   }
   return window.AppState.fantasy;
 }
@@ -130,13 +141,15 @@ function setFantasySession(participantId, displayName) {
   const f = ensureFantasyState();
   f.session.participantId = participantId;
   f.session.displayName = displayName;
-  if (participantId) {
-    localStorage.setItem("fantasyParticipantId", participantId);
-    localStorage.setItem("fantasyDisplayName", displayName || "");
-  } else {
-    localStorage.removeItem("fantasyParticipantId");
-    localStorage.removeItem("fantasyDisplayName");
-  }
+  try {
+    if (participantId) {
+      localStorage.setItem("fantasyParticipantId", participantId);
+      localStorage.setItem("fantasyDisplayName", displayName || "");
+    } else {
+      localStorage.removeItem("fantasyParticipantId");
+      localStorage.removeItem("fantasyDisplayName");
+    }
+  } catch (_) { /* Mantém a sessão em memória quando localStorage está indisponível. */ }
 }
 
 function fantasyPlayerMap() {
