@@ -127,6 +127,16 @@ Barlow Condensed hospedada em `assets/fonts/`, com [licença OFL do projeto orig
 
 Validação: **50 testes automatizados e 30 cenários Brave aprovados**, com rede externa bloqueada e Firebase simulado. Capturas em `test-results/premium/` (não versionadas); a prévia local também foi validada em desktop e celular. Não houve escrita em produção.
 
+### Edição administrativa dos perfis
+
+Administradores autenticados encontram **Editar agente** e **Editar equipe** nos perfis. Os editores têm categorias, revisão antes de salvar, cancelamento, registro de alterações e proteção contra edições simultâneas. Atualizações do Firebase preservam o formulário aberto.
+
+Contratos aceitam ciclos livres, datas opcionais, prazo indeterminado e ausência de contrato, mantendo os campos antigos. Passagens manuais aceitam equipes da liga, equipes externas e períodos livres, com ciclos ou datas incompletas. Ficam em `players/{chave}/careerHistory`, vinculadas à identidade permanente; editar essas passagens não muda o elenco, o Fantasy, os valores nem as transferências oficiais.
+
+A saída efetiva da liga é uma ação separada, revisada e confirmada. A remoção do elenco na Jet League exige outra confirmação explícita. Equipes externas não são criadas no banco da liga. Dados institucionais dos clubes ficam em `settings/clubProfiles/{chave}`, no Realtime Database do mercado, sem alterar o elenco sincronizado. As regras existentes continuam sendo `database.rules.json`; não há migração ou Firestore.
+
+Validação desta entrega: **62 testes automatizados e 35 cenários Brave aprovados**, incluindo edição e exclusão de passagem antiga, conflitos de gravação, contratos, saída internacional e perfil institucional no celular. Firebase simulado e rede externa bloqueada; nenhum dado de produção foi alterado. Para repetir os cenários dos editores, use `TEST_SCENARIO=Perfis:` com `npm run test:browser`.
+
 ## Jet Cards
 
 O módulo de cartinhas **não faz mais parte** deste repo.

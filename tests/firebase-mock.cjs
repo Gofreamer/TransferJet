@@ -89,6 +89,6 @@ module.exports = function firebaseMock() {
     apps: [],
     initializeApp(config, name = '[DEFAULT]') { const app = { name }; this.apps.push(app); return app; },
     database: app => db(app.name === 'jetLeague' ? 'jet' : 'market'),
-    auth: () => ({ onAuthStateChanged(callback) { callback(null); } })
+    auth: () => ({ onAuthStateChanged(callback) { window.__mockAuthChange = callback; callback(config.admin ? { uid: 'admin-fixture', email: 'admin@example.invalid' } : null); } })
   };
 };

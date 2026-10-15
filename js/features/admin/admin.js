@@ -3,6 +3,8 @@
 let isLogged = false;
 let currentUser = null;
 let auth = null;
+window.isMarketAdmin = () => !!(isLogged && currentUser?.email);
+window.getMarketAdminId = () => currentUser?.uid || null;
 
 function initAuth() {
   try {
@@ -13,6 +15,7 @@ function initAuth() {
       currentUser = user;
       isLogged = !!user;
       updateAdminButton();
+      window.AppRouter?.requestRefresh("auth");
     });
   } catch (e) {
     console.warn("Auth não disponível ainda", e);
@@ -460,7 +463,7 @@ const ADMIN_ROLE_OPTIONS = [
   "Capitão", "Membro", "Reserva", "R. Emergência", "Agente livre"
 ];
 const ADMIN_STATUS_OPTIONS = [
-  "ativo", "livre", "emprestado", "lesionado", "suspenso", "aposentado"
+  "ativo", "livre", "emprestado", "lesionado", "suspenso", "aposentado", "fora-liga"
 ];
 const ADMIN_CONTRACT_OPTIONS = [
   "Temporada 1", "Temporada 2", "Temporada 3", "Temporada 4",
@@ -533,9 +536,7 @@ function renderAdminValues() {
                 </select>
               </td>
               <td>
-                <select class="admin-input" data-field="contractUntil" style="min-width:120px">
-                  ${adminSelectOptions(ADMIN_CONTRACT_OPTIONS, p.contractUntil)}
-                </select>
+                <input class="admin-input" data-field="contractUntil" style="min-width:120px" value="${escapeHTML(p.contractUntil === "—" ? "" : p.contractUntil)}" placeholder="C.4 / temporada">
               </td>
               <td>
                 <select class="admin-input" data-field="status" style="min-width:100px">

@@ -49,6 +49,7 @@
   function createRecord(key, current, changes, meta, eventId) {
     if (!safeKey(key) || !safeKey(eventId)) throw Error("Identificador inválido.");
     current = current || {};
+    if (meta.playerId && (current.id || "legacy:" + key) !== meta.playerId) throw Error("A identidade do agente mudou. Reabra o editor.");
     if (Object.keys(changes).some(field => !safeKey(field) || ["id", "valueHistory", "valueEvents", "changeLog"].includes(field))) throw Error("Campo protegido na edição.");
     numeric.forEach(field => {
       if (changes[field] != null && (!Number.isFinite(changes[field]) || changes[field] < 0)) throw Error("Informe um valor válido para " + field + ".");
@@ -68,7 +69,7 @@
         previousValue: current.marketValue ?? null, value: next.marketValue, source: meta.source || "admin", playerId: next.id
       } };
     }
-    next.changeLog = { ...(current.changeLog || {}), [eventId]: { at, source: meta.source || "admin", changes: delta } };
+    next.changeLog = { ...(current.changeLog || {}), [eventId]: { at, source: meta.source || "admin", ...(meta.actor ? { actor: meta.actor } : {}), changes: delta } };
     return next;
   }
 

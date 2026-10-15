@@ -62,7 +62,8 @@ function agentStatusMeta(status) {
     emprestado:  { label: "Emprestado",  color: "#a78bfa", icon: "↔" },
     lesionado:   { label: "Lesionado",   color: "#f97316", icon: "+" },
     suspenso:    { label: "Suspenso",    color: "#ef4444", icon: "!" },
-    aposentado:  { label: "Aposentado",  color: "#94a3b8", icon: "◆" }
+    aposentado:  { label: "Aposentado",  color: "#94a3b8", icon: "◆" },
+    "fora-liga": { label: "Fora da liga", color: "#94a3b8", icon: "↗" }
   };
   const key = String(status || "ativo").toLowerCase();
   return map[key] || { label: status || "—", color: "#94a3b8", icon: "·" };

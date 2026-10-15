@@ -1,0 +1,58 @@
+#profileEditorDialog { width: min(850px, calc(100% - 28px)); max-height: calc(100dvh - 32px); margin: auto; padding: 0; border: 1px solid var(--border-light); border-top: 3px solid var(--cyan-dim); border-radius: 12px; background: var(--bg-card); color: var(--text); overflow-y: auto; box-shadow: 0 24px 90px #0008; }
+#profileEditorDialog::backdrop { background: #030916c9; backdrop-filter: blur(4px); }
+#profileEditorDialog [hidden] { display: none !important; }
+.pe-header { display: flex; justify-content: space-between; gap: 16px; padding: 23px 26px 20px; border-bottom: 1px solid var(--border); }
+.pe-header h2 { font: 700 30px/1.1 var(--display-font); margin-top: 8px; overflow-wrap: anywhere; }
+.pe-close { align-self: flex-start; border: 1px solid var(--border); background: var(--bg-elevated); color: var(--text); min-width: 40px; height: 40px; border-radius: 5px; font-size: 24px; }
+#peForm, #peReview { padding: 22px 26px; }
+.pe-tabs { display: flex; gap: 7px; flex-wrap: wrap; padding-bottom: 20px; }
+.pe-tabs button { border: 1px solid var(--border); color: var(--text-muted); background: var(--bg); padding: 9px 13px; min-height: 42px; border-radius: 6px; font-size: 12px; }
+.pe-tabs [aria-selected="true"] { border-color: var(--cyan-dim); color: var(--cyan); background: var(--cyan-glow); }
+.pe-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; }
+.pe-grid label { display: flex; flex-direction: column; gap: 7px; font-size: 12px; color: var(--text-muted); min-width: 0; }
+.pe-grid input, .pe-grid select, .pe-grid textarea { box-sizing: border-box; width: 100%; min-width: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); padding: 11px; font: inherit; min-height: 44px; }
+.pe-grid textarea { resize: vertical; }
+.pe-help { font-size: 12px; line-height: 1.8; color: var(--text-muted); margin-bottom: 20px; overflow-wrap: anywhere; }
+.pe-history-row { border: 1px solid var(--border); border-radius: 7px; padding: 18px; margin-bottom: 20px; }
+.pe-history-row legend { font-size: 13px; font-weight: 600; padding: 0 8px; }
+.pe-history-row .btn-danger { background: none; border: 1px solid var(--border); min-height: 40px; padding: 8px 12px; border-radius: 5px; margin-top: 16px; }
+.pe-footer { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 9px; padding: 16px 26px; border-top: 1px solid var(--border); background: var(--bg-card); }
+.pe-footer button { min-height: 44px; padding: 10px 14px; font-size: 12px; border-radius: 5px; }
+#peStatus { padding: 0 26px 16px; font-size: 12px; color: var(--cyan); }
+#peStatus:empty { display: none; }
+#peStatus[data-error="true"] { color: var(--red); }
+.pe-change { padding: 16px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.pe-change > div { display: grid; grid-template-columns: 65px minmax(0,1fr); margin-top: 9px; gap: 8px; }
+.pe-change span { font-size: 10px; color: var(--text-dim); text-transform: uppercase; }
+.pe-change p { overflow-wrap: anywhere; white-space: pre-wrap; color: var(--text-muted); }
+#profileFeedback { position: fixed; z-index: 150; bottom: 18px; right: 18px; max-width: min(450px,calc(100% - 36px)); padding: 14px 18px; border: 1px solid var(--border-light); background: var(--bg-card); color: var(--text); border-radius: 7px; box-shadow: var(--shadow); font-size: 12px; }
+.contract-summary { padding: 24px; border: 1px solid var(--border); border-left: 3px solid var(--cyan-dim); border-radius: 8px; background: var(--bg-card); margin-top: 20px; }
+.contract-summary .section-h { margin: 7px 0 18px; }
+.contract-summary dl { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 18px; }
+.contract-summary dt { font-size: 10px; color: var(--text-dim); }
+.contract-summary dd { font-size: 13px; margin: 5px 0 0; overflow-wrap: anywhere; }
+.profile-notes p { padding-top: 16px; font-size: 13px; line-height: 1.8; white-space: pre-wrap; }
+.affiliation-now { padding: 15px 0; font-size: 13px; color: var(--text-muted); }
+.career-table { min-width: 760px; }
+.career-table td { max-width: 280px; white-space: normal; overflow-wrap: anywhere; }
+.career-table small { display: block; color: var(--text-dim); margin-top: 4px; }
+.history-source { display: block; font-size: 9px; line-height: 1.7; }
+.history-source.manual { color: var(--purple); } .history-source.official { color: var(--green); } .history-source.current { color: var(--cyan); }
+.club-institution { margin: 24px 0; padding: 24px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg-card); overflow: hidden; }
+.club-institution-heading { display: flex; align-items: center; gap: 20px; margin: 20px 0; }
+.club-institution-heading .section-h { margin: 7px 0; }
+.club-cover { display: block; width: calc(100% + 48px); max-height: 250px; margin: -24px -24px 24px; object-fit: cover; }
+.club-crest { width: 88px; height: 88px; object-fit: contain; flex-shrink: 0; }
+.club-title-counts { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 12px; margin: 22px 0; }
+.club-title-counts > div { padding: 16px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; }
+.club-title-counts span { font-size: 11px; color: var(--text-muted); }
+.club-title-counts strong { display: block; font: 700 32px/1.2 var(--display-font); color: var(--gold); margin-top: 8px; }
+.club-facts { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 22px; margin: 24px 0; }
+.club-facts h3, .club-institution > h3, #peForm section > h3 { font: 700 24px/1.2 var(--display-font); margin: 18px 0 12px; }
+.club-facts p { font-size: 13px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
+.club-institution td { max-width: 300px; white-space: normal; overflow-wrap: anywhere; }
+.club-profile-audit { margin-top: 24px; font-size: 11px; color: var(--text-muted); }
+.club-profile-audit summary { cursor: pointer; }
+.club-profile-audit ul { padding: 15px; line-height: 1.8; }
+@media (max-width:600px) { .club-institution { padding:18px; } .club-facts { grid-template-columns:1fr; } .club-title-counts { grid-template-columns:1fr 1fr; } .club-cover { width:calc(100% + 36px); margin:-18px -18px 18px; } .club-institution-heading { align-items:flex-start; } .club-crest { width:60px; height:60px; } }
+@media (max-width: 600px) { .pe-header { padding: 20px 18px; } #peForm, #peReview { padding: 18px; } .pe-grid { grid-template-columns: minmax(0,1fr); gap: 14px; } .pe-footer { padding: 14px 18px; } .pe-header h2 { font-size: 25px; } .contract-summary dl { grid-template-columns: 1fr; } .pe-history-row { padding: 14px; } }

@@ -1,0 +1,208 @@
+/* O diálogo vive fora do perfil: listeners não substituem formulários em edição. */
+(function () {
+  const e = value => escapeHTML(value);
+  let session = null;
+  const labels = { name: "Nome", nationality: "Nacionalidade", age: "Idade", rank: "Rank", functionRole: "Função", photo: "Foto (URL)", status: "Status", contractMode: "Tipo de contrato", contractStart: "Ciclo / temporada inicial", contractStartDate: "Data inicial (opcional)", contractUntil: "Ciclo / temporada de vencimento", contractEndDate: "Data exata de vencimento (opcional)", salary: "Salário", releaseClause: "Cláusula de rescisão", bio: "Biografia", description: "Descrição adicional", notes: "Observações", titles: "Títulos", trophy: "Total de títulos", careerHistory: "Passagens manuais", team: "Equipe atual", freeAgent: "Agente livre", leagueExit: "Saída efetiva da liga" };
+  Object.assign(labels,{crest:"Brasão (URL)",cover:"Imagem de capa (URL)",founded:"Fundação (texto livre)",bestEra:"Melhor fase histórica",rivalries:"Rivalidades",legends:"Ídolos históricos",highlights:"Destaques históricos",placements:"Colocações",formerMembers:"Ex-membros e períodos"});
+  function dialog() { return document.getElementById("profileEditorDialog"); }
+  function field(name, value, type = "text", label = labels[name] || name, options) {
+    const content = options ? `<select data-field="${name}">${options.map(([key, text]) => `<option value="${e(key)}" ${String(value ?? "") === key ? "selected" : ""}>${e(text)}</option>`).join("")}</select>` : type === "textarea" ? `<textarea data-field="${name}" rows="3">${e(value)}</textarea>` : `<input data-field="${name}" type="${type}" value="${e(value)}" ${type === "number" ? 'min="0" step="any"' : ""}>`;
+    return `<label>${e(label)}${content}</label>`;
+  }
+  function notice(message, failed = false) {
+    const el = document.getElementById("peStatus");
+    if (el) { el.textContent = message; el.dataset.error = String(failed); }
+  }
+  function feedback(message) {
+    let el = document.getElementById("profileFeedback");
+    if (!el) { el = document.createElement("div"); el.id = "profileFeedback"; el.setAttribute("role", "status"); document.body.appendChild(el); }
+    el.textContent = message;
+  }
+  function setup(title, type, key, raw, visible) {
+    ProfileData.requireAdmin();
+    if (session) { if (!confirm("Fechar o rascunho atual sem salvar?")) return false; dialog().close(); }
+    session = { type, key, raw: ProfileData.clone(raw), visible, busy: false, historyOriginal: JSON.stringify(raw.careerHistory || {}) };
+    let el = dialog();
+    if (!el) {
+      el = document.createElement("dialog"); el.id = "profileEditorDialog"; el.setAttribute("aria-labelledby", "peTitle"); document.body.appendChild(el);
+      el.addEventListener("cancel", event => { event.preventDefault(); close(); });
+    }
+    el.innerHTML = `<div class="pe-header"><div><span class="eyebrow">ADMINISTRAÇÃO · PERFIL</span><h2 id="peTitle">${e(title)}</h2></div><button class="pe-close" data-action="close" aria-label="Fechar editor">×</button></div><div id="peForm"></div><section id="peReview" hidden></section><p id="peStatus" role="status" aria-live="polite"></p><div class="pe-footer"><button class="btn-gray" data-action="close">Cancelar</button><button class="btn-gray" id="peBack" data-action="back" hidden>Voltar à edição</button><button class="btn-primary" id="peReviewBtn" data-action="review">Revisar alterações</button><button class="btn-primary" id="peSaveBtn" data-action="save" hidden>Confirmar alterações</button></div>`;
+    return true;
+  }
+  function baseline() {
+    dialog().querySelectorAll("[data-field]").forEach(input => { input.dataset.initial = input.value; });
+    session.initialHistory = JSON.stringify(readHistory());
+    session.initialClubRows = readClubRows();
+  }
+  function collect() {
+    const input = {};
+    dialog().querySelectorAll("#peForm [data-field]").forEach(el => {
+      if (el.value === el.dataset.initial) return;
+      if (el.dataset.field.startsWith("title_")) { input.titles ||= {}; input.titles[el.dataset.field.slice(6)] = el.value; }
+      else input[el.dataset.field] = el.value;
+    });
+    return input;
+  }
+  function readHistory() {
+    return [...dialog().querySelectorAll(".pe-history-row:not(.pe-record-row)")].map(row => {
+      const entry = { id: row.dataset.id };
+      row.querySelectorAll("[data-history-field]").forEach(el => { entry[el.dataset.historyField] = el.value; });
+      return entry;
+    });
+  }
+  function changed() { return Object.keys(collect()).length || JSON.stringify(readHistory()) !== session.initialHistory || JSON.stringify(readClubRows()) !== JSON.stringify(session.initialClubRows); }
+  function close() {
+    if (!session || session.busy) return;
+    if (changed() && !confirm("Descartar as alterações deste rascunho? Os dados salvos serão preservados.")) return;
+    dialog().close(); session = null;
+  }
+  function teamInput(kind, name) {
+    if (kind === "free") return `<input data-history-field="teamName" value="Livre" readonly>`;
+    if (kind === "external") return `<input data-history-field="teamName" value="${e(name)}" placeholder="Nome da equipe internacional">`;
+    const teams = [...new Set([...Object.keys(AppState.jet.rosters || {}), ...(name ? [name] : [])])].sort();
+    return `<select data-history-field="teamName"><option value="">Selecione a equipe</option>${teams.map(team => `<option ${team === name ? "selected" : ""}>${e(team)}</option>`).join("")}</select>`;
+  }
+  function historyRow(id, row = {}) {
+    const kind = row.teamKind || "league";
+    const input = (key, label, type = "text") => `<label>${label}<input type="${type}" data-history-field="${key}" value="${e(row[key])}"></label>`;
+    return `<fieldset class="pe-history-row" data-id="${e(id)}"><legend>Passagem manual</legend><div class="pe-grid"><label>Tipo de equipe<select data-history-field="teamKind">${[["league","Equipe da Jet League"],["external","Equipe externa / internacional"],["free","Período como agente livre"]].map(([k,l]) => `<option value="${k}" ${k === kind ? "selected" : ""}>${l}</option>`).join("")}</select></label><label>Equipe<span class="pe-team-name">${teamInput(kind, row.teamName || "")}</span></label>${input("fromCycle", "Ciclo de entrada (opcional)")}${input("toCycle", "Ciclo de saída (opcional)")}${input("fromDate", "Data de entrada (opcional)", "date")}${input("toDate", "Data de saída (opcional)", "date")}${input("binding", "Tipo de vínculo (opcional)")}<label>Observações<textarea data-history-field="notes" rows="2">${e(row.notes)}</textarea></label></div><button type="button" class="btn-danger" data-action="remove-history">Remover passagem</button></fieldset>`;
+  }
+  function tab(name) {
+    dialog().querySelectorAll("[data-pane]").forEach(el => { el.hidden = el.dataset.pane !== name; });
+    dialog().querySelectorAll("[data-tab]").forEach(el => { el.setAttribute("aria-selected", String(el.dataset.tab === name)); });
+  }
+  function openAgent(key) {
+    try {
+      ProfileData.requireAdmin();
+      const p = getAllPlayersFlat().find(p => p.key === key);
+      if (!p) throw Error("Agente não encontrado.");
+      const raw = AppState.market.players[key] || {};
+      if (!setup("Editar agente · " + p.name, "agent", key, raw, p)) return;
+      const value = field => raw[field] ?? (p[field] === "—" ? "" : p[field]) ?? "";
+      document.getElementById("peForm").innerHTML = `<nav class="pe-tabs" role="tablist" aria-label="Categorias do agente">${[["identity","Cadastro"],["contract","Contrato"],["career","Carreira"],["exit","Vínculo atual"]].map(([id,label]) => `<button role="tab" data-tab="${id}" type="button">${label}</button>`).join("")}</nav>
+        <section data-pane="identity"><p class="pe-help">Identidade permanente: ${e(p.id)}. A equipe atual continua ${e(p.club)}.</p><div class="pe-grid">${["name","nationality","age","rank","functionRole","photo"].map(key => field(key,value(key),key === "age" ? "number" : "text")).join("")}${field("status", value("status"), "text", "Status", ["ativo","livre","emprestado","lesionado","suspenso","aposentado","fora-liga"].map(s => [s,agentStatusMeta(s).label]))}${["bio","description","notes"].map(key => field(key,value(key),"textarea")).join("")}${["nacional","lji","mundial","eventoEspecial"].map(key => field("title_"+key, p.titles?.[key] || 0,"number", "Títulos · " + ({nacional:"Nacional",lji:"L.J.I",mundial:"Mundial",eventoEspecial:"Evento Especial"})[key])).join("")}</div></section>
+        <section data-pane="contract" hidden><p class="pe-help">Ciclos são texto livre (ex.: C.4). Datas são opcionais; nenhum ciclo será convertido em data.</p><div class="pe-grid">${field("contractMode",raw.contractMode || (raw.contractUntil ? "fixed" : "unspecified"),"text",labels.contractMode,[["unspecified","Prazo não informado"],["fixed","Prazo determinado"],["indefinite","Indeterminado"],["none","Sem contrato"]])}${["contractStart","contractUntil","contractStartDate","contractEndDate","salary","releaseClause"].map(key => field(key,value(key),key.endsWith("Date") ? "date" : ["salary","releaseClause"].includes(key) ? "number" : "text")).join("")}</div></section>
+        <section data-pane="career" hidden><p class="pe-help">Passagens manuais são apenas históricas. Não transferem o agente, não alteram contratos ou valores e não escrevem na Jet League.</p><div id="peHistoryRows">${Object.entries(raw.careerHistory || {}).map(([id,row]) => historyRow(id,row)).join("")}</div><button type="button" class="btn-gray" data-action="add-history">Adicionar passagem</button></section>
+        <section data-pane="exit" hidden><h3>Equipe atual: ${e(p.club)}</h3><p class="pe-help">A saída efetiva é uma ação separada. Ela atualiza o vínculo no Market e não cria transferência ou equipe na liga. O valor, a identidade e os históricos são preservados. Nenhum elenco da Jet League é alterado automaticamente.</p><div class="pe-grid"><label>Destino<select id="peExitKind"><option value="external">Equipe externa / internacional</option><option value="free">Agente livre</option></select></label><label>Nome da equipe externa<input id="peExitTeam"></label><label>Observação<textarea id="peExitNote"></textarea></label></div><button class="btn-danger" type="button" data-action="review-exit">Revisar saída efetiva da liga</button></section>`;
+      baseline(); tab("identity"); dialog().showModal();
+    } catch (error) { feedback(error.message); }
+  }
+  function summarize(field, value) {
+    if (field === "careerHistory") return Object.values(value || {}).map(row => `${row.teamName}: ${row.fromCycle || row.fromDate || "início não informado"} → ${row.toCycle || row.toDate || "fim não informado"}`).join("; ") || "Sem passagens manuais";
+    return value == null || value === "" ? "—" : typeof value === "object" ? JSON.stringify(value) : String(value);
+  }
+  const clubRowFields = {
+    placements: [["competition","Competição"],["cycle","Ciclo / temporada"],["place","Colocação"],["notes","Observações"]],
+    formerMembers: [["name","Nome do ex-membro"],["fromCycle","Ciclo de entrada"],["toCycle","Ciclo de saída"],["fromDate","Data de entrada (opcional)","date"],["toDate","Data de saída (opcional)","date"],["notes","Observações"]]
+  };
+  function clubRow(group,id,row={}) {
+    return `<fieldset class="pe-record-row pe-history-row" data-group="${group}" data-id="${e(id)}"><legend>${labels[group]}</legend><div class="pe-grid">${clubRowFields[group].map(([key,label,type])=>`<label>${label}<input data-record-field="${key}" type="${type || "text"}" value="${e(row[key])}"></label>`).join("")}</div><button type="button" class="btn-danger" data-action="remove-club-row">Remover registro</button></fieldset>`;
+  }
+  function readClubRows() {
+    const groups = { placements:[],formerMembers:[] };
+    dialog().querySelectorAll(".pe-record-row").forEach(row=>{
+      const entry={id:row.dataset.id}; row.querySelectorAll("[data-record-field]").forEach(el=>{entry[el.dataset.recordField]=el.value;}); groups[row.dataset.group].push(entry);
+    });
+    return groups;
+  }
+  function openClub(name) {
+    try {
+      ProfileData.requireAdmin();
+      if (!Object.hasOwn(AppState.jet.rosters || {},name)) throw Error("Equipe não cadastrada na Jet League.");
+      const raw=ProfileData.clubProfile(name);
+      if (!setup("Editar equipe · " + name,"club",name,raw,{name})) return;
+      document.getElementById("peForm").innerHTML=`<nav class="pe-tabs" role="tablist" aria-label="Categorias da equipe">${[["institution","Identidade"],["achievements","Competições"],["memory","Memória da equipe"]].map(([id,label])=>`<button type="button" role="tab" data-tab="${id}">${label}</button>`).join("")}</nav>
+        <section data-pane="institution"><p class="pe-help">Cadastro institucional no Market. O nome e o elenco atual seguem a Jet League.</p><div class="pe-grid">${["crest","cover","founded","description"].map(key=>field(key,raw[key] || "",key==="description" ? "textarea":"text")).join("")}</div></section>
+        <section data-pane="achievements" hidden><p class="pe-help">Informe somente títulos e resultados conhecidos. Nenhuma competição será criada ou calculada automaticamente.</p><div class="pe-grid">${["nacional","lji","mundial","eventoEspecial"].map(key=>field("title_"+key,raw.titles?.[key] || 0,"number","Títulos · "+({nacional:"Nacional",lji:"L.J.I",mundial:"Mundial",eventoEspecial:"Evento Especial"})[key])).join("")}</div><h3>Colocações por ciclo / competição</h3><div id="peClubPlacements">${Object.entries(raw.placements || {}).map(([id,row])=>clubRow("placements",id,row)).join("")}</div><button type="button" class="btn-gray" data-action="add-club-row" data-group="placements">Adicionar colocação</button></section>
+        <section data-pane="memory" hidden><div class="pe-grid">${["bestEra","rivalries","legends","highlights"].map(key=>field(key,raw[key] || "","textarea")).join("")}</div><h3>Ex-membros · registros manuais</h3><p class="pe-help">Use para complementar períodos sem registros automáticos. Não modifica o elenco atual nem cria agentes.</p><div id="peClubFormerMembers">${Object.entries(raw.formerMembers || {}).map(([id,row])=>clubRow("formerMembers",id,row)).join("")}</div><button type="button" class="btn-gray" data-action="add-club-row" data-group="formerMembers">Adicionar ex-membro</button></section>`;
+      baseline(); tab("institution"); dialog().showModal();
+    } catch(error) { feedback(error.message); }
+  }
+  function showReview(changes, payload, title = "Revisar alterações") {
+    if (!Object.keys(changes).length) return notice("Nenhuma alteração para salvar.");
+    session.payload = payload;
+    document.getElementById("peReview").innerHTML = `<h3>${e(title)}</h3><p class="pe-help">Confira o antes e depois. A gravação ocorre somente após confirmar.</p>${Object.entries(changes).map(([field,value]) => `<article class="pe-change"><strong>${e(labels[field] || field)}</strong><div><span>Antes</span><p>${e(summarize(field,session.raw[field]))}</p></div><div><span>Depois</span><p>${e(summarize(field,value))}</p></div></article>`).join("")}`;
+    document.getElementById("peReview").hidden = false; document.getElementById("peForm").hidden = true;
+    document.getElementById("peBack").hidden = false; document.getElementById("peSaveBtn").hidden = false; document.getElementById("peReviewBtn").hidden = true;
+    notice("");
+  }
+  function review() {
+    try {
+      ProfileData.requireAdmin();
+      const input = collect();
+      if (session.type === "club") {
+        const groups=readClubRows();
+        Object.keys(groups).forEach(group=>{if(JSON.stringify(groups[group])!==JSON.stringify(session.initialClubRows[group]))input[group]=groups[group];});
+        const changes=ProfileData.prepareClub(session.raw,input);
+        showReview(changes,{operation:"club",input:ProfileData.clone(input)});
+        return;
+      }
+      const rows = readHistory();
+      const changedHistory = JSON.stringify(rows) !== session.initialHistory;
+      const changes = ProfileData.prepareAgent(session.key, session.raw, input);
+      if (changedHistory) changes.careerHistory = ProfileData.validateHistory(rows, session.raw.careerHistory, session.visible.id);
+      showReview(changes, { operation: "agent", input: ProfileData.clone(input), historyRows: changedHistory ? rows : null });
+    } catch (error) { notice(error.message, true); }
+  }
+  function reviewExit() {
+    try {
+      ProfileData.requireAdmin();
+      if (changed()) throw Error("Salve ou cancele as alterações do cadastro antes de registrar uma saída.");
+      const p = session.visible;
+      if (!Object.hasOwn(AppState.jet.rosters || {}, p.club)) throw Error("O agente já está fora de uma equipe da liga.");
+      const candidates = (AppState.jet.rosters[p.club] || []).filter(row => row.id || row.playerId ? (row.id || row.playerId) === p.id : `${p.club}_${row.n}` === session.key || row.n === p.name);
+      const rosterName = candidates.length === 1 ? candidates[0].n : null;
+      const payload = { operation: "exit", kind: document.getElementById("peExitKind").value, destination: document.getElementById("peExitTeam").value, note: document.getElementById("peExitNote").value, rosterName };
+      const changes = ProfileData.prepareExit(session.key,p,payload.destination,payload.kind,payload.note,rosterName);
+      showReview(changes,payload,"Confirmar saída efetiva · somente no Market");
+    } catch (error) { notice(error.message,true); }
+  }
+  async function save() {
+    if (!session || session.busy || !session.payload) return;
+    session.busy = true; document.getElementById("peSaveBtn").disabled = true;
+    const current = session;
+    try {
+      const payload = current.payload;
+      const record = payload.operation === "club" ? await ProfileData.saveClub(current.key,payload.input,current.raw) : payload.operation === "exit"
+        ? await ProfileData.saveExit(current.key,current.visible,payload.destination,payload.kind,payload.note,current.raw,payload.rosterName)
+        : await ProfileData.saveAgent(current.key,payload.input,current.raw,payload.historyRows);
+      if (payload.operation === "club") { AppState.market.settings.clubProfiles ||= {}; AppState.market.settings.clubProfiles[ProfileData.clubKey(current.key)]=record; }
+      else AppState.market.players[current.key] = record;
+      dialog().close(); session = null;
+      window.AppRouter?.refresh();
+      feedback(payload.operation === "exit" ? "Saída salva no Market. A Jet League não foi alterada; a sincronização opcional está no perfil." : "Perfil salvo com sucesso.");
+    } catch (error) { notice(error.message || "Não foi possível salvar. Seu rascunho foi preservado.",true); }
+    finally { if (session === current) { current.busy = false; document.getElementById("peSaveBtn").disabled = false; } }
+  }
+  async function syncExit(key) {
+    if (!confirm("Sincronizar esta saída na Jet League? Esta ação separada remove somente o agente do elenco de origem e não cria uma equipe externa na liga.")) return;
+    try { await ProfileData.syncExit(key); feedback("Saída sincronizada na Jet League."); }
+    catch (error) { feedback("O Market continua salvo. Jet League não alterada: " + error.message); }
+  }
+  document.addEventListener("click", event => {
+    if (!session || !event.target.closest("#profileEditorDialog")) return;
+    const btn = event.target.closest("button");
+    if (!btn || session.busy) return;
+    if (btn.dataset.tab) return tab(btn.dataset.tab);
+    const action = btn.dataset.action;
+    if (action === "close") close();
+    if (action === "review") review();
+    if (action === "save") save();
+    if (action === "review-exit") reviewExit();
+    if (action === "back") { document.getElementById("peReview").hidden = true; document.getElementById("peForm").hidden = false; btn.hidden = true; document.getElementById("peSaveBtn").hidden = true; document.getElementById("peReviewBtn").hidden = false; }
+    if (action === "add-history") { const id = marketDb.ref("players/" + session.key + "/careerHistory").push().key; document.getElementById("peHistoryRows").insertAdjacentHTML("beforeend",historyRow(id)); }
+    if (action === "remove-history" && confirm("Remover esta passagem do rascunho? A exclusão será aplicada somente ao confirmar a revisão.")) btn.closest(".pe-history-row").remove();
+    if (action === "add-club-row") {
+      const group=btn.dataset.group; const id=marketDb.ref("settings/clubProfiles/"+ProfileData.clubKey(session.key)+"/"+group).push().key;
+      document.getElementById(group==="placements" ? "peClubPlacements":"peClubFormerMembers").insertAdjacentHTML("beforeend",clubRow(group,id));
+    }
+    if (action === "remove-club-row" && confirm("Remover este registro do rascunho? A exclusão será aplicada somente após a revisão.")) btn.closest(".pe-record-row").remove();
+  });
+  document.addEventListener("change", event => {
+    if (!session || event.target.dataset.historyField !== "teamKind") return;
+    const row = event.target.closest(".pe-history-row");
+    row.querySelector(".pe-team-name").innerHTML = teamInput(event.target.value, row.querySelector('[data-history-field="teamName"]').value);
+  });
+  window.ProfileEditor = { openAgent, openClub, syncExit };
+})();

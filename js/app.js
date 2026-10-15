@@ -87,6 +87,15 @@ function buildPlayerFromMarket(key, m, defaults = {}) {
     nationality: m.nationality || "—",
     age: m.age || null,
     contractUntil: m.contractUntil || "—",
+    contractMode: m.contractMode || "",
+    contractStart: m.contractStart || "",
+    contractStartDate: m.contractStartDate || "",
+    contractEndDate: m.contractEndDate || "",
+    careerHistory: m.careerHistory || {},
+    bio: m.bio || "",
+    description: m.description || "",
+    notes: m.notes || "",
+    leagueExit: m.leagueExit || null,
     status,
     photo: m.photo || "",
     valueHistory: m.valueHistory || [],
@@ -453,7 +462,7 @@ function renderCompare() {
     { label: "Idade", fn: p => p.age || "—" },
     { label: "Nacionalidade", fn: p => p.nationality },
     { label: "Títulos", fn: p => { const t = p.titles || {}; const parts = []; if (t.nacional) parts.push("🥇"+t.nacional); if (t.lji) parts.push("🥈"+t.lji); if (t.mundial) parts.push("🏆"+t.mundial); if (t.eventoEspecial) parts.push("🏅"+t.eventoEspecial); return parts.length ? parts.join(" ") : "—"; } },
-    { label: "Contrato até", fn: p => p.contractUntil },
+    { label: "Contrato", fn: p => window.ProfileData ? ProfileData.contractLabel(p) : p.contractUntil },
     { label: "Status", fn: p => agentStatusMeta(p.status).label },
     { label: "Salário / temporada", fn: p => p.salary == null ? "—" : formatUSD(p.salary, true) },
     { label: "Cláusula", fn: p => p.releaseClause == null ? "—" : formatUSD(p.releaseClause, true) },
@@ -629,6 +638,7 @@ function openPlayerProfile(key) {
         ← Voltar para Agentes
       </button>
       <button class="share-btn" onclick="copyPlayerLink('${escapeInlineJsSingle(p.key)}')">🔗 Copiar link</button>
+      ${window.isMarketAdmin?.() ? `<button class="btn-primary btn-sm" id="editAgentProfile" onclick="ProfileEditor.openAgent('${escapeInlineJsSingle(p.key)}')">Editar agente</button>${p.leagueExit && ["fora-liga", "livre"].includes(p.status) ? `<button class="btn-gray btn-sm" onclick="ProfileEditor.syncExit('${escapeInlineJsSingle(p.key)}')">Sincronizar saída na Jet League (opcional)</button>` : ""}` : ""}
       ${!p.freeAgent ? `<a class="ext-link" href="${escapeHTML(getJetLeagueUrl())}" target="_blank" rel="noopener">Ver na Jet League ↗</a>` : ""}
       <button class="btn-ai btn-sm" onclick="requestMarketAnalysis('${escapeInlineJsSingle(p.key)}')">✨ Análise de mercado (IA)</button>
     </div>
@@ -647,7 +657,7 @@ function openPlayerProfile(key) {
           <span class="tag">${escapeHTML(p.rank || "—")}</span>
           <span class="tag">${escapeHTML(p.nationality)}</span>
           ${p.age ? `<span class="tag">${escapeHTML(p.age)} anos</span>` : ""}
-          <span class="tag">Contrato até ${escapeHTML(p.contractUntil)}</span>
+          <span class="tag">${escapeHTML(window.ProfileData ? ProfileData.contractLabel(p) : p.contractUntil)}</span>
           ${renderTitlesBadges(p.titles)}
         </div>
       </div>
@@ -671,6 +681,7 @@ function openPlayerProfile(key) {
       <h2 class="section-h">Análise de Mercado</h2>
       <div id="marketAnalysisText" class="rumor-card"></div>
     </div>
+    ${window.ProfileViews?.contract(p) || ""}
 
     <div class="section">
       <h2 class="section-h">Evolução do Valor</h2>
@@ -720,6 +731,7 @@ function openPlayerProfile(key) {
       ${MarketUI.transferTimeline(p)}
       <h2 class="section-h">Histórico de clubes</h2>
       ${(() => {
+        if (window.ProfileViews) return ProfileViews.career(p, getCareerHistory(p.key, p.name, p.club));
         const career = getCareerHistory(p.key, p.name, p.club);
         return `<div class="table-wrap"><table>
           <thead><tr><th>Clube</th><th>Período</th><th>Taxa</th></tr></thead>
@@ -741,7 +753,7 @@ function openPlayerProfile(key) {
         <div class="kpi"><div class="kpi-label">Equipe Atual</div><div class="kpi-value" style="font-size:1.1rem">${escapeHTML(p.club)}</div></div>
         <div class="kpi"><div class="kpi-label">Nacionalidade</div><div class="kpi-value" style="font-size:1.1rem">${escapeHTML(p.nationality)}</div></div>
         <div class="kpi"><div class="kpi-label">Idade</div><div class="kpi-value" style="font-size:1.1rem">${p.age || "—"}</div></div>
-        <div class="kpi"><div class="kpi-label">Contrato</div><div class="kpi-value" style="font-size:1.1rem">${escapeHTML(p.contractUntil)}</div></div>
+        <div class="kpi"><div class="kpi-label">Contrato</div><div class="kpi-value" style="font-size:1.1rem">${escapeHTML(window.ProfileData ? ProfileData.contractLabel(p) : p.contractUntil)}</div></div>
         <div class="kpi"><div class="kpi-label">Salário</div><div class="kpi-value" style="font-size:1rem">${p.salary != null ? formatUSD(p.salary, true) : "—"}</div></div>
         <div class="kpi"><div class="kpi-label">Cláusula</div><div class="kpi-value" style="font-size:1rem">${p.releaseClause != null ? formatUSD(p.releaseClause, true) : "—"}</div></div>
       </div>
@@ -899,6 +911,7 @@ function openClubProfile(clubName) {
     </button>
 
     <h1 style="font-size:1.6rem;font-weight:800;margin-bottom:8px">${escapeHTML(clubName)}</h1>
+    ${window.isMarketAdmin?.() && Object.hasOwn(AppState.jet.rosters || {},clubName) ? `<button class="btn-primary btn-sm" id="editClubProfile" onclick="ProfileEditor.openClub('${escapeInlineJsSingle(clubName)}')">Editar equipe</button>` : ""}
     <div class="profile-meta" style="margin-bottom:24px">
       <span class="tag">${agents.length} agentes</span>
     </div>
@@ -906,12 +919,13 @@ function openClubProfile(clubName) {
     <div class="kpi-row">
       <div class="kpi"><div class="kpi-label">Valor Total do Elenco</div><div class="kpi-value cyan">${formatUSD(totalValue)}</div></div>
       <div class="kpi"><div class="kpi-label">Valor Médio</div><div class="kpi-value cyan">${formatUSD(avg, true)}</div></div>
-      <div class="kpi"><div class="kpi-label">Agente mais valioso</div><div class="kpi-value" style="font-size:1rem">${agents[0]?.name || "—"}</div></div>
+      <div class="kpi"><div class="kpi-label">Agente mais valioso</div><div class="kpi-value" style="font-size:1rem">${escapeHTML(agents[0]?.name || "—")}</div></div>
       <div class="kpi"><div class="kpi-label">Valor do mais valioso</div><div class="kpi-value cyan">${agents[0] ? formatUSD(agents[0].marketValue, true) : "—"}</div></div>
     </div>
 
     <div class="section">
-      <h2 class="section-h">Elenco</h2>
+      ${window.ProfileViews?.club(clubName) || ""}
+      <h2 class="section-h">Elenco atual · Jet League</h2>
       <div class="table-wrap">
         <table>
           <thead><tr><th></th><th>Agente</th><th>Função</th><th>Valor</th><th>Nacionalidade</th><th>Idade</th></tr></thead>
