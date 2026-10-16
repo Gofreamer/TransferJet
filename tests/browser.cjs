@@ -303,7 +303,7 @@ const root = path.resolve(__dirname, '..');
       await screenshot(page, 'mobile-light');
       await page.evaluate(() => enterFantasyMode());
       assert.equal(await page.locator('.workspace-bar').isVisible(), false);
-    }, {}, { width: 390, height: 844 });
+    }, { admin:true }, { width: 390, height: 844 });
 
     await scenario('carregamento e conexão indisponível ficam explícitos no celular', async page => {
       await ready(page, '?view=players');
@@ -342,7 +342,7 @@ const root = path.resolve(__dirname, '..');
       await page.locator('#historySource').selectOption('legacy');
       assert.match(await page.locator('#historyOrigin').innerText(), /estimativas fictícias/);
       await noOverflow(page);
-    }, { expectedWrites: 2 });
+    }, { admin:true, expectedWrites: 2 });
 
     await scenario('filtros de status combinados e comparação com empates e agentes distintos', async page => {
       await ready(page, '?view=players');
@@ -395,7 +395,7 @@ const root = path.resolve(__dirname, '..');
       assert.equal(await page.evaluate(() => AppState.market.players.Alpha_Alice.marketValue), 33000000);
       assert.equal(await page.evaluate(() => Market.events(AppState.market.players.Alpha_Alice).length), 1);
       assert.equal(await page.evaluate(() => Market.events(AppState.market.players.Alpha_Alice)[0].source), 'import');
-    }, { expectedWrites: 2 });
+    }, { admin:true, expectedWrites: 2 });
 
     await scenario('carreira considera somente transferências oficiais identificadas', async page => {
       await ready(page, '?player=Alpha_Alice');
@@ -417,6 +417,7 @@ const root = path.resolve(__dirname, '..');
       const backup = JSON.parse(await fs.readFile(await download.path(), 'utf8'));
       assert.equal(backup.format, 'transferjet-market');
       assert.equal(backup.data.players.Alpha_Alice.marketValue, 20000000);
+      await page.locator('.ac-danger').first().locator('summary').click();
       const file = { format: 'transferjet-market', version: 1, data: { players: {
         Alpha_Alice: { name: 'Alice', marketValue: 1 },
         New_Carol: { name: 'Carol', team: 'New', id: 'carol1', marketValue: 1500000, status: 'ativo' }
@@ -432,7 +433,7 @@ const root = path.resolve(__dirname, '..');
       await page.waitForFunction(() => __writes.length === 1);
       assert.equal(await page.evaluate(() => AppState.market.players.Alpha_Alice.marketValue), 20000000);
       assert.equal(await page.evaluate(() => AppState.market.players.New_Carol.name), 'Carol');
-    }, { expectedWrites: 1 });
+    }, { admin:true, expectedWrites: 1 });
 
     await scenario('Fantasy: filtros, compra, capitão, limite de equipe e troca com custo líquido', async page => {
       await ready(page, '?fantasy=market');
@@ -567,7 +568,7 @@ const root = path.resolve(__dirname, '..');
       await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       assert.equal(await page.locator('#fxBudget').inputValue(), '3500000');
       await page.evaluate(() => closeAdmin());
-    });
+    }, { admin:true });
 
     await scenario('Otimização: Fantasy informa leitura negada e recupera pelo botão sem duplicar listeners', async page => {
       await ready(page, '?fantasy=hub');
@@ -947,6 +948,138 @@ const root = path.resolve(__dirname, '..');
       assert.equal(await page.locator('.club-roster-section tbody tr').count(),31);
       await noOverflow(page);
     },{},{width:390,height:844});
+
+    await scenario('Central: atalhos, pesquisa sem acentos, filtros e editores reutilizados com navegação pública', async page=>{
+      await ready(page);
+      await page.evaluate(()=>{__mockData.market.players.Alpha_Alice.name='Álice';__mockData.market.players.Alpha_Alice.statsSeason='C.2';__mockData.jet.liga.rosters['Águias']=[];__mockEmit();});
+      await page.locator('#adminBtn').click();
+      assert.equal(await page.locator('#adminBox').getAttribute('data-tab'),'home');
+      assert.equal(await page.locator('.ac-shortcut').count(),9);
+      assert.equal(await page.locator('#adminValuesTable').count(),0);
+      assert.equal(await page.evaluate(()=>document.activeElement.id),'adminGlobalSearch');
+      await page.locator('.ac-shortcut').last().focus();await page.keyboard.press('Tab');
+      assert.equal(await page.evaluate(()=>document.activeElement.textContent),'Sair da conta');
+      await screenshot(page,'admin-central-desktop');
+      await page.locator('#adminGlobalSearch').fill('alice');
+      assert.match(await page.locator('#adminSearchResults').innerText(),/Álice/);
+      await page.locator('#adminSearchResults [data-ac-edit]').click();
+      assert.equal(await page.locator('#profileEditorDialog').count(),1);
+      assert.equal(await page.locator('[data-field="name"]').inputValue(),'Álice');
+      await page.locator('.pe-close').click();
+      await page.locator('#adminGlobalSearch').fill('aguias');
+      await page.locator('#adminSearchResults [data-ac-edit]').click();
+      assert.match(await page.locator('#peTitle').innerText(),/Águias/);
+      await page.locator('.pe-close').click();
+      await page.locator('.ac-nav [data-ac-tab="agents"]').click();
+      await page.locator('#acFilterQuery').fill('alice');
+      await page.locator('#acFilterClub').selectOption('Alpha');
+      await page.locator('#acFilterRank').selectOption('Rank A');
+      await page.locator('#acFilterStatus').selectOption('ativo');
+      await page.locator('#acFilterSeason').selectOption('C.2');
+      assert.equal(await page.locator('.ac-record').count(),1);
+      await page.locator('.ac-record [data-pane="career"]').click();
+      assert.equal(await page.locator('#profileEditorDialog').evaluate(el=>el.open),true);
+      assert.equal(await page.locator('#profileEditorDialog [data-pane="career"]').isVisible(),true);
+      await page.locator('.pe-close').click();
+      await page.locator('.ac-record [data-pane="glory"]').click();
+      assert.equal(await page.locator('#profileEditorDialog [data-pane="glory"]').isVisible(),true);
+      await page.locator('.pe-close').click();
+      await page.evaluate(()=>__mockEmit());
+      assert.equal(await page.locator('#acFilterQuery').inputValue(),'alice');
+      await screenshot(page,'admin-agents');
+      await page.locator('.ac-record [data-ac-profile]').click();
+      await page.waitForSelector('#editAgentProfile');
+      assert.equal(await page.locator('#adminPanel').evaluate(el=>el.classList.contains('open')),false);
+      await page.goBack();await view(page,'home');
+    },{admin:true});
+
+    await scenario('Central: contrato e valor individual passam por revisão sem alterar dados históricos ou Fantasy', async page=>{
+      await ready(page);await page.locator('#adminBtn').click();
+      const before=await page.evaluate(()=>({fantasy:JSON.stringify(__mockData.market.fantasy),jet:JSON.stringify(__mockData.jet),legacy:JSON.stringify(__mockData.market.players.Alpha_Alice.valueHistory)}));
+      await page.locator('.ac-nav [data-ac-tab="agents"]').click();
+      await page.locator('#acFilterQuery').fill('Alice');
+      await page.locator('.ac-record [data-pane="contract"]').click();
+      await page.locator('[data-field="contractUntil"]').fill('C.4');
+      await page.locator('[data-field="marketValue"]').fill('21000000');
+      await page.evaluate(()=>__mockEmit());
+      assert.equal(await page.locator('[data-field="marketValue"]').inputValue(),'21000000');
+      await page.locator('#peReviewBtn').click();assert.equal(await page.evaluate(()=>__writes.length),0);
+      await page.locator('#peSaveBtn').click();await page.waitForFunction(()=>!document.getElementById('profileEditorDialog').open);
+      assert.match(await page.locator('.ac-record').innerText(),/21 mi/);
+      assert.equal(await page.evaluate(()=>__mockData.market.players.Alpha_Alice.contractUntil),'C.4');
+      assert.equal(await page.evaluate(()=>Market.events(__mockData.market.players.Alpha_Alice).length),1);
+      assert.deepEqual(await page.evaluate(()=>({fantasy:JSON.stringify(__mockData.market.fantasy),jet:JSON.stringify(__mockData.jet),legacy:JSON.stringify(__mockData.market.players.Alpha_Alice.valueHistory)})),before);
+    },{admin:true,expectedWrites:1});
+
+    await scenario('Central: rascunho, janela e transferência têm confirmações distintas sem perder formulário', async page=>{
+      await ready(page);await page.locator('#adminBtn').click();
+      await page.locator('.ac-nav [data-ac-tab="transfers"]').click();
+      await page.locator('#trPlayer').selectOption('Alpha_Alice');
+      await page.locator('#trTo').selectOption('Beta');
+      await page.locator('#trFee').fill('1000000');
+      assert.equal(await page.locator('#adminPending').isVisible(),true);
+      await page.locator('.ac-nav [data-ac-tab="home"]').click();
+      assert.equal(await page.locator('#adminBox').getAttribute('data-tab'),'transfers');
+      await page.getByRole('button',{name:'Fechar',exact:true}).click();
+      assert.equal(await page.locator('#adminPanel').evaluate(el=>el.classList.contains('open')),true);
+      await page.evaluate(()=>__mockEmit());assert.equal(await page.locator('#trFee').inputValue(),'1000000');
+      page.removeAllListeners('dialog');page.on('dialog',dialog=>dialog.type()==='confirm' && dialog.message().includes('janela de transferências') ? dialog.accept():dialog.dismiss());
+      await page.getByRole('button',{name:'Fechar janela',exact:true}).click();
+      await page.waitForFunction(()=>__writes.length===1);
+      assert.equal(await page.locator('#trFee').inputValue(),'1000000');
+      await page.getByRole('button',{name:'Abrir janela',exact:true}).click();
+      await page.waitForFunction(()=>__writes.length===2);
+      await page.getByRole('button',{name:'Registrar Transferência',exact:true}).click();
+      assert.equal(await page.locator('#adminTransferReview').isVisible(),true);assert.equal(await page.evaluate(()=>__writes.length),2);
+      await page.locator('[data-ac-cancel-transfer]').click();assert.equal(await page.locator('#trFee').inputValue(),'1000000');
+      await page.getByRole('button',{name:'Registrar Transferência',exact:true}).click();
+      await page.locator('[data-ac-confirm-transfer]').click();
+      await page.waitForFunction(()=>__writes.length===3);
+      await page.waitForFunction(()=>!document.getElementById('adminTransferReview').open);
+      assert.equal(await page.evaluate(()=>__mockData.market.players.Alpha_Alice.team),'Beta');
+      assert.equal(await page.evaluate(()=>__mockData.jet.liga.rosters.Alpha.some(row=>row.n==='Alice')),true);
+      assert.equal(await page.locator('#adminPending').isVisible(),false);
+    },{admin:true,expectedWrites:3});
+
+    await scenario('Central: ferramentas existentes, manutenção isolada, rascunho Fantasy e layout móvel', async page=>{
+      await ready(page);await page.locator('#menuToggle').click();await page.locator('#adminBtn').click();
+      await noOverflow(page);await screenshot(page,'admin-central-mobile');
+      await page.locator('#adminTaskSelect').selectOption('import');
+      assert.equal(await page.locator('#importFile').count(),1);assert.equal(await page.locator('#syncSeason').count(),1);
+      assert.equal(await page.locator('button[onclick="forceReseedFromCode()"]').count(),0);
+      assert.equal(await page.getByRole('button',{name:'Abrir janela',exact:true}).count(),0);
+      await page.locator('#adminTaskSelect').selectOption('backup');
+      assert.equal(await page.getByRole('button',{name:'Baixar backup JSON'}).isVisible(),true);
+      assert.equal(await page.locator('#marketBackupFile').isVisible(),false);
+      assert.equal(await page.locator('button[onclick="forceReseedFromCode()"]').isVisible(),false);
+      await page.locator('#adminTaskSelect').selectOption('fantasy');await page.waitForSelector('#fxBudget');
+      assert.equal(await page.locator('button[onclick="fxAdminResetAll()"]').isVisible(),false);
+      assert.equal(await page.locator('button[onclick="fxAdminSeed()"]').isVisible(),false);
+      await page.locator('#fxBudget').fill('3500000');await page.evaluate(()=>__mockEmit());
+      assert.equal(await page.locator('#fxBudget').inputValue(),'3500000');
+      page.removeAllListeners('dialog');page.on('dialog',dialog=>dialog.accept());
+      await page.locator('[data-ac-discard]').click();await page.waitForSelector('#fxBudget');
+      assert.equal(await page.locator('#adminPending').isVisible(),false);
+      await page.locator('#adminTaskSelect').selectOption('clubs');
+      await page.locator('#acFilterQuery').fill('Alpha');await page.locator('.ac-record [data-ac-edit]').click();
+      assert.match(await page.locator('#peTitle').innerText(),/Alpha/);await page.locator('.pe-close').click();
+      await noOverflow(page);
+      await page.locator('#adminTaskSelect').selectOption('transfers');await page.locator('#trFee').fill('123');
+      let discardPrompts=0;page.removeAllListeners('dialog');page.on('dialog',dialog=>{discardPrompts++;return dialog.accept();});
+      await page.getByRole('button',{name:'Fechar',exact:true}).click();
+      await page.locator('#menuToggle').click();await page.locator('#adminBtn').click();
+      assert.equal(await page.locator('#adminBox').getAttribute('data-tab'),'home');assert.equal(discardPrompts,1);
+      await page.evaluate(()=>__mockAuthChange(null));await page.waitForSelector('#adminEmail');
+      assert.equal(await page.locator('#adminTabContent').count(),0);
+    },{admin:true},{width:390,height:844});
+
+    await scenario('Central: visitante continua vendo login e não acessa editor por chamada direta', async page=>{
+      await ready(page);await page.locator('#adminBtn').click();await page.waitForSelector('#adminEmail');
+      await page.evaluate(()=>renderAdminPanel('agents'));
+      assert.equal(await page.locator('#acDirectory').count(),0);
+      const result=await page.evaluate(()=>{try{AdminControl.openEditor('player','Alpha_Alice','identity');return '';}catch(error){return error.message;}});
+      assert.match(result,/administrador/);
+    });
 
     console.log(`${passed} cenários de navegador passaram. Rede externa bloqueada; escritas restritas ao mock.`);
   } finally {

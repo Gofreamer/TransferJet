@@ -60,13 +60,13 @@
   }
   function prepareAgent(key, raw, input) {
     if (!safeKey(key)) throw Error("Identificador inválido.");
-    const allowed = ["name", "nationality", "age", "rank", "functionRole", "photo", "status", "contractMode", "contractStart", "contractStartDate", "contractUntil", "contractEndDate", "salary", "releaseClause", "bio", "description", "notes", "titles", "achievements"];
+    const allowed = ["name", "nationality", "age", "rank", "functionRole", "photo", "status", "contractMode", "contractStart", "contractStartDate", "contractUntil", "contractEndDate", "salary", "releaseClause", "bio", "description", "notes", "titles", "achievements", "marketValue", "peakValue"];
     const changes = {};
     for (const [field, value] of Object.entries(input)) {
       if (!allowed.includes(field)) throw Error("Campo protegido: " + field);
       let next;
       if (field === "achievements") next = validateAchievements(value, raw, key, input.titles);
-      else if (["age", "salary", "releaseClause"].includes(field)) next = number(value, field === "age");
+      else if (["age", "salary", "releaseClause", "marketValue", "peakValue"].includes(field)) next = number(value, field === "age");
       else if (field === "photo") next = image(value);
       else if (field.endsWith("Date")) next = date(value);
       else if (field === "titles") {

@@ -40,7 +40,8 @@ const server = http.createServer(async (req, res) => {
     if (file === 'index.html') {
       body = body.replace(/<script src="https:\/\/www\.gstatic\.com\/firebasejs\/[^\"]+firebase-app-compat\.js"><\/script>/, '<script src="/__demo/firebase.js"></script>')
         .replace(/<script src="https:\/\/www\.gstatic\.com\/firebasejs\/[^\"]+firebase-(database|auth)-compat\.js"><\/script>/g, '')
-        .replace('<body>', '<body><div class="demo-banner" role="status">PRÉVIA LOCAL · Dados fictícios · Administrador simulado · Alterações temporárias, sem conexão com produção</div>');
+        .replace('<body>', '<body><div class="demo-banner" role="status">PRÉVIA LOCAL · Dados fictícios · Administrador simulado · Alterações temporárias, sem conexão com produção</div>')
+        .replace('</body>', `<script>window.addEventListener('load',()=>{if(new URLSearchParams(location.search).get('demoAdmin')==='1')setTimeout(()=>openAdmin(),100);});</script></body>`);
     }
     res.writeHead(200, { 'Content-Type': `${file.endsWith('.ttf') ? 'font/ttf' : file.endsWith('.css') ? 'text/css' : file.endsWith('.js') ? 'text/javascript' : 'text/html'}; charset=utf-8`, 'Cache-Control': 'no-store' });
     res.end(body);

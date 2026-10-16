@@ -15,6 +15,7 @@ function initAuth() {
       currentUser = user;
       isLogged = !!user;
       updateAdminButton();
+      if (!isLogged && document.getElementById("adminPanel")?.classList.contains("open")) { window.AdminControl?.closed(); renderAdminLogin(); }
       window.AppRouter?.requestRefresh("auth");
     });
   } catch (e) {
@@ -31,16 +32,23 @@ function updateAdminButton() {
 
 function openAdmin() {
   const panel = document.getElementById("adminPanel");
+  window.AdminControl?.rememberFocus();
+  if (typeof toggleSiteMenu === "function") toggleSiteMenu(false, false);
   panel.classList.add("open");
   if (!isLogged) {
     renderAdminLogin();
   } else {
-    renderAdminPanel("values");
+    renderAdminPanel("home");
   }
+  (document.getElementById("adminGlobalSearch") || document.getElementById("adminEmail"))?.focus({preventScroll:true});
 }
 
 function closeAdmin() {
+  if (window.AdminControl && !AdminControl.canLeave()) return false;
   document.getElementById("adminPanel").classList.remove("open");
+  window.AdminControl?.closed();
+  window.AdminControl?.restoreFocus();
+  return true;
 }
 
 function renderAdminLogin() {
@@ -72,9 +80,10 @@ function tryAdminLogin() {
   }
 
   auth.signInWithEmailAndPassword(email, pass)
-    .then(() => {
-      isLogged = true;
-      renderAdminPanel("values");
+    .then(result => {
+      currentUser = result?.user || auth.currentUser || currentUser;
+      isLogged = !!currentUser;
+      renderAdminPanel("home");
     })
     .catch(err => {
       errorEl.style.display = "block";
@@ -84,38 +93,24 @@ function tryAdminLogin() {
 }
 
 function logoutAdmin() {
+  if (window.AdminControl && !AdminControl.canLeave()) return;
   auth.signOut().then(() => {
+    window.AdminControl?.closed();
     isLogged = false;
     currentUser = null;
     closeAdmin();
-  });
+  }).catch(error => alert("Não foi possível sair da conta: " + error.message));
 }
 
 /* ========== ADMIN TABS ========== */
-function renderAdminPanel(tab = "values") {
+function renderAdminPanel(tab = "home") {
+  if (!window.isMarketAdmin()) return renderAdminLogin();
+  if (window.AdminControl && !AdminControl.beforeNavigate()) return;
   const box = document.getElementById("adminBox");
   box.dataset.tab = tab;
-  box.innerHTML = `
-    <div class="admin-header">
-      <h2>Admin · Jet Market</h2>
-      <div class="admin-header-actions">
-        <button class="btn-gray btn-sm" onclick="logoutAdmin()">Sair</button>
-        <button class="btn-gray btn-sm" onclick="closeAdmin()">Fechar</button>
-      </div>
-    </div>
-    <div class="admin-tabs">
-      <button class="admin-tab ${tab==='values'?'active':''}" onclick="renderAdminPanel('values')">Valores</button>
-      <button class="admin-tab ${tab==='photos'?'active':''}" onclick="renderAdminPanel('photos')">Fotos</button>
-      <button class="admin-tab ${tab==='import'?'active':''}" onclick="renderAdminPanel('import')">Importar Excel</button>
-      <button class="admin-tab ${tab==='transfers'?'active':''}" onclick="renderAdminPanel('transfers')">Transferências</button>
-      <button class="admin-tab ${tab==='rumors'?'active':''}" onclick="renderAdminPanel('rumors')">Rumores</button>
-      <button class="admin-tab ${tab==='ai'?'active':''}" onclick="renderAdminPanel('ai')">IA</button>
-      <button class="admin-tab ${tab==='backup'?'active':''}" onclick="renderAdminPanel('backup')">Backup</button>
-      <button class="admin-tab ${tab==='fantasy'?'active':''}" onclick="renderAdminPanel('fantasy')">Fantasy</button>
-    </div>
-    <div id="adminTabContent"></div>
-  `;
-
+  box.innerHTML = AdminControl.shell(tab);
+  if (tab === "home") AdminControl.home();
+  if (["agents", "clubs", "history"].includes(tab)) AdminControl.directory(tab);
   if (tab === "values") renderAdminValues();
   if (tab === "photos" && typeof renderAdminPhotos === "function") renderAdminPhotos();
   if (tab === "import") renderAdminImport();
@@ -124,6 +119,8 @@ function renderAdminPanel(tab = "values") {
   if (tab === "ai") renderAdminAI();
   if (tab === "backup") MarketAdmin.renderBackup();
   if (tab === "fantasy" && typeof renderFantasyAdmin === "function") renderFantasyAdmin();
+  AdminControl.finish(tab);
+  document.getElementById("adminGlobalSearch")?.focus({preventScroll:true});
 }
 
 /* ========== IMPORT EXCEL ========== */
@@ -151,7 +148,7 @@ function renderAdminImport() {
     </div>
     <div class="admin-actions" style="margin-top:14px;gap:10px;display:flex;flex-wrap:wrap">
       <button class="btn-primary" onclick="processImportFile()">Importar e revisar</button>
-      <button class="btn-ai" onclick="forceReseedFromCode()">Reaplicar seed (Rodada 12)</button>
+
     </div>
     <p id="importStatus" style="margin-top:12px;font-size:0.85rem;color:var(--text-muted)"></p>
 
@@ -187,19 +184,11 @@ function renderAdminImport() {
     <p id="syncStatus" style="margin-top:12px;font-size:0.85rem;color:var(--text-muted)"></p>
     <div id="syncMatchList" style="margin-top:8px;font-size:0.8rem;color:var(--text-muted)"></div>
 
-    <h3 class="admin-section-title" style="margin-top:28px">Janela de transferências</h3>
-    <p class="admin-sub">Quando fechada, não é possível registrar transferências com status OFICIAL.</p>
-    <div class="admin-actions">
-      <button class="btn-primary" onclick="setTransferWindow(true)">Abrir janela</button>
-      <button class="btn-gray" onclick="setTransferWindow(false)">Fechar janela</button>
-      <span class="window-badge ${winOpen ? "open" : "closed"}">${winOpen ? "ABERTA" : "FECHADA"}</span>
-    </div>
-
     <h3 class="admin-section-title" style="margin-top:28px">Link Jet League</h3>
     <div class="admin-form-grid">
       <div class="full">
         <label>URL do site Jet League</label>
-        <input type="text" id="jetLeagueUrlInput" value="${(window.AppState.market.settings && window.AppState.market.settings.jetLeagueUrl) || "https://teste-jet.pages.dev"}">
+        <input type="text" id="jetLeagueUrlInput" value="${escapeHTML((window.AppState.market.settings && window.AppState.market.settings.jetLeagueUrl) || "https://teste-jet.pages.dev")}">
       </div>
     </div>
     <div class="admin-actions" style="margin-top:10px">
@@ -209,13 +198,19 @@ function renderAdminImport() {
   populateSyncSelectors();
 }
 
-function setTransferWindow(open) {
-  window.marketDb.ref("settings/transferWindowOpen").set(!!open)
-    .then(() => {
-      alert(open ? "Janela de transferências ABERTA" : "Janela FECHADA");
-      renderAdminImport();
-    })
-    .catch(err => alert("Erro: " + err.message));
+async function setTransferWindow(open) {
+  try {
+    ProfileData.requireAdmin();
+    if (!confirm((open ? "Abrir" : "Fechar") + " a janela de transferências? Esta ação muda a disponibilidade de operações oficiais.")) return;
+    await window.marketDb.ref("settings").update({transferWindowOpen:!!open});
+    window.AppState.market.settings.transferWindowOpen = !!open;
+    const status = document.getElementById("adminWindowStatus");
+    if (status) status.textContent = open ? "Janela aberta com sucesso." : "Janela fechada com sucesso.";
+    document.dispatchEvent(new CustomEvent("market:updated"));
+  } catch(error) {
+    const status = document.getElementById("adminWindowStatus");
+    if (status) status.textContent = "Não foi possível atualizar a janela: " + error.message;
+  }
 }
 
 function saveJetLeagueUrl() {
@@ -707,7 +702,7 @@ async function saveTransfer() {
 
   const status = document.getElementById("trStatus").value;
   if (status === "oficial" && !isTransferWindowOpen()) {
-    return alert("Janela de transferências está FECHADA.\nAbra a janela em Admin → Importar Excel antes de registrar oficiais.");
+    return alert("Janela de transferências está FECHADA.\nAbra a janela nesta seção de Transferências antes de registrar oficiais.");
   }
 
   // Status do agente bloqueia transferência oficial
@@ -738,8 +733,11 @@ async function saveTransfer() {
       await syncTransferToJetLeague(payload);
     }
     renderAdminTransfers();
+    window.AdminControl?.finish("transfers");
+    return true;
   } catch (err) {
     alert("Erro ao registrar transferência: " + err.message);
+    return false;
   } finally {
     transferSaving = false;
   }

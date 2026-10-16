@@ -129,6 +129,12 @@ Validação: **50 testes automatizados e 30 cenários Brave aprovados**, com red
 
 ### Edição administrativa dos perfis
 
+**Central administrativa:** o Admin autenticado abre uma Central de Controle com tarefas, pesquisa de agentes/equipes sem acentos e acesso direto aos editores individuais existentes. A lista tem filtros combinados, ciclos registrados e carregamento de mais registros. Contrato e valores usam o mesmo editor, com revisão, transação e auditoria; valores explícitos geram eventos reais sem alterar a fórmula de valorização.
+
+A janela fica em **Transferências**, junto à revisão de operações e aos acessos para saídas internacionais e histórico manual. Importação, fotos e valores em lote continuam disponíveis. Restauração e seed do mercado ficam recolhidos em **Backup e manutenção**; os controles avançados do Fantasy ficam em uma área recolhida no próprio painel, com as confirmações originais. Formulários indicam alterações pendentes, permitem descartá-las e preservam o rascunho durante atualizações do Firebase. No celular, o seletor de tarefas substitui a navegação extensa.
+
+Validação da Central: **75 testes automatizados e 44 cenários Brave**, com dados simulados, sem seeds, resets ou escritas em produção. Capturas em `test-results/admin/`. Na prévia local, `?demoAdmin=1` abre o Admin simulado; este atalho não é inserido no site de produção.
+
 **Legado visual das equipes:** o cabeçalho institucional, a sala de troféus, a trajetória cronológica e as galerias de ídolos e ex-integrantes reutilizam os registros existentes, sem migração. Campos vazios não reservam painéis. Temporadas dos títulos vêm somente de campanhas vencedoras explicitamente registradas na competição correspondente. Pessoas recebem links e fotos apenas por identidade explícita ou nome com correspondência única; listas em texto aceitam uma pessoa por linha, preservando vírgulas. A ordenação pública não altera dados ou navegação.
 
 Validação do redesign dos clubes: **71 testes automatizados e 39 cenários Brave**; tamanhos de desktop, notebook, tablet e celular, temas claro/escuro, movimento reduzido, edição administrativa e ausência de histórico. Capturas em `test-results/legacy/`. A prévia local inclui uma KOF 12 fictícia, identificada como demonstração; esses dados ficam exclusivamente no mock e não são carregados pelo site publicado.

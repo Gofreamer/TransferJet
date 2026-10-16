@@ -14,6 +14,14 @@ function setup() {
   return { c,raw,writes,stored:()=>stored,setStored:value=>{stored=value;} };
 }
 const passage = { id:'history-1',teamKind:'external',teamName:'FC Internacional',fromCycle:'C.1',toCycle:'C.2',fromDate:'',toDate:'',binding:'Empréstimo',notes:'Passagem informada pelo mestre' };
+test('editor individual revisado aceita valor explícito com evento e preserva contratos e dados paralelos', async()=>{
+  const db=setup();const {c,raw}=db;db.setStored({...raw,custom:{parallel:true}});
+  const saved=await c.ProfileData.saveAgent('Alpha_Alice',{marketValue:'21000000'},raw);
+  assert.equal(saved.marketValue,21000000);assert.equal(saved.id,raw.id);assert.equal(saved.team,raw.team);
+  assert.equal(saved.contractUntil,raw.contractUntil);assert.equal(saved.custom.parallel,true);
+  assert.equal(c.Market.events(saved).length,1);assert.equal(c.Market.events(saved)[0].source,'profile-admin');
+  assert.equal(raw.valueEvents,undefined);
+});
 const achievement = { id:'glory-1',type:'nacional',competitionName:'Nacional C.1',result:'Campeão',teamKind:'external',teamName:'Antiga Organização',season:'C.1',date:'',notes:'Título antigo',legacySlot:'1',officialId:'' };
 
 test('Hall da Glória associa título antigo sem alterar contadores ou outros domínios', async () => {
@@ -101,7 +109,7 @@ test('contratos aceitam ciclos, prazo indeterminado e datas opcionais sem conver
 
 test('valida campos, números, fotos e duplicatas sem criar equipe internacional', () => {
   const {c,raw}=setup();
-  for(const input of [{team:'Beta'},{marketValue:100},{name:''},{photo:'javascript:alert(1)'},{salary:-1},{age:2.5}]) assert.throws(()=>c.ProfileData.prepareAgent('Alpha_Alice',raw,input));
+  for(const input of [{team:'Beta'},{id:'outro'},{marketValue:-1},{name:''},{photo:'javascript:alert(1)'},{salary:-1},{age:2.5}]) assert.throws(()=>c.ProfileData.prepareAgent('Alpha_Alice',raw,input));
   assert.throws(()=>c.ProfileData.validateHistory([passage,{...passage,id:'other'}],{},raw.id),/equivalente/);
   assert.throws(()=>c.ProfileData.validateHistory([{...passage,teamKind:'league'}],{},raw.id),/equipe externa/);
   const free=c.ProfileData.validateHistory([{...passage,teamKind:'free',teamName:''}],{},raw.id);

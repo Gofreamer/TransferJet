@@ -6,6 +6,7 @@
   Object.assign(labels,{crest:"Brasão (URL)",cover:"Imagem de capa (URL)",founded:"Fundação (texto livre)",bestEra:"Melhor fase histórica",rivalries:"Rivalidades",legends:"Ídolos históricos",highlights:"Destaques históricos",placements:"Colocações",formerMembers:"Ex-membros e períodos"});
   function dialog() { return document.getElementById("profileEditorDialog"); }
   labels.achievements = "Hall da Glória · conquistas detalhadas";
+  Object.assign(labels,{marketValue:"Valor de mercado (US$)",peakValue:"Maior valor registrado (US$)"});
   function field(name, value, type = "text", label = labels[name] || name, options) {
     const content = options ? `<select data-field="${name}">${options.map(([key, text]) => `<option value="${e(key)}" ${String(value ?? "") === key ? "selected" : ""}>${e(text)}</option>`).join("")}</select>` : type === "textarea" ? `<textarea data-field="${name}" rows="3">${e(value)}</textarea>` : `<input data-field="${name}" type="${type}" value="${e(value)}" ${type === "number" ? 'min="0" step="any"' : ""}>`;
     return `<label>${e(label)}${content}</label>`;
@@ -87,6 +88,8 @@
         <section data-pane="career" hidden><p class="pe-help">Passagens manuais são apenas históricas. Não transferem o agente, não alteram contratos ou valores e não escrevem na Jet League.</p><div id="peHistoryRows">${Object.entries(raw.careerHistory || {}).map(([id,row]) => historyRow(id,row)).join("")}</div><button type="button" class="btn-gray" data-action="add-history">Adicionar passagem</button></section>
         <section data-pane="exit" hidden><h3>Equipe atual: ${e(p.club)}</h3><p class="pe-help">A saída efetiva é uma ação separada. Ela atualiza o vínculo no Market e não cria transferência ou equipe na liga. O valor, a identidade e os históricos são preservados. Nenhum elenco da Jet League é alterado automaticamente.</p><div class="pe-grid"><label>Destino<select id="peExitKind"><option value="external">Equipe externa / internacional</option><option value="free">Agente livre</option></select></label><label>Nome da equipe externa<input id="peExitTeam"></label><label>Observação<textarea id="peExitNote"></textarea></label></div><button class="btn-danger" type="button" data-action="review-exit">Revisar saída efetiva da liga</button></section>`;
       const tabs = document.querySelector('#peForm .pe-tabs');
+      tabs.querySelector('[data-tab="contract"]').textContent="Contrato e valores";
+      dialog().querySelector('[data-pane="contract"] .pe-grid').insertAdjacentHTML("beforeend",field("marketValue",value("marketValue"),"number")+field("peakValue",value("peakValue"),"number"));
       tabs.insertAdjacentHTML("beforeend",'<button role="tab" data-tab="glory" type="button">Hall da Glória</button>');
       document.getElementById("peForm").insertAdjacentHTML("beforeend",`<section data-pane="glory" hidden><h3>Gerenciar conquistas</h3><p class="pe-help">Cada registro detalha uma conquista, sem aumentar os contadores. Para detalhar um título antigo, informe seu número na categoria (1, 2…). Prêmios individuais não contam como títulos coletivos. Campos desconhecidos podem ficar em branco.</p><datalist id="peAchievementTeams">${Object.keys(AppState.jet.rosters || {}).map(name=>`<option value="${e(name)}"></option>`).join("")}</datalist><div id="peAchievements">${Object.entries(raw.achievements || {}).map(([id,row])=>clubRow("achievements",id,row)).join("")}</div><button type="button" class="btn-gray" data-action="add-club-row" data-group="achievements">Adicionar conquista</button></section>`);
       baseline(); tab(pane); dialog().showModal();
@@ -185,6 +188,7 @@
       else AppState.market.players[current.key] = record;
       dialog().close(); session = null;
       window.AppRouter?.refresh();
+      document.dispatchEvent(new CustomEvent("admin:record-saved"));
       feedback(payload.operation === "exit" ? "Saída salva no Market. A Jet League não foi alterada; a sincronização opcional está no perfil." : "Perfil salvo com sucesso.");
     } catch (error) { notice(error.message || "Não foi possível salvar. Seu rascunho foi preservado.",true); }
     finally { if (session === current) { current.busy = false; document.getElementById("peSaveBtn").disabled = false; } }
@@ -227,5 +231,5 @@
     const row = event.target.closest(".pe-history-row");
     row.querySelector(".pe-team-name").innerHTML = teamInput(event.target.value, row.querySelector('[data-history-field="teamName"]').value);
   });
-  window.ProfileEditor = { openAgent, openClub, syncExit };
+  window.ProfileEditor = { openAgent, openClub, syncExit, hasUnsavedChanges: () => !!session && !!changed() };
 })();
