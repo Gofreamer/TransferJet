@@ -7,7 +7,7 @@
   function dialog() { return document.getElementById("profileEditorDialog"); }
   labels.achievements = "Hall da Glória · conquistas detalhadas";
   Object.assign(labels,{marketValue:"Valor de mercado (US$)",peakValue:"Maior valor registrado (US$)"});
-  Object.assign(labels,{kind:"Tipo de pessoa",playerKey:"Combatente vinculado",appearance:"Aparência",teamKind:"Tipo de organização",teamName:"Organização",role:"Cargo",principal:"Responsável principal",startCycle:"Ciclo de entrada",startDate:"Data de entrada",endCycle:"Ciclo de saída",endDate:"Data de saída",staffHistory:"Histórico profissional",staffAwards:"Conquistas da comissão"});
+  Object.assign(labels,{competitive:"Manter no elenco competitivo",kind:"Tipo de pessoa",playerKey:"Combatente vinculado",appearance:"Aparência",teamKind:"Tipo de organização",teamName:"Organização",role:"Cargo",principal:"Responsável principal",startCycle:"Ciclo de entrada",startDate:"Data de entrada",endCycle:"Ciclo de saída",endDate:"Data de saída",staffHistory:"Histórico profissional",staffAwards:"Conquistas da comissão"});
   function field(name, value, type = "text", label = labels[name] || name, options) {
     const content = options ? `<select data-field="${name}">${options.map(([key, text]) => `<option value="${e(key)}" ${String(value ?? "") === key ? "selected" : ""}>${e(text)}</option>`).join("")}</select>` : type === "textarea" ? `<textarea data-field="${name}" rows="3">${e(value)}</textarea>` : `<input data-field="${name}" type="${type}" value="${e(value)}" ${type === "number" ? 'min="0" step="any"' : ""}>`;
     return `<label>${e(label)}${content}</label>`;
@@ -34,16 +34,17 @@
     return true;
   }
   function baseline() {
-    dialog().querySelectorAll("[data-field]").forEach(input => { input.dataset.initial = input.value; });
+    dialog().querySelectorAll("[data-field]").forEach(input => { input.dataset.initial = fieldValue(input); });
     session.initialHistory = JSON.stringify(readHistory());
     session.initialClubRows = readClubRows();
   }
+  function fieldValue(el) {return el.type==='checkbox' ? String(el.checked) : el.value;}
   function collect() {
     const input = {};
     dialog().querySelectorAll("#peForm [data-field]").forEach(el => {
-      if (el.value === el.dataset.initial) return;
+      if (fieldValue(el) === el.dataset.initial) return;
       if (el.dataset.field.startsWith("title_")) { input.titles ||= {}; input.titles[el.dataset.field.slice(6)] = el.value; }
-      else input[el.dataset.field] = el.value;
+      else input[el.dataset.field] = fieldValue(el);
     });
     return input;
   }
@@ -89,6 +90,7 @@
         <section data-pane="career" hidden><p class="pe-help">Passagens manuais são apenas históricas. Não transferem o agente, não alteram contratos ou valores e não escrevem na Jet League.</p><div id="peHistoryRows">${Object.entries(raw.careerHistory || {}).map(([id,row]) => historyRow(id,row)).join("")}</div><button type="button" class="btn-gray" data-action="add-history">Adicionar passagem</button></section>
         <section data-pane="exit" hidden><h3>Equipe atual: ${e(p.club)}</h3><p class="pe-help">A saída efetiva é uma ação separada. Ela atualiza o vínculo no Market e não cria transferência ou equipe na liga. O valor, a identidade e os históricos são preservados. Nenhum elenco da Jet League é alterado automaticamente.</p><div class="pe-grid"><label>Destino<select id="peExitKind"><option value="external">Equipe externa / internacional</option><option value="free">Agente livre</option></select></label><label>Nome da equipe externa<input id="peExitTeam"></label><label>Observação<textarea id="peExitNote"></textarea></label></div><button class="btn-danger" type="button" data-action="review-exit">Revisar saída efetiva da liga</button></section>`;
       const tabs = document.querySelector('#peForm .pe-tabs');
+      dialog().querySelector('[data-pane="identity"]').insertAdjacentHTML('beforeend','<button type="button" class="btn-gray" data-action="integrate-staff">Integrar à Comissão Técnica</button>');
       tabs.querySelector('[data-tab="contract"]').textContent="Contrato e valores";
       dialog().querySelector('[data-pane="contract"] .pe-grid').insertAdjacentHTML("beforeend",field("marketValue",value("marketValue"),"number")+field("peakValue",value("peakValue"),"number"));
       tabs.insertAdjacentHTML("beforeend",'<button role="tab" data-tab="glory" type="button">Hall da Glória</button>');
@@ -97,6 +99,7 @@
     } catch (error) { feedback(error.message); }
   }
   function summarize(field, value) {
+    if(field==='competitive')return value===undefined ? 'Comportamento anterior (combatente)' : value===true || value==='true' ? 'Mantém no elenco competitivo' : 'Somente Comissão Técnica';
     if (field === "achievements") return Object.values(value || {}).map(row => `${ProfileData.achievementTypes[row.type]} · ${row.competitionName || "informação não registrada"} · ${row.result || "informação não registrada"} · ${row.teamName || "informação não registrada"} (${row.teamKind === "league" ? "equipe da liga" : "equipe externa / histórica"}) · ciclo: ${row.season || "informação não registrada"} · data: ${row.date || "informação não registrada"}${row.legacySlot ? " · título antigo #" + row.legacySlot : ""}${row.notes ? " · " + row.notes : ""}${row.officialId ? " · campeonato: " + row.officialId : ""}`).join("; ") || "Sem conquistas detalhadas";
     if (field === "careerHistory") return Object.values(value || {}).map(row => `${row.teamName}: ${row.fromCycle || row.fromDate || "início não informado"} → ${row.toCycle || row.toDate || "fim não informado"}`).join("; ") || "Sem passagens manuais";
     return value == null || value === "" ? "—" : typeof value === "object" ? JSON.stringify(value) : String(value);
@@ -124,13 +127,18 @@
     const fields=[["competitionName","Competição ou prêmio"],["result","Resultado / conquista"],["teamName","Nome da equipe (opcional)"],["season","Ciclo / temporada"],["date","Data opcional","date"],...(group==='achievements' ? [["legacySlot","Número do título antigo nesta categoria (opcional)","number"]]:[]),["notes","Observações"]];
     return `<fieldset class="pe-record-row pe-history-row" data-group="${group}" data-id="${e(id)}"><legend>🏆 ${group==='staffAwards' ? 'Conquista como manager / coach':'Conquista individualizada'}</legend><div class="pe-grid">${select("type","Tipo de conquista",Object.entries(ProfileData.achievementTypes))}${select("teamKind","Equipe representada",[["external","Nome livre / equipe externa ou histórica"],["league","Equipe cadastrada na Jet League"]])}${fields.map(([key,label,type])=>`<label>${label}<input data-record-field="${key}" type="${type || "text"}" ${key==="teamName" ? 'list="peAchievementTeams"' : ""} ${key==="legacySlot" ? 'min="1" step="1"' : ""} value="${e(row[key])}"></label>`).join("")}${select("officialId","Campeonato registrado (opcional)",[["","Preenchimento manual"],...official])}</div><p class="pe-help">${official.length ? "Ao selecionar um campeonato, seus dados explícitos preenchem a conquista para revisão." : "Sem campeonato com dados oficiais suficientes para relacionar. Use preenchimento manual."}</p><button type="button" class="btn-danger" data-action="remove-club-row">Excluir conquista</button></fieldset>`;
   }
-  function openStaff(key,club='') {
+  function openStaff(key,club='',playerKey='') {
     try {
       ProfileData.requireAdmin();
+      if(playerKey) {
+        const player=getAllPlayersFlat().find(p=>p.key===playerKey);
+        if(!player)throw Error('Agente não encontrado.');
+        key=Object.entries(StaffData.all()).find(([,row])=>row===StaffData.forPlayer(player))?.[0] || key;
+      }
       key ||= marketDb.ref('settings/staff').push().key;
       const raw=StaffData.all()[key] || {};
       if(!setup(raw.id ? 'Editar comissão · '+StaffData.identity(raw).name:'Cadastrar manager / coach','staff',key,raw,{club}))return;
-      const value=name=>raw[name] ?? ({kind:'exclusive',teamKind:club?'league':'none',teamName:club,role:'Manager',status:'active',principal:false,contractMode:'unspecified'})[name] ?? '';
+      const value=name=>raw[name] ?? ({kind:playerKey?'linked':'exclusive',playerKey,teamKind:club?'league':'none',teamName:club,role:'Manager',status:'active',principal:false,contractMode:'unspecified'})[name] ?? '';
       const players=getAllPlayersFlat().sort((a,b)=>a.name.localeCompare(b.name));
       document.getElementById('peForm').innerHTML=`<nav class="pe-tabs" role="tablist" aria-label="Comissão técnica">${[['identity','Pessoa'],['affiliation','Vínculo e cargo'],['contract','Contrato'],['career','Histórico'],['glory','Conquistas']].map(([id,label])=>`<button type="button" role="tab" data-tab="${id}">${label}</button>`).join('')}</nav>
         <section data-pane="identity">${field('kind',value('kind'),'text',labels.kind,[['exclusive','Manager exclusivo'],['linked','Combatente que também é manager / coach']])}<div data-staff-person="linked">${field('playerKey',value('playerKey'),'text','Combatente existente',[['','Selecione um agente'],...players.map(p=>[p.key,p.name+' · '+p.club])])}<p class="pe-help">A pessoa continua sendo o mesmo combatente. Nome, foto e informações são lidos do cadastro existente.</p>${raw.playerKey ? `<button class="btn-gray" data-action="edit-linked">Editar cadastro do combatente</button>`:''}</div><div class="pe-grid" data-staff-person="exclusive">${['name','photo','nationality','age','appearance','bio','description'].map(name=>field(name,value(name),name==='age'?'number':['appearance','bio','description'].includes(name)?'textarea':'text')).join('')}</div></section>
@@ -139,6 +147,9 @@
         <section data-pane="career" hidden><p class="pe-help">Passagens profissionais; não modificam o vínculo atual.</p><div id="peHistoryRows">${Object.entries(raw.careerHistory || {}).map(([id,row])=>clubRow('staffHistory',id,row)).join('')}</div><button type="button" class="btn-gray" data-action="add-history">Adicionar passagem profissional</button></section>
         <section data-pane="glory" hidden><p class="pe-help">Conquistas como manager ou treinador, separadas dos títulos de combate e da pontuação Fantasy.</p><datalist id="peAchievementTeams">${Object.keys(AppState.jet.rosters || {}).map(name=>`<option value="${e(name)}"></option>`).join('')}</datalist><div id="peStaffAwards">${Object.entries(raw.achievements || {}).map(([id,row])=>clubRow('staffAwards',id,row)).join('')}</div><button type="button" class="btn-gray" data-action="add-club-row" data-group="staffAwards">Adicionar conquista da comissão</button></section>`;
       dialog().querySelector('[data-field="teamName"]').setAttribute('list','peStaffTeams');
+      dialog().querySelector('[data-staff-person="linked"]').insertAdjacentHTML('beforeend',`<label class="pe-competitive"><input type="checkbox" data-field="competitive" ${raw.competitive===true || raw.id && raw.competitive===undefined ? 'checked':''}> Manter no elenco competitivo</label><p class="pe-help">Desmarcada: atua somente na Comissão Técnica. Marcada: também compete. Preserva o cadastro e os históricos; não altera a Jet League.</p>`);
+      dialog().querySelector('[data-field="kind"] option[value="linked"]').textContent='Agente existente';
+      dialog().querySelector('[data-pane="affiliation"] .pe-help').textContent='O vínculo profissional é independente do elenco da Jet League. Ao encerrar ou mudar equipe/cargo, a passagem anterior é preservada, sem inventar datas.';
       if(raw.id)['kind','playerKey'].forEach(name=>{dialog().querySelector(`[data-field="${name}"]`).disabled=true;});
       staffIdentity();baseline();tab('identity');dialog().showModal();
     } catch(error){feedback(error.message);}
@@ -170,9 +181,12 @@
       ProfileData.requireAdmin();
       const input = collect();
       if(session.type==='staff') {
-        if(!session.raw.id)dialog().querySelectorAll('#peForm [data-field]').forEach(el=>{input[el.dataset.field]=el.value;});
+        if(!session.raw.id)dialog().querySelectorAll('#peForm [data-field]').forEach(el=>{input[el.dataset.field]=fieldValue(el);});
         const kind=input.kind || session.raw.kind;
-        if(kind==='linked')[...StaffData.personal,'appearance'].forEach(name=>delete input[name]);else delete input.playerKey;
+        if(kind==='linked') {
+          [...StaffData.personal,'appearance'].forEach(name=>delete input[name]);
+          if(session.raw.competitive===undefined)input.competitive=fieldValue(dialog().querySelector('[data-field="competitive"]'));
+        } else {delete input.playerKey;delete input.competitive;}
         const rows=readHistory(), awards=readClubRows().staffAwards;
         if(JSON.stringify(rows)!==session.initialHistory)input.careerHistory=rows;
         if(JSON.stringify(awards)!==JSON.stringify(session.initialClubRows.staffAwards))input.achievements=awards;
@@ -239,6 +253,11 @@
     if (!btn || session.busy) return;
     if (btn.dataset.tab) return tab(btn.dataset.tab);
     const action = btn.dataset.action;
+    if(action==='integrate-staff') {
+      const key=session.key,club=Object.hasOwn(AppState.jet.rosters || {},session.visible.club) ? session.visible.club : '';
+      if(!changed()){dialog().close();session=null;}
+      return openStaff(null,club,key);
+    }
     if (action === "close") close();
     if (action === "review") review();
     if (action === "save") save();

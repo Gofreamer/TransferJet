@@ -211,12 +211,12 @@ function getJetLeagueUrl() {
 }
 
 function getClubMarketValue(clubName) {
-  const players = getAllPlayersFlat().filter(p => p.club === clubName && !p.freeAgent);
+  const players = getAllPlayersFlat().filter(isCompetitivePlayer).filter(p => p.club === clubName && !p.freeAgent);
   return players.reduce((sum, p) => sum + (p.marketValue || 0), 0);
 }
 
 function getTotalMarketValue() {
-  return getAllPlayersFlat().reduce((sum, p) => sum + (p.marketValue || 0), 0);
+  return getAllPlayersFlat().filter(isCompetitivePlayer).reduce((sum, p) => sum + (p.marketValue || 0), 0);
 }
 
 /* ========== RENDER: HOME ========== */
@@ -226,7 +226,7 @@ function renderHome() {
 
 /* ========== RENDER: PLAYERS ========== */
 function renderPlayers() {
-  let players = getAllPlayersFlat();
+  let players = getAllPlayersFlat().filter(isCompetitivePlayer);
   const search = (document.getElementById("playerSearch")?.value || "").toLowerCase().trim();
   const club = document.getElementById("playerClubFilter")?.value || "";
   const rankF = document.getElementById("playerRankFilter")?.value || "";
@@ -288,7 +288,7 @@ function renderPlayers() {
           <div class="card-value">${p.marketValue ? formatUSD(p.marketValue, true) : '<span style="color:var(--text-muted);font-size:0.85rem">Sem valor</span>'}</div>
           ${MarketUI.movementMarkup(p)}
           <div class="card-meta">
-            ${agentStatusEffects(p.status).isRetired ? '' : `<span class="tag ${escapeHTML(p.role)}">${roleLabel(p.role)}</span>`}
+            ${agentStatusEffects(p.status).isRetired || !isCompetitivePlayer(p) ? '' : `<span class="tag ${escapeHTML(p.role)}">${roleLabel(p.role)}</span>`}
             ${typeof renderAgentStatusBadge === "function" ? renderAgentStatusBadge(p.status) : ""}
             ${renderTitlesBadges(p.titles)}
             ${p.functionRole && p.functionRole.includes("Capitão") ? `<span class="tag" style="background:rgba(0,229,255,0.15);color:var(--cyan)">Capitão</span>` : ""}
@@ -303,7 +303,7 @@ function renderPlayers() {
 function renderClubs() {
   const rosters = window.AppState.jet.rosters || {};
   const clubs = Object.keys(rosters).map(name => {
-    const agents = getAllPlayersFlat().filter(p => p.club === name);
+    const agents = getAllPlayersFlat().filter(isCompetitivePlayer).filter(p => p.club === name);
     const totalValue = agents.reduce((s, p) => s + (p.marketValue || 0), 0);
     const avg = agents.length ? totalValue / agents.length : 0;
     const topAgent = [...agents].sort((a, b) => (b.marketValue || 0) - (a.marketValue || 0))[0];
@@ -545,7 +545,7 @@ function renderRankings() {
   if (!listEl) return;
 
   if (type === "players-value") {
-    const players = getAllPlayersFlat().filter(p => p.marketValue).sort((a, b) => b.marketValue - a.marketValue);
+    const players = getAllPlayersFlat().filter(isCompetitivePlayer).filter(p => p.marketValue).sort((a, b) => b.marketValue - a.marketValue);
     listEl.innerHTML = `
       <div class="table-wrap"><table>
         <thead><tr><th>#</th><th>Agente</th><th>Equipe</th><th>Rank</th><th>Valor</th><th>WR</th></tr></thead>
@@ -561,7 +561,7 @@ function renderRankings() {
         </tbody>
       </table></div>`;
   } else if (type === "players-wr") {
-    const players = getAllPlayersFlat().filter(p => p.stats?.P >= 3).sort((a, b) => b.stats.winRate - a.stats.winRate);
+    const players = getAllPlayersFlat().filter(isCompetitivePlayer).filter(p => p.stats?.P >= 3).sort((a, b) => b.stats.winRate - a.stats.winRate);
     listEl.innerHTML = `
       <div class="table-wrap"><table>
         <thead><tr><th>#</th><th>Agente</th><th>Equipe</th><th>P-V-D</th><th>Win Rate</th><th>Valor</th></tr></thead>
@@ -577,14 +577,14 @@ function renderRankings() {
         </tbody>
       </table></div>`;
   } else if (type === "players-gain" || type === "players-drop") {
-    const rows = getAllPlayersFlat().map(p => ({ player: p, variation: Market.variation(p) })).filter(p => p.variation && (type === "players-gain" ? p.variation.diff > 0 : p.variation.diff < 0));
+    const rows = getAllPlayersFlat().filter(isCompetitivePlayer).map(p => ({ player: p, variation: Market.variation(p) })).filter(p => p.variation && (type === "players-gain" ? p.variation.diff > 0 : p.variation.diff < 0));
     rows.sort((a, b) => type === "players-gain" ? b.variation.diff - a.variation.diff : a.variation.diff - b.variation.diff);
     listEl.innerHTML = rows.length ? `<p class="market-note">Última alteração real por agente; estimativas e diferenças em relação ao pico não entram neste ranking.</p><div class="table-wrap"><table><thead><tr><th>Agente</th><th>Equipe</th><th>Antes</th><th>Atual</th><th>Variação</th><th>Data</th></tr></thead><tbody>${rows.map(({ player: p, variation: v }) => `<tr><td><span class="player-link" onclick="openPlayerProfile('${escapeInlineJsSingle(p.key)}')">${escapeHTML(p.name)}</span></td><td>${escapeHTML(p.club)}</td><td>${formatUSD(v.previousValue, true)}</td><td>${formatUSD(p.marketValue, true)}</td><td>${escapeHTML(v.text)}</td><td>${escapeHTML(new Date(v.at).toLocaleDateString("pt-BR"))}</td></tr>`).join("")}</tbody></table></div>` : '<p class="empty-state">Nenhuma variação real registrada para este ranking.</p>';
   } else if (type === "clubs-value") {
     const clubs = Object.keys(window.AppState.jet.rosters || {}).map(name => ({
       name,
       value: getClubMarketValue(name),
-      size: (window.AppState.jet.rosters[name] || []).length
+      size: getAllPlayersFlat().filter(p => isCompetitivePlayer(p) && p.club === name).length
     })).sort((a, b) => b.value - a.value);
 
     listEl.innerHTML = `
@@ -654,8 +654,9 @@ function openPlayerProfile(key) {
         <div class="profile-meta">
           <span class="tag ${p.freeAgent ? "free-agent-tag" : ""}">${escapeHTML(p.club)}</span>
           ${typeof renderAgentStatusBadge === "function" ? renderAgentStatusBadge(p.status) : ""}
-          ${agentStatusEffects(p.status).isRetired ? '' : `<span class="tag ${escapeHTML(p.role)}">${roleLabel(p.role)}</span>`}
+          ${agentStatusEffects(p.status).isRetired || !isCompetitivePlayer(p) ? '' : `<span class="tag ${escapeHTML(p.role)}">${roleLabel(p.role)}</span>`}
           <span class="tag">${escapeHTML(p.rank || "—")}</span>
+          ${!isCompetitivePlayer(p) ? `<span class="tag">${escapeHTML(StaffData.forPlayer(p)?.role || "Comissão Técnica")}</span>` : ""}
           <span class="tag">${escapeHTML(p.nationality)}</span>
           ${p.age ? `<span class="tag">${escapeHTML(p.age)} anos</span>` : ""}
           <span class="tag">${escapeHTML(window.ProfileData ? ProfileData.contractLabel(p) : p.contractUntil)}</span>
@@ -725,7 +726,7 @@ function openPlayerProfile(key) {
         <div class="kpi"><div class="kpi-label">Vitórias</div><div class="kpi-value" style="font-size:1.1rem;color:var(--green)">${p.stats?.V ?? "—"}</div></div>
         <div class="kpi"><div class="kpi-label">Derrotas</div><div class="kpi-value" style="font-size:1.1rem;color:var(--red)">${p.stats?.D ?? "—"}</div></div>
         <div class="kpi"><div class="kpi-label">Win Rate</div><div class="kpi-value cyan" style="font-size:1.1rem">${p.stats?.P ? Math.round(p.stats.winRate*100)+"%" : "—"}</div></div>
-        <div class="kpi"><div class="kpi-label">Função</div><div class="kpi-value" style="font-size:1rem">${escapeHTML(p.functionRole || roleLabel(p.role))}</div></div>
+        <div class="kpi"><div class="kpi-label">Função</div><div class="kpi-value" style="font-size:1rem">${escapeHTML(!isCompetitivePlayer(p) ? StaffData.forPlayer(p)?.role || "Comissão Técnica" : p.functionRole || roleLabel(p.role))}</div></div>
       </div>
     </div>
 
@@ -899,7 +900,7 @@ function renderValueChart(history) {
 
 /* ========== PERFIL DA EQUIPE ========== */
 function openClubProfile(clubName) {
-  const agents = getAllPlayersFlat().filter(p => p.club === clubName)
+  const agents = getAllPlayersFlat().filter(isCompetitivePlayer).filter(p => p.club === clubName)
     .sort((a, b) => (b.marketValue || 0) - (a.marketValue || 0));
   const totalValue = agents.reduce((s, p) => s + (p.marketValue || 0), 0);
   const avg = agents.length ? totalValue / agents.length : 0;

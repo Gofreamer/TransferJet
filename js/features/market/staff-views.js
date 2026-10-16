@@ -5,7 +5,7 @@
   function period(row) {return `${[row.fromCycle || row.startCycle,row.fromDate || row.startDate].filter(Boolean).join(' · ') || 'Entrada não registrada'} → ${[row.toCycle || row.endCycle,row.toDate || row.endDate].filter(Boolean).join(' · ') || 'Saída não registrada'}`;}
   function card(id,row,past) {
     const p=StaffData.identity(row);
-    return `<article class="staff-card ${!past && row.principal?'staff-principal':''}">${portrait(p)}<div><span class="eyebrow">${past ? 'HISTÓRICO DA COMISSÃO' : row.principal ? 'RESPONSÁVEL PRINCIPAL' : 'COMISSÃO TÉCNICA'}</span><h3>${e(p.name)}</h3><p>${e(past?.binding || row.role)}${row.kind==='linked'?' · Também combatente':''}</p>${past ? `<small>${e(period(past))}</small>`:''}<button class="text-button" data-staff-view="${e(id)}">Ver perfil e conquistas ↗</button>${window.isMarketAdmin?.()?`<button class="btn-gray btn-sm" data-staff-edit="${e(id)}">Editar comissão</button>`:''}</div></article>`;
+    return `<article class="staff-card ${!past && row.principal?'staff-principal':''}">${portrait(p)}<div><span class="eyebrow">${past ? 'HISTÓRICO DA COMISSÃO' : row.principal ? 'RESPONSÁVEL PRINCIPAL' : 'COMISSÃO TÉCNICA'}</span><h3>${e(p.name)}</h3><p>${e(past?.binding || row.role)}${row.kind==='linked' && row.competitive!==false?' · Também combatente':''}</p>${past ? `<small>${e(period(past))}</small>`:''}<button class="text-button" data-staff-view="${e(id)}">Ver perfil e conquistas ↗</button>${window.isMarketAdmin?.()?`<button class="btn-gray btn-sm" data-staff-edit="${e(id)}">Editar comissão</button>`:''}</div></article>`;
   }
   function team(name) {
     const current=[],past=[];

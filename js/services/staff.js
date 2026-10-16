@@ -5,6 +5,10 @@
   const binding=['teamKind','teamName','role','principal','status','startCycle','startDate','endCycle','endDate'];
   const same=Market.same;
   function all() {return AppState.market.settings?.staff || {};}
+  function forPlayer(player) {
+    return Object.values(all()).find(row=>row.kind==='linked' && row.playerKey===player.key && row.playerId===(player.id || 'legacy:'+player.key));
+  }
+  function isCombatant(player) {return forPlayer(player)?.competitive !== false;}
   function identity(row) {
     if(row.kind!=='linked')return row;
     const player=getAllPlayersFlat().find(p=>p.key===row.playerKey && p.id===row.playerId);
@@ -22,7 +26,7 @@
   function prepare(id,raw,input) {
     if(!ProfileData.safeKey(id))throw Error('Identidade da comissão inválida.');
     if(raw.id && raw.id!==id)throw Error('A identidade permanente da comissão não pode ser alterada.');
-    const allowed=[...personal,...contract,...binding,'appearance','notes','kind','playerKey','careerHistory','achievements'];
+    const allowed=[...personal,...contract,...binding,'appearance','notes','kind','playerKey','careerHistory','achievements','competitive'];
     if(Object.keys(input).some(key=>!allowed.includes(key)))throw Error('Campo protegido da comissão.');
     const proposedKind=input.kind || raw.kind || 'exclusive';
     if(!['exclusive','linked'].includes(proposedKind) || raw.kind && proposedKind!==raw.kind)throw Error('O tipo da pessoa não pode ser alterado.');
@@ -34,6 +38,10 @@
       const player=getAllPlayersFlat().find(p=>p.key===key);
       if(!player || raw.playerId && (raw.playerId!==player.id || raw.playerKey!==key))throw Error('Combatente ausente ou identidade alterada.');
       if(!raw.playerId){changes.playerId=player.id;changes.playerKey=player.key;}
+      if('competitive' in input) {
+        if(![true,false,'true','false'].includes(input.competitive))throw Error('Participação competitiva inválida.');
+        changes.competitive=input.competitive===true || input.competitive==='true';
+      } else if(!raw.id)changes.competitive=false;
     } else if(input.playerKey)throw Error('Cadastro exclusivo não pode copiar um combatente.');
     const base={};
     [...(proposedKind==='exclusive' ? personal:[]),...contract].forEach(key=>{if(key in input)base[key]=input[key];});
@@ -89,5 +97,5 @@
     if(!result.committed)throw failure || Error('Não foi possível confirmar a gravação.');
     return result.snapshot.val()[id];
   }
-  window.StaffData={all,identity,prepare,createRecord,save,personal,contract,binding};
+  window.StaffData={all,forPlayer,isCombatant,identity,prepare,createRecord,save,personal,contract,binding};
 })();

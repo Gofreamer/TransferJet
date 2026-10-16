@@ -27,7 +27,7 @@
 
   function refreshMetrics() {
     const state = window.AppState;
-    const players = getAllPlayersFlat();
+    const players = getAllPlayersFlat().filter(isCompetitivePlayer);
     const metrics = {
       statPlayers: state.ui.jetLoaded || state.ui.marketLoaded ? players.length : "—",
       statClubs: state.ui.jetLoaded ? Object.keys(state.jet.rosters || {}).length : "—",

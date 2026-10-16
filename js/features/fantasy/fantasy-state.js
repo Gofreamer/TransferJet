@@ -155,6 +155,7 @@ function setFantasySession(participantId, displayName) {
 function fantasyPlayerMap() {
   const map = {};
   (typeof getAllPlayersFlat === "function" ? getAllPlayersFlat() : []).forEach(p => {
+    if (!isCompetitivePlayer(p)) return;
     // Aposentado / livre / suspenso fora do pool do Fantasy
     const fx = typeof agentStatusEffects === "function" ? agentStatusEffects(p.status) : null;
     if (fx && fx.fantasyEligible === false) return;
@@ -167,7 +168,7 @@ function fantasyPlayerMap() {
 
 function teamSquadValue(teamName) {
   return (typeof getAllPlayersFlat === "function" ? getAllPlayersFlat() : [])
-    .filter(p => p.club === teamName)
+    .filter(p => isCompetitivePlayer(p) && p.club === teamName)
     .reduce((s, p) => s + (p.marketValue || 0), 0);
 }
 

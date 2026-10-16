@@ -23,7 +23,7 @@
     const target = document.getElementById("premiumDashboard");
     if (!target) return;
     const players = getAllPlayersFlat();
-    const byValue = [...players].filter(p => Number(p.marketValue) > 0).sort((a,b) => b.marketValue - a.marketValue || a.name.localeCompare(b.name));
+    const byValue = players.filter(isCompetitivePlayer).filter(p => Number(p.marketValue) > 0).sort((a,b) => b.marketValue - a.marketValue || a.name.localeCompare(b.name));
     const featured = byValue.find(p => !p.retired && !p.freeAgent && !["aposentado", "livre"].includes(p.status));
     const transfers = Object.values(AppState.market.transfers || {}).filter(Boolean).sort((a,b) => String(b.date || "").localeCompare(String(a.date || "")));
     const rumors = Object.values(AppState.market.rumors || {}).filter(r => r && r.status !== "encerrada").sort((a,b) => String(b.date || "").localeCompare(String(a.date || "")));

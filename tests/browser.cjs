@@ -1094,6 +1094,52 @@ const root = path.resolve(__dirname, '..');
       assert.match(result,/administrador/);
     });
 
+    await scenario('Comissão: atalho integra agente somente como coach e restaura combate sem duplicar',async page=>{
+      await ready(page,'?player=Alpha_Alice');
+      const before=await page.evaluate(()=>({players:JSON.stringify(__mockData.market.players),fantasy:JSON.stringify(__mockData.market.fantasy),jet:JSON.stringify(__mockData.jet),value:getClubMarketValue('Alpha'),count:getAllPlayersFlat().length}));
+      await page.evaluate(()=>ProfileEditor.openAgent('Alpha_Alice'));
+      await page.locator('[data-action="integrate-staff"]').click();
+      assert.equal(await page.locator('[data-field="playerKey"]').inputValue(),'Alpha_Alice');
+      assert.equal(await page.locator('[data-field="competitive"]').isChecked(),false);
+      await page.locator('[data-tab="affiliation"]').click();await page.locator('[data-field="role"]').selectOption('Coach');
+      await page.locator('#peReviewBtn').click();assert.match(await page.locator('#peReview').innerText(),/Somente Comissão Técnica/);
+      await page.locator('#peSaveBtn').click();await page.waitForFunction(()=>!document.getElementById('profileEditorDialog').open);
+      assert.equal(await page.locator('.profile-meta .tag.titular').count(),0);
+      assert.match(await page.locator('.profile-meta').innerText(),/Coach/);
+      assert.equal(await page.evaluate(()=>getClubMarketValue('Alpha')),before.value-20000000);
+      assert.equal(await page.evaluate(()=>!!fantasyPlayerMap().Alpha_Alice),false);
+      await page.evaluate(()=>showView('players'));assert.equal(await page.locator('#playersList .card-title', {hasText:'Alice'}).count(),0);
+      await page.evaluate(()=>showView('rankings'));assert.doesNotMatch(await page.locator('#rankingsList').innerText(),/Alice/);
+      await page.evaluate(()=>openClubProfile('Alpha'));await page.locator('.staff-committee-summary').click();
+      assert.doesNotMatch(await page.locator('.staff-committee').innerText(),/Também combatente/);
+      assert.match(await page.locator('.staff-committee').innerText(),/Alice/);
+      assert.equal(await page.locator('#clubProfileContent tbody .player-link',{hasText:'Alice'}).count(),0);
+      const found=await page.evaluate(()=>PremiumUI.search('Alice',getAllPlayersFlat(),[])[0]);assert.equal(found.key,'Alpha_Alice');
+      await page.evaluate(()=>openPlayerProfile('Alpha_Alice'));
+      assert.match(await page.locator('#playerProfileContent').innerText(),/20\.000\.000/);
+      await page.evaluate(()=>ProfileEditor.openAgent('Alpha_Alice'));await page.locator('[data-action="integrate-staff"]').click();
+      assert.equal(await page.locator('[data-field="competitive"]').isChecked(),false);
+      await page.locator('[data-field="competitive"]').check();
+      await page.evaluate(()=>__mockEmit());assert.equal(await page.locator('[data-field="competitive"]').isChecked(),true);
+      await page.locator('#peReviewBtn').click();await page.locator('#peSaveBtn').click();await page.waitForFunction(()=>!document.getElementById('profileEditorDialog').open);
+      assert.equal(await page.evaluate(()=>getClubMarketValue('Alpha')),before.value);
+      assert.equal(await page.evaluate(()=>!!fantasyPlayerMap().Alpha_Alice),true);
+      assert.equal(await page.evaluate(()=>Object.keys(StaffData.all()).length),1);
+      assert.deepEqual(await page.evaluate(()=>({players:JSON.stringify(__mockData.market.players),fantasy:JSON.stringify(__mockData.market.fantasy),jet:JSON.stringify(__mockData.jet),count:getAllPlayersFlat().length})),{players:before.players,fantasy:before.fantasy,jet:before.jet,count:before.count});
+    },{admin:true,expectedWrites:2});
+
+    await scenario('Comissão: vínculo legado inicia competitivo e permite desmarcar sem mudar aposentadoria',async page=>{
+      await ready(page,'?player=Alpha_Alice');
+      assert.equal(await page.evaluate(()=>!!fantasyPlayerMap().Alpha_Alice),true);
+      await page.evaluate(()=>ProfileEditor.openAgent('Alpha_Alice'));await page.locator('[data-action="integrate-staff"]').click();
+      assert.equal(await page.locator('[data-field="competitive"]').isChecked(),true);
+      await page.locator('[data-field="competitive"]').uncheck();
+      await page.locator('#peReviewBtn').click();await page.locator('#peSaveBtn').click();await page.waitForFunction(()=>!document.getElementById('profileEditorDialog').open);
+      assert.equal(await page.evaluate(()=>StaffData.all().one.competitive),false);
+      assert.equal(await page.evaluate(()=>__mockData.market.players.Alpha_Alice.status),'ativo');
+      assert.equal(await page.evaluate(()=>Object.keys(StaffData.all()).length),1);
+    },{admin:true,expectedWrites:1,settings:{staff:{one:{id:'one',kind:'linked',playerKey:'Alpha_Alice',playerId:'legacy:Alpha_Alice',role:'Manager',teamKind:'league',teamName:'Alpha',status:'active'}}}});
+
     await scenario('Comissão: manager exclusivo, contrato, histórico e prêmio não entram no combate ou Fantasy',async page=>{
       await ready(page,'?club=Alpha');
       assert.equal(await page.locator('.staff-committee').evaluate(el=>el.open),false);

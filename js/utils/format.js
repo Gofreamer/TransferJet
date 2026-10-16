@@ -42,6 +42,10 @@ function roleLabel(role) {
   return "Emergência";
 }
 
+function isCompetitivePlayer(player) {
+  return window.StaffData?.isCombatant(player) !== false;
+}
+
 function statusLabel(status) {
   const map = {
     oficial:      { label: "OFICIAL",      color: "#22c55e", icon: "🟢" },

@@ -55,3 +55,67 @@ test('comissão recusa acesso não autenticado, datas, valores e referência amb
   const {c,writes}=setup();for(const changes of [{photo:'javascript:evil'},{age:-1},{salary:-1},{startDate:'2026-02-30'},{marketValue:1},{teamName:'Equipe inventada'}])assert.throws(()=>c.StaffData.prepare('one',{}, {...exclusive,...changes}));
   c.isMarketAdmin=()=>false;await assert.rejects(c.StaffData.save('one',exclusive,{}),/administrador/);assert.equal(writes.length,0);
 });
+
+
+test('elegibilidade preserva agente comum e legado; novo vínculo é somente comissão e pode voltar ao combate',async()=>{
+  const {c}=setup();const player=c.getAllPlayersFlat()[0];
+  const beforePlayers=JSON.stringify(c.AppState.market.players),beforeJet=JSON.stringify(c.AppState.jet);
+  assert.equal(c.isCompetitivePlayer(player),true);
+  const row=await c.StaffData.save('linked',{kind:'linked',playerKey:player.key,role:'Coach',teamKind:'league',teamName:'Alpha',status:'active'},{});
+  assert.equal(row.competitive,false);
+  c.AppState.market.settings.staff={linked:row};
+  assert.equal(c.isCompetitivePlayer(player),false);
+  assert.equal(c.getAllPlayersFlat().length,1);
+  assert.equal(c.StaffData.identity(row).name,'Alice');
+  assert.equal(c.getClubMarketValue('Alpha'),0);assert.equal(c.getTotalMarketValue(),0);
+  assert.doesNotMatch(c.StaffViews.team('Alpha'),/Também combatente/);
+  assert.equal(c.getCareerHistory(player.key,player.name,player.club).length,1);
+  const returned=await c.StaffData.save('linked',{competitive:true},row);
+  c.AppState.market.settings.staff.linked=returned;
+  assert.equal(c.isCompetitivePlayer(player),true);assert.equal(c.getClubMarketValue('Alpha'),20000000);
+  assert.match(c.StaffViews.team('Alpha'),/Também combatente/);
+  assert.equal(JSON.stringify(c.AppState.market.players),beforePlayers);assert.equal(JSON.stringify(c.AppState.jet),beforeJet);
+  assert.equal(Object.keys(c.AppState.market.settings.staff).length,1);
+  assert.equal(Object.keys(c.AppState.market.players).length,1);
+  delete c.AppState.market.settings.staff.linked.competitive;
+  assert.equal(c.isCompetitivePlayer(player),true);
+  const legacy=c.StaffData.prepare('linked',c.AppState.market.settings.staff.linked,{notes:'Edição antiga'});
+  assert.equal(Object.hasOwn(legacy,'competitive'),false);
+  c.AppState.market.settings.staff.linked.playerId='outro-id';
+  assert.equal(c.isCompetitivePlayer(player),true,'Referência inválida não afeta outro personagem');
+});
+
+test('somente comissão impede novas contratações e snapshots competitivos sem modificar Fantasy histórico',async()=>{
+  const {c}=setup();load(c,'js/features/fantasy/fantasy-state.js','js/features/fantasy/fantasy-market.js','js/features/fantasy/fantasy-scoring.js','js/features/fantasy/fantasy-rounds.js');
+  c.ensureFantasyState();c.AppState.fantasy.settings={...c.FANTASY.DEFAULTS,currentRoundId:'r1',seasonId:'T2'};
+  for(const [team,names] of Object.entries({Beta:['B1','B2'],Gamma:['G1','G2'],Delta:['D1']})) {
+    c.AppState.jet.rosters[team]=names.map(n=>({n}));
+    names.forEach(name=>{c.AppState.market.players[team+'_'+name]={name,marketValue:1000000,status:'ativo'};});
+  }
+  const player=c.getAllPlayersFlat()[0];
+  const participant={displayName:'Teste',budgetRemaining:5000000,squad:{starters:[player.key,'Beta_B1','Beta_B2','Gamma_G1','Gamma_G2'],bench:'Delta_D1',captainKey:player.key}};
+  const snapshot=c.buildFantasySnapshot({human1:participant},c.getAllPlayersFlat(),c.fantasySettings(),'2026-10-16T00:00:00Z');
+  const round={id:'old',seasonId:'T2',rodadaNumber:1,snapshot};
+  const matches={official:{temporada:'T2',rodada:1,timeA:'Alpha',timeB:'Beta',scoreA:2,scoreB:0,fights:[{teamA:{agents:['Alice']},teamB:{agents:['B1']}}],seriesMvp:{agent:'Alice'}}};
+  assert.equal(snapshot.participants.human1.valid,true);
+  const historical=c.processFantasyRound(round,{}, {matches});
+  assert.ok(historical.scores.human1.breakdown.find(row=>row.playerId===player.id).points>0);
+  c.AppState.fantasy.rounds={old:round};c.AppState.fantasy.scores={old:historical};c.AppState.fantasy.participants={human1:participant};
+  const before=JSON.stringify(c.AppState.fantasy);
+  const row=await c.StaffData.save('linked',{kind:'linked',playerKey:player.key,role:'Manager',teamKind:'league',teamName:'Alpha',status:'active',competitive:false},{});
+  c.AppState.market.settings.staff={linked:row};
+  assert.equal(c.fantasyPlayerMap()[player.key],undefined);assert.equal(c.teamSquadValue('Alpha'),0);
+  assert.equal(c.tryAddToSquad({budgetRemaining:5000000,squad:c.emptySquad()},player.key,0).ok,false);
+  assert.equal(c.validateSquad(participant.squad,participant.budgetRemaining).ok,false);
+  const next=c.buildFantasySnapshot({human1:participant},c.getAllPlayersFlat(),c.fantasySettings());
+  assert.equal(next.participants.human1.valid,false);assert.equal(next.teamValues.Alpha,undefined);
+  assert.equal(next.players[player.key].marketValue,20000000);
+  assert.equal(JSON.stringify(c.processFantasyRound(round,{}, {matches})),JSON.stringify(historical));
+  assert.equal(JSON.stringify(c.AppState.fantasy),before);
+  c.AppState.market.settings.staff.linked={...row,competitive:true};
+  assert.ok(c.fantasyPlayerMap()[player.key]);assert.equal(c.teamSquadValue('Alpha'),20000000);
+  assert.equal(c.tryAddToSquad({budgetRemaining:5000000,squad:c.emptySquad()},player.key,0).ok,true);
+  c.AppState.market.players.Alpha_Alice.status='aposentado';
+  assert.equal(c.fantasyPlayerMap()[player.key],undefined);
+  assert.equal(c.getAllPlayersFlat().find(p=>p.key===player.key).status,'aposentado');
+});
