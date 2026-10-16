@@ -74,6 +74,19 @@ const root = path.resolve(__dirname, '..');
       await page.waitForFunction(name => window.AppState.ui.currentView === name, name);
       assert.equal(await page.locator(`#view-${name}`).evaluate(el => !el.classList.contains('hidden')), true);
     }
+    await scenario('aposentados exibem status sem selo de titular na lista e no perfil', async page => {
+      await ready(page, '?view=players');
+      const card=page.locator('#playersList .card').filter({has:page.locator('.card-title', {hasText:'Alice'})});
+      assert.equal(await card.locator('.agent-status-tag').innerText(),'◆ Aposentado');
+      assert.equal(await card.locator('.tag.titular, .tag.reserva, .tag.emergencia').count(),0);
+      const active=page.locator('#playersList .card').filter({has:page.locator('.card-title', {hasText:'Bob'})});
+      assert.equal(await active.locator('.tag.titular').count(),1);
+      await card.click();
+      await view(page,'player-profile');
+      assert.equal(await page.locator('.profile-meta .agent-status-tag').innerText(),'◆ Aposentado');
+      assert.equal(await page.locator('.profile-meta .tag.titular, .profile-meta .tag.reserva, .profile-meta .tag.emergencia').count(),0);
+      assert.equal(await page.evaluate(()=>__mockData.market.players.Alpha_Alice.status),'aposentado');
+    }, {players:{Alpha_Alice:{name:'Alice',status:'aposentado',marketValue:20000000}}});
     async function screenshot(page, name) {
       if (!process.env.SCREENSHOT_DIRECTORY) return;
       await fs.mkdir(process.env.SCREENSHOT_DIRECTORY, { recursive: true });

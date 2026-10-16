@@ -288,7 +288,7 @@ function renderPlayers() {
           <div class="card-value">${p.marketValue ? formatUSD(p.marketValue, true) : '<span style="color:var(--text-muted);font-size:0.85rem">Sem valor</span>'}</div>
           ${MarketUI.movementMarkup(p)}
           <div class="card-meta">
-            <span class="tag ${escapeHTML(p.role)}">${roleLabel(p.role)}</span>
+            ${agentStatusEffects(p.status).isRetired ? '' : `<span class="tag ${escapeHTML(p.role)}">${roleLabel(p.role)}</span>`}
             ${typeof renderAgentStatusBadge === "function" ? renderAgentStatusBadge(p.status) : ""}
             ${renderTitlesBadges(p.titles)}
             ${p.functionRole && p.functionRole.includes("Capitão") ? `<span class="tag" style="background:rgba(0,229,255,0.15);color:var(--cyan)">Capitão</span>` : ""}
@@ -654,7 +654,7 @@ function openPlayerProfile(key) {
         <div class="profile-meta">
           <span class="tag ${p.freeAgent ? "free-agent-tag" : ""}">${escapeHTML(p.club)}</span>
           ${typeof renderAgentStatusBadge === "function" ? renderAgentStatusBadge(p.status) : ""}
-          <span class="tag ${escapeHTML(p.role)}">${roleLabel(p.role)}</span>
+          ${agentStatusEffects(p.status).isRetired ? '' : `<span class="tag ${escapeHTML(p.role)}">${roleLabel(p.role)}</span>`}
           <span class="tag">${escapeHTML(p.rank || "—")}</span>
           <span class="tag">${escapeHTML(p.nationality)}</span>
           ${p.age ? `<span class="tag">${escapeHTML(p.age)} anos</span>` : ""}
@@ -933,7 +933,7 @@ function openClubProfile(clubName) {
               <tr>
                 <td style="width:44px">${photoHTML(p, 36)}</td>
                 <td><span class="player-link" onclick="openPlayerProfile('${escapeInlineJsSingle(p.key)}')">${escapeHTML(p.name)}</span></td>
-                <td><span class="tag ${escapeHTML(p.role)}">${roleLabel(p.role)}</span></td>
+                <td>${agentStatusEffects(p.status).isRetired ? renderAgentStatusBadge(p.status) : `<span class="tag ${escapeHTML(p.role)}">${roleLabel(p.role)}</span>`}</td>
                 <td style="color:var(--cyan);font-weight:700">${p.marketValue ? formatUSD(p.marketValue, true) : "—"}</td>
                 <td>${escapeHTML(p.nationality)}</td>
                 <td>${p.age || "—"}</td>
