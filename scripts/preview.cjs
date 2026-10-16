@@ -5,6 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const firebaseMock = require('../tests/firebase-mock.cjs');
 const legacyFixture = require('../tests/fixtures/club-legacy.cjs');
+const staffFixture = require('../tests/fixtures/staff.cjs');
 const root = path.resolve(__dirname, '..');
 const port = Number(process.env.PREVIEW_PORT || 4173);
 const server = http.createServer(async (req, res) => {
@@ -25,7 +26,7 @@ const server = http.createServer(async (req, res) => {
         'demo-award': { type:'individual', competitionName:'Prêmio de demonstração', result:'MVP · exemplo fictício', teamKind:'league', teamName:'Asgard', teamKey:'club_41-73-67-61-72-64', season:'Ciclo de demonstração', date:'', notes:'Exemplo exclusivo da prévia local. Não representa uma conquista real.', playerId:'legacy:' + demoKey, source:'manual' }
       };
       res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8' });
-      const settings = { clubProfiles: { 'club_4b-4f-46-20-31-32': legacyFixture() } };
+      const settings = { clubProfiles: { 'club_4b-4f-46-20-31-32': legacyFixture() }, staff:staffFixture() };
       const config = JSON.stringify({ players, rosters, transfers, rumors, settings, season: 'Temporada 4', admin:true }).replace(/</g, '\\u003c');
       return res.end(`window.__testConfig=${config};(${firebaseMock.toString()})();`);
     }

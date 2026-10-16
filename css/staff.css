@@ -1,0 +1,46 @@
+.staff-committee { padding:0; border:1px solid var(--border); border-radius:12px; background:var(--bg-card); margin:24px 0; }
+.staff-committee-summary { display:flex; align-items:center; gap:14px; padding:16px 20px; cursor:pointer; list-style:none; border-radius:12px; }
+.staff-committee-summary::-webkit-details-marker { display:none; }
+.staff-committee-summary h2 { font:600 21px/1.2 var(--display-font); margin:0; }
+.staff-committee-count { margin-left:auto; color:var(--text-muted); font-size:11px; text-align:right; }
+.staff-committee-summary::after { content:'+'; color:var(--cyan); font-size:20px; flex-shrink:0; }
+.staff-committee[open] > .staff-committee-summary::after { content:'−'; }
+.staff-committee-summary:hover { background:var(--cyan-glow); }
+.staff-committee-summary:focus-visible { outline:2px solid var(--cyan); outline-offset:3px; }
+.staff-committee-content { padding:20px 24px 24px; border-top:1px solid var(--border); }
+.staff-committee .eyebrow { color:var(--cyan); }
+.staff-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,290px),1fr)); gap:14px; margin-top:20px; }
+.staff-grid:empty { display:none; }
+.staff-committee-content > .staff-principal { margin-top:20px; }
+.staff-card { display:flex; align-items:center; gap:18px; min-width:0; padding:22px; border:1px solid var(--border); border-radius:9px; background:var(--bg); }
+.staff-card > div { min-width:0; }
+.staff-card h3 { font:700 28px/1.15 var(--display-font); margin:8px 0; overflow-wrap:anywhere; }
+.staff-card p { color:var(--text-muted); font-size:12px; line-height:1.8; }
+.staff-card small { display:block; color:var(--text-muted); margin-top:6px; font-size:11px; }
+.staff-card button { display:block; text-align:left; margin-top:12px; }
+.staff-principal { grid-column:1/-1; border-color:var(--border-light); background:linear-gradient(100deg,var(--bg),var(--cyan-glow)); }
+.staff-principal h3 { font-size:38px; }
+.staff-principal .staff-portrait { width:100px; height:120px; }
+.staff-portrait { position:relative; display:grid; place-items:center; width:65px; height:80px; border-radius:8px; border:1px solid var(--border-light); background:var(--bg-elevated); color:var(--cyan); font:700 28px var(--display-font); flex-shrink:0; overflow:hidden; }
+.staff-portrait img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+.staff-past-title { font:700 25px var(--display-font); margin-top:26px; }
+.staff-past .staff-card { padding:18px; }
+#staffProfileDialog { width:min(850px,calc(100% - 24px)); max-height:calc(100dvh - 32px); padding:28px; border:1px solid var(--border-light); border-top:3px solid var(--cyan-dim); border-radius:12px; background:var(--bg-card); color:var(--text); overflow-y:auto; }
+#staffProfileDialog::backdrop { background:#030916cc; backdrop-filter:blur(4px); }
+.staff-dialog-top { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:24px; }
+.staff-profile-heading { display:flex; gap:20px; align-items:center; }
+.staff-profile-heading h2 { font:800 42px/1.1 var(--display-font); margin-bottom:10px; overflow-wrap:anywhere; }
+.staff-profile-heading p { margin-bottom:10px; color:var(--text-muted); }
+.staff-profile-actions { display:flex; flex-wrap:wrap; gap:10px; margin:22px 0; }
+.staff-info { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr)); gap:20px; padding:22px; border:1px solid var(--border); border-radius:9px; margin-bottom:24px; }
+.staff-info dt { font-size:10px; color:var(--text-muted); margin-bottom:7px; }
+.staff-info dd { margin:0; white-space:pre-wrap; font-size:13px; line-height:1.8; overflow-wrap:anywhere; }
+.staff-contract { font:700 26px var(--display-font); margin:18px 0 8px; }
+#staffProfileDialog .section > p { color:var(--text-muted); font-size:12px; line-height:1.8; }
+.staff-notes { white-space:pre-wrap; overflow-wrap:anywhere; }
+.staff-history { display:grid; gap:12px; }
+.staff-history article { padding:18px; border-left:2px solid var(--cyan-dim); background:var(--bg); border-radius:7px; }
+.staff-history h4 { font:700 23px var(--display-font); margin-bottom:10px; }
+.staff-history p { color:var(--text-muted); font-size:12px; line-height:1.8; margin-bottom:8px; }
+.ac-audit #adminAuditContent { overflow-wrap:anywhere; }
+@media(max-width:600px) { .staff-committee-content,#staffProfileDialog { padding:18px; } .staff-committee-summary { padding:14px 16px; gap:10px; } .staff-committee-summary h2 { font-size:19px; } .staff-committee-count { font-size:10px; } .staff-card { gap:14px; padding:16px; align-items:flex-start; } .staff-principal h3 { font-size:29px; } .staff-principal .staff-portrait { width:70px; height:90px; } .staff-profile-heading h2 { font-size:32px; } .staff-profile-heading { align-items:flex-start; } }

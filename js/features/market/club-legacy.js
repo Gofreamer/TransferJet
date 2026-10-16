@@ -86,8 +86,7 @@
     const campaigns=timeline(name,p), memory=identity(p)+people(p,players);
     const story=campaigns || memory ? `<div class="legacy-story-grid">${campaigns}${memory ? `<div class="legacy-memory-stack">${memory}</div>` : ""}</div>` : "";
     const content=trophyGallery(p)+story+formerMembers(p,players);
-    const audit=Object.values(p.changeLog || {});
-    return `<div class="club-institution legacy-grid">${content}${audit.length && window.isMarketAdmin?.() ? `<details class="club-profile-audit legacy-wide"><summary>Registro das alterações institucionais</summary><ul>${audit.sort((a,b)=>b.at-a.at).map(log=>`<li>${e(new Date(log.at).toLocaleString("pt-BR"))} · ${e(log.actor || "Admin")} · ${Object.keys(log.changes || {}).length} campo(s) alterado(s)</li>`).join("")}</ul></details>` : ""}</div>`;
+    return `<div class="club-institution legacy-grid">${content}</div>`;
   }
   document.addEventListener("change",event=>{
     const name=event.target.dataset?.legacyOrder;

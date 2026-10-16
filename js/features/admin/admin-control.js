@@ -5,6 +5,7 @@
     ['home','Central de Controle','Visão geral e atalhos','⌂','Cotidiano'],
     ['agents','Gerenciar agentes','Cadastro, fotos, contratos e valores','◈','Cotidiano'],
     ['clubs','Gerenciar equipes','Identidade e memória institucional','◇','Cotidiano'],
+    ['staff','Comissão técnica','Managers, coaches e ex-integrantes','♟','Cotidiano'],
     ['transfers','Transferências e janela','Operações oficiais e saídas da liga','⇄','Cotidiano'],
     ['history','Históricos e conquistas','Passagens manuais e Hall da Glória','♜','Cotidiano'],
     ['rumors','Rumores','Notícias e negociações','≋','Cotidiano'],
@@ -15,13 +16,14 @@
     ['photos','Fotos em lote','URLs e importação de imagens','▧','Ferramentas'],
     ['backup','Backup e manutenção','Exportação, restauração e resets','⚙','Manutenção']
   ];
+  tasks.push(['audit','Histórico de edições','Consulta restrita à administração','≡','Manutenção']);
   let baseline=new WeakMap(), observer, focusBefore, transferReview;
   const box=()=>document.getElementById('adminBox');
   const content=()=>document.getElementById('adminTabContent');
   const opened=()=>document.getElementById('adminPanel')?.classList.contains('open');
   function requireAdmin() { ProfileData.requireAdmin(); }
   function readValue(input) { return /checkbox|radio/.test(input.type) ? input.checked : input.type==='file' ? input.files.length : input.value; }
-  function editable(input) { return !input.disabled && input.type!=='search' && !/^(acFilter|adminValue|adminPhoto(Search|Club|Filter)|marketRestoreChoice)/.test(input.id); }
+  function editable(input) { return !input.disabled && input.type!=='search' && !/^(acFilter|adminValue|adminPhoto(Search|Club|Filter)|marketRestoreChoice|adminAuditRecord)/.test(input.id); }
   function capture() {
     content()?.querySelectorAll('input,textarea,select').forEach(input=>{if(!baseline.has(input))baseline.set(input,readValue(input));});
   }
@@ -70,7 +72,12 @@
     document.getElementById('acResultCount').textContent=`${entries.length} registro(s) encontrado(s) · ${Math.min(entries.length,limit)} exibido(s)`;
     document.getElementById('acLoadMore').hidden=entries.length<=limit;
   }
-  function searchResults(query) { return PremiumUI.search(query,getAllPlayersFlat(),Object.keys(AppState.jet.rosters || {})); }
+  function searchResults(query) {
+    const found=PremiumUI.search(query,getAllPlayersFlat(),Object.keys(AppState.jet.rosters || {}));
+    const q=Market.normalize(query);
+    if(q && window.StaffData)Object.entries(StaffData.all()).forEach(([key,row])=>{const p=StaffData.identity(row);if(Market.normalize(p.name).includes(q))found.push({kind:'staff',key,name:p.name,detail:p.role+' · Comissão técnica · '+(p.teamName || 'Sem equipe')});});
+    return found.slice(0,12);
+  }
   function search() {
     const target=document.getElementById('adminSearchResults'), query=document.getElementById('adminGlobalSearch').value;
     target.hidden=!query.trim();
@@ -78,7 +85,26 @@
   }
   function openEditor(kind,key,pane) {
     requireAdmin();
-    if(kind==='club')ProfileEditor.openClub(key,pane);else ProfileEditor.openAgent(key,pane);
+    if(kind==='staff')ProfileEditor.openStaff(key);else if(kind==='club')ProfileEditor.openClub(key,pane);else ProfileEditor.openAgent(key,pane);
+  }
+  function staffDirectory() {
+    requireAdmin();
+    content().innerHTML=`<div class="glory-heading"><div class="ac-directory-head"><h3>Comissão técnica</h3><p>Vincule um combatente existente ou cadastre uma pessoa exclusiva. Contratos e conquistas da comissão são independentes dos de combate.</p></div><button class="btn-primary" data-staff-add="">Cadastrar manager / coach</button></div><div class="ac-filters"><label>Buscar pessoa<input type="search" id="acFilterStaffQuery" placeholder="Nome do manager ou coach"></label><label>Equipe<select id="acFilterStaffTeam">${options(Object.values(StaffData.all()).map(row=>row.teamName),'Todas')}</select></label></div><div id="acStaffDirectory"></div>`;
+    renderStaffList();
+  }
+  function renderStaffList() {
+    const target=document.getElementById('acStaffDirectory');if(!target)return;
+    const select=document.getElementById('acFilterStaffTeam');
+    Object.values(StaffData.all()).map(row=>row.teamName).filter(Boolean).forEach(name=>{if(![...select.options].some(option=>option.value===name))select.insertAdjacentHTML('beforeend',`<option value="${e(name)}">${e(name)}</option>`);});
+    const q=Market.normalize(document.getElementById('acFilterStaffQuery').value), team=document.getElementById('acFilterStaffTeam').value;
+    target.innerHTML=Object.entries(StaffData.all()).map(([id,row])=>({id,p:StaffData.identity(row)})).filter(({p})=>Market.normalize(p.name).includes(q) && (!team || p.teamName===team)).map(({id,p})=>`<article class="ac-record"><div><span class="eyebrow">${e(p.role)} · ${p.kind==='linked'?'TAMBÉM COMBATENTE':'CADASTRO EXCLUSIVO'}</span><h4>${e(p.name)}</h4><p>${e(p.teamName || 'Sem equipe')} · ${p.status==='active'?'Em atuação':'Vínculo encerrado'}</p></div><div class="ac-record-actions">${action('staff',id,'identity','Editar comissão')}${publicLink('staff',id)}</div></article>`).join('') || '<p class="ac-empty">Nenhuma pessoa cadastrada na comissão para este filtro.</p>';
+  }
+  function auditEntries() {
+    return [...Object.entries(AppState.market.players || {}).map(([key,record])=>({key:'player:'+key,label:'Agente · '+(record.name || key),record})),...Object.entries(AppState.market.settings?.clubProfiles || {}).map(([key,record])=>({key:'club:'+key,label:'Equipe · '+(record.leagueName || key),record})),...Object.entries(window.StaffData?.all() || {}).map(([key,record])=>({key:'staff:'+key,label:'Comissão · '+StaffData.identity(record).name,record}))].filter(entry=>Object.keys(entry.record.changeLog || {}).length);
+  }
+  function audit() {
+    requireAdmin();const entries=auditEntries();
+    content().innerHTML=`<section class="ac-audit"><h3 class="admin-section-title">Histórico de edições</h3><p class="admin-sub">Consulta administrativa. Os registros são preservados e não aparecem nos perfis públicos.</p><label>Selecionar cadastro<select id="adminAuditRecord"><option value="">Selecione um registro</option>${entries.map(entry=>`<option value="${e(entry.key)}">${e(entry.label)}</option>`).join('')}</select></label><div id="adminAuditContent"></div>${entries.length?'':'<p>Nenhuma edição registrada.</p>'}</section>`;
   }
   function windowMarkup() {
     return `<section class="ac-market-window"><div><span class="eyebrow">CONTROLE DO MERCADO</span><h3>Janela de transferências</h3><span data-ac-window class="window-badge ${isTransferWindowOpen()?'open':'closed'}">${isTransferWindowOpen()?'ABERTA':'FECHADA'}</span></div><div class="admin-actions"><button class="btn-primary btn-sm" onclick="setTransferWindow(true)">Abrir janela</button><button class="btn-gray btn-sm" onclick="setTransferWindow(false)">Fechar janela</button></div><p id="adminWindowStatus" role="status"></p></section><div class="ac-operation-types"><article><h4>Transferência oficial</h4><p>O formulário abaixo registra operações do mercado. Status oficial altera o vínculo atual após confirmação.</p></article><article><h4>Saída internacional</h4><p>Use a ação explícita de vínculo atual no editor do agente. Sincronização com a Jet League tem confirmação separada.</p><button class="text-button" data-ac-tab="agents">Encontrar agente para saída ↗</button></article><article><h4>Somente histórico</h4><p>Passagens e conquistas antigas não transferem o agente nem criam uma transferência oficial.</p><button class="text-button" data-ac-tab="history">Gerenciar registros históricos ↗</button></article></div>`;
@@ -128,12 +154,12 @@
       if(button.dataset.acTab)return renderAdminPanel(button.dataset.acTab);
       if(button.hasAttribute('data-ac-discard'))return renderAdminPanel(box().dataset.tab);
       if(button.dataset.acEdit)return openEditor(button.dataset.acEdit,button.dataset.key,button.dataset.pane);
-      if(button.dataset.acProfile){if(closeAdmin()===false)return;button.dataset.acProfile==='club' ? openClubProfile(button.dataset.key) : openPlayerProfile(button.dataset.key);}
+      if(button.dataset.acProfile){if(closeAdmin()===false)return;if(button.dataset.acProfile==='staff')StaffViews.open(button.dataset.key);else button.dataset.acProfile==='club' ? openClubProfile(button.dataset.key) : openPlayerProfile(button.dataset.key);}
       if(button.hasAttribute('data-ac-more')){document.getElementById('acDirectory').dataset.limit=Number(document.getElementById('acDirectory').dataset.limit)+40;renderDirectory();}
     } catch(error){document.getElementById('adminControlStatus').textContent=error.message;}
   });
-  document.addEventListener('input',event=>{if(event.target.id==='adminGlobalSearch')search();if(event.target.id.startsWith('acFilter') && event.target.tagName!=='SELECT')renderDirectory();if(event.target.closest('#adminTabContent'))pending();});
-  document.addEventListener('change',event=>{if(event.target.id==='adminTaskSelect'){renderAdminPanel(event.target.value);document.getElementById('adminTaskSelect').value=box().dataset.tab;return;}if(event.target.id.startsWith('acFilter') && event.target.tagName==='SELECT')renderDirectory();if(event.target.closest('#adminTabContent'))pending();});
+  document.addEventListener('input',event=>{if(event.target.id==='adminGlobalSearch')search();if(event.target.id.startsWith('acFilter') && event.target.tagName!=='SELECT'){if(event.target.id.startsWith('acFilterStaff'))renderStaffList();else renderDirectory();}if(event.target.closest('#adminTabContent'))pending();});
+  document.addEventListener('change',event=>{if(event.target.id==='adminTaskSelect'){renderAdminPanel(event.target.value);document.getElementById('adminTaskSelect').value=box().dataset.tab;return;}if(event.target.id==='adminAuditRecord'){requireAdmin();const entry=auditEntries().find(row=>row.key===event.target.value);document.getElementById('adminAuditContent').innerHTML=entry?MarketUI.auditMarkup(entry.record):'';return;}if(event.target.id.startsWith('acFilter') && event.target.tagName==='SELECT'){if(event.target.id.startsWith('acFilterStaff'))renderStaffList();else renderDirectory();}if(event.target.closest('#adminTabContent'))pending();});
   document.addEventListener('keydown',event=>{
     if(event.key==='Tab' && opened() && !document.querySelector('dialog[open],#aiReviewOverlay.open')) {
       const items=[...box().querySelectorAll('button,input,select,textarea,a[href]')].filter(el=>!el.disabled && el.getClientRects().length);
@@ -142,6 +168,6 @@
     }
     if(event.key==='Escape' && opened() && !document.querySelector('dialog[open],#aiReviewOverlay.open')){event.preventDefault();closeAdmin();}});
   window.addEventListener('beforeunload',event=>{if(opened() && dirty() || window.ProfileEditor?.hasUnsavedChanges()){event.preventDefault();event.returnValue='';}});
-  ['market:updated','jet:updated','admin:record-saved'].forEach(name=>document.addEventListener(name,()=>{if(opened()){renderDirectory();document.querySelectorAll('[data-ac-window]').forEach(el=>{el.textContent=isTransferWindowOpen()?'Janela aberta':'Janela fechada';el.classList.toggle('open',isTransferWindowOpen());el.classList.toggle('closed',!isTransferWindowOpen());});}}));
-  window.AdminControl={tasks,shell,home,directory,finish,canLeave,beforeNavigate,dirty,pending,rememberFocus,restoreFocus,filterPlayers,seasons,searchResults,openEditor,reviewTransfer,closed};
+  ['market:updated','jet:updated','admin:record-saved'].forEach(name=>document.addEventListener(name,()=>{if(opened()){renderDirectory();renderStaffList();document.querySelectorAll('[data-ac-window]').forEach(el=>{el.textContent=isTransferWindowOpen()?'Janela aberta':'Janela fechada';el.classList.toggle('open',isTransferWindowOpen());el.classList.toggle('closed',!isTransferWindowOpen());});}}));
+  window.AdminControl={tasks,shell,home,directory,finish,canLeave,beforeNavigate,dirty,pending,rememberFocus,restoreFocus,filterPlayers,seasons,searchResults,openEditor,reviewTransfer,closed,staffDirectory,renderStaffList,audit};
 })();

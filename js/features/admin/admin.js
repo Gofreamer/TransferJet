@@ -111,6 +111,8 @@ function renderAdminPanel(tab = "home") {
   box.innerHTML = AdminControl.shell(tab);
   if (tab === "home") AdminControl.home();
   if (["agents", "clubs", "history"].includes(tab)) AdminControl.directory(tab);
+  if (tab === "staff") AdminControl.staffDirectory();
+  if (tab === "audit") AdminControl.audit();
   if (tab === "values") renderAdminValues();
   if (tab === "photos" && typeof renderAdminPhotos === "function") renderAdminPhotos();
   if (tab === "import") renderAdminImport();

@@ -47,5 +47,5 @@ test('legado escapa dados e não mostra auditoria administrativa ao visitante',(
   const c=setup({description:'<img onerror=evil>',cover:'javascript:evil()',legends:'<script>evil</script>',bestEra:'Texto preservado',changeLog:{x:{at:1,actor:'admin',changes:{founded:{after:'C.1'}}}}});
   assert.match(c.ClubLegacy.header('KOF 12',2),/&lt;img/);assert.doesNotMatch(c.ClubLegacy.header('KOF 12',2),/src="javascript:/);
   assert.match(c.ClubLegacy.body('KOF 12'),/&lt;script/);assert.doesNotMatch(c.ClubLegacy.body('KOF 12'),/club-profile-audit/);
-  c.isMarketAdmin=()=>true;assert.match(c.ClubLegacy.body('KOF 12'),/club-profile-audit/);
+  c.isMarketAdmin=()=>true;assert.doesNotMatch(c.ClubLegacy.body('KOF 12'),/club-profile-audit/);assert.equal(Object.keys(c.ProfileData.clubProfile('KOF 12').changeLog).length,1);
 });

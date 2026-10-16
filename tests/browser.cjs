@@ -883,7 +883,7 @@ const root = path.resolve(__dirname, '..');
       assert.equal(await page.locator('[data-record-field="teamName"]').inputValue(),'Organização Internacional');
       await page.locator('#peReviewBtn').click(); await page.locator('#peSaveBtn').click();
       await page.waitForFunction(()=>!document.getElementById('profileEditorDialog').open);
-      assert.match(await page.locator('.agent-glory').innerText(),/Campeonato vinculado: official/);
+      assert.match(await page.locator('.agent-glory').innerText(),/Campeonato registrado/);
       assert.equal(await page.locator('.agent-glory [data-premium-club]').count(),0);
       assert.equal(await page.evaluate(()=>__mockData.market.players.Alpha_Alice.titles),undefined);
       await page.locator('#manageAchievements').click();
@@ -954,7 +954,7 @@ const root = path.resolve(__dirname, '..');
       await page.evaluate(()=>{__mockData.market.players.Alpha_Alice.name='Álice';__mockData.market.players.Alpha_Alice.statsSeason='C.2';__mockData.jet.liga.rosters['Águias']=[];__mockEmit();});
       await page.locator('#adminBtn').click();
       assert.equal(await page.locator('#adminBox').getAttribute('data-tab'),'home');
-      assert.equal(await page.locator('.ac-shortcut').count(),9);
+      assert.equal(await page.locator('.ac-shortcut').count(),11);
       assert.equal(await page.locator('#adminValuesTable').count(),0);
       assert.equal(await page.evaluate(()=>document.activeElement.id),'adminGlobalSearch');
       await page.locator('.ac-shortcut').last().focus();await page.keyboard.press('Tab');
@@ -1079,6 +1079,116 @@ const root = path.resolve(__dirname, '..');
       assert.equal(await page.locator('#acDirectory').count(),0);
       const result=await page.evaluate(()=>{try{AdminControl.openEditor('player','Alpha_Alice','identity');return '';}catch(error){return error.message;}});
       assert.match(result,/administrador/);
+    });
+
+    await scenario('Comissão: manager exclusivo, contrato, histórico e prêmio não entram no combate ou Fantasy',async page=>{
+      await ready(page,'?club=Alpha');
+      assert.equal(await page.locator('.staff-committee').evaluate(el=>el.open),false);
+      assert.ok((await page.locator('.staff-committee').boundingBox()).height<100);
+      assert.equal(await page.locator('[data-staff-add="Alpha"]').isVisible(),false);
+      await page.locator('.staff-committee-summary').focus();
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(()=>document.querySelector('.staff-committee').open);
+      const before=await page.evaluate(()=>({players:JSON.stringify(__mockData.market.players),jet:JSON.stringify(__mockData.jet),fantasy:JSON.stringify(__mockData.market.fantasy),count:getAllPlayersFlat().length}));
+      await page.locator('[data-staff-add="Alpha"]').click();
+      await page.locator('[data-field="name"]').fill('Manager independente');
+      await page.locator('[data-field="appearance"]').fill('Descrição visual registrada pelo administrador.');
+      await page.locator('[data-field="nationality"]').fill('Brasil');
+      await page.locator('[data-tab="affiliation"]').click();
+      await page.locator('[data-field="principal"]').selectOption('true');
+      await page.locator('[data-field="startCycle"]').fill('C.1');
+      await page.locator('[data-tab="contract"]').click();await page.locator('[data-field="contractMode"]').selectOption('indefinite');
+      await page.locator('[data-tab="career"]').click();await page.locator('[data-action="add-history"]').click();
+      await page.locator('[data-history-field="teamKind"]').selectOption('external');
+      await page.locator('[data-history-field="teamName"]').fill('Organização internacional');
+      await page.locator('[data-history-field="fromCycle"]').fill('C.0');await page.locator('[data-history-field="toCycle"]').fill('C.1');
+      await page.locator('[data-tab="glory"]').click();await page.locator('[data-action="add-club-row"][data-group="staffAwards"]').click();
+      await page.locator('[data-record-field="type"]').selectOption('individual');
+      await page.locator('[data-record-field="competitionName"]').fill('Prêmio de melhor treinador');
+      await page.locator('[data-record-field="result"]').fill('Vencedor');
+      await page.locator('[data-record-field="teamName"]').fill('Organização internacional');
+      await page.evaluate(()=>__mockEmit());
+      assert.equal(await page.locator('[data-record-field="competitionName"]').inputValue(),'Prêmio de melhor treinador');
+      await page.locator('#peReviewBtn').click();assert.equal(await page.evaluate(()=>__writes.length),0);
+      await page.locator('#peSaveBtn').click();await page.waitForFunction(()=>!document.getElementById('profileEditorDialog').open);
+      assert.match(await page.locator('.staff-principal').innerText(),/Manager independente/);
+      assert.deepEqual(await page.evaluate(()=>({players:JSON.stringify(__mockData.market.players),jet:JSON.stringify(__mockData.jet),fantasy:JSON.stringify(__mockData.market.fantasy),count:getAllPlayersFlat().length})),before);
+      assert.equal(await page.evaluate(()=>__writes[0].path),'settings/staff');
+      await screenshot(page,'staff-team');
+      await page.locator('.staff-principal [data-staff-view]').click();
+      assert.match(await page.locator('#staffProfileDialog').innerText(),/Descrição visual/);
+      assert.match(await page.locator('#staffProfileDialog').innerText(),/Contrato indeterminado/);
+      assert.match(await page.locator('#staffProfileDialog').innerText(),/Prêmio de melhor treinador/);
+      await screenshot(page,'staff-profile');
+      await page.locator('[data-staff-close]').click();
+    },{admin:true,expectedWrites:1},{width:390,height:844});
+
+    await scenario('Comissão: combatente vira coach sem duplicação e edita a identidade pelo cadastro original',async page=>{
+      await ready(page,'?club=Alpha');
+      await page.locator('.staff-committee-summary').click();
+      const count=await page.evaluate(()=>Object.keys(__mockData.market.players).length);
+      await page.locator('[data-staff-add="Alpha"]').click();await page.locator('[data-field="kind"]').selectOption('linked');
+      await page.locator('[data-field="playerKey"]').selectOption('Alpha_Alice');
+      await page.locator('[data-tab="affiliation"]').click();await page.locator('[data-field="role"]').selectOption('Coach');
+      await page.locator('[data-tab="contract"]').click();await page.locator('[data-field="contractUntil"]').fill('C.8');
+      await page.locator('#peReviewBtn').click();await page.locator('#peSaveBtn').click();await page.waitForFunction(()=>!document.getElementById('profileEditorDialog').open);
+      assert.equal(await page.evaluate(()=>Object.keys(__mockData.market.players).length),count);
+      assert.equal(await page.evaluate(()=>Object.values(StaffData.all())[0].playerId),'legacy:Alpha_Alice');
+      assert.equal(await page.evaluate(()=>Object.values(StaffData.all())[0].name),undefined);
+      await page.locator('.staff-committee [data-staff-edit]').click();await page.locator('[data-action="edit-linked"]').click();
+      await page.locator('[data-field="name"]').fill('Alice Coach');await page.locator('#peReviewBtn').click();await page.locator('#peSaveBtn').click();
+      await page.waitForFunction(()=>!document.getElementById('profileEditorDialog').open);
+      assert.match(await page.locator('.staff-committee').innerText(),/Alice Coach/);
+      assert.equal(await page.evaluate(()=>__mockData.market.players.Alpha_Alice.marketValue),20000000);
+      assert.equal(await page.evaluate(()=>Object.values(StaffData.all())[0].contractUntil),'C.8');
+      await page.locator('.staff-committee [data-staff-view]').click();await page.locator('[data-staff-player]').click();
+      await page.waitForSelector('.staff-agent');assert.match(await page.locator('.staff-agent').innerText(),/Coach/);
+      await page.goBack();await page.waitForSelector('.staff-committee');
+    },{admin:true,expectedWrites:2});
+
+    await scenario('Comissão: saída preserva ex-manager, histórico editável e conflito conserva rascunho',async page=>{
+      await ready(page,'?club=Alpha');
+      await page.locator('.staff-committee-summary').click();
+      await page.locator('.staff-committee [data-staff-edit]').click();await page.locator('[data-tab="affiliation"]').click();
+      await page.locator('[data-field="status"]').selectOption('ended');await page.locator('[data-field="endCycle"]').fill('C.3');
+      await page.locator('#peReviewBtn').click();await page.locator('#peSaveBtn').click();await page.waitForFunction(()=>!document.getElementById('profileEditorDialog').open);
+      assert.equal(await page.locator('.staff-principal').count(),0);assert.match(await page.locator('.staff-past').innerText(),/C.1 → C.3/);
+      await page.locator('.staff-past [data-staff-edit]').click();await page.locator('[data-tab="career"]').click();
+      await page.locator('[data-history-field="toCycle"]').fill('C.4');await page.locator('#peReviewBtn').click();await page.locator('#peSaveBtn').click();
+      await page.waitForFunction(()=>!document.getElementById('profileEditorDialog').open);
+      assert.equal(await page.evaluate(()=>StaffData.all().one.teamName),'Alpha');assert.equal(await page.evaluate(()=>StaffData.all().one.status),'ended');
+      await page.locator('.staff-past [data-staff-edit]').click();await page.locator('[data-field="name"]').fill('Nome do rascunho');await page.locator('#peReviewBtn').click();
+      await page.evaluate(()=>{__mockData.market.settings.staff.one.name='Nome de outra sessão';__mockEmit();});
+      await page.locator('#peSaveBtn').click();await page.waitForFunction(()=>document.getElementById('peStatus').dataset.error==='true');
+      await page.locator('#peBack').click();assert.equal(await page.locator('[data-field="name"]').inputValue(),'Nome do rascunho');
+      page.removeAllListeners('dialog');page.on('dialog',dialog=>dialog.accept());await page.locator('.pe-close').click();
+      assert.equal(await page.evaluate(()=>__mockData.market.settings.staff.one.name),'Nome de outra sessão');
+    },{admin:true,expectedWrites:2,settings:{staff:{one:{id:'one',kind:'exclusive',name:'Manager anterior',role:'Manager',teamKind:'league',teamName:'Alpha',principal:true,status:'active',startCycle:'C.1'}}}});
+
+    await scenario('Comissão: logs saem dos perfis públicos e continuam disponíveis apenas no Admin',async page=>{
+      await ready(page,'?player=Alpha_Alice');
+      const original=await page.evaluate(()=>JSON.stringify(__mockData));
+      assert.doesNotMatch(await page.locator('#playerProfileContent').innerText(),/Últimas alterações registradas|Histórico de edições/);
+      assert.equal(await page.locator('#marketHistoryRows tbody tr').count(),1);
+      assert.deepEqual(await page.locator('#marketHistoryRows th').allTextContents(),['Período','Valor de mercado']);
+      await page.evaluate(()=>openClubProfile('Alpha'));assert.equal(await page.locator('.club-profile-audit').count(),0);
+      await page.locator('#adminBtn').click();await page.locator('.ac-nav [data-ac-tab="audit"]').click();
+      await page.locator('#adminAuditRecord').selectOption('player:Alpha_Alice');assert.match(await page.locator('#adminAuditContent').innerText(),/profile-admin/);
+      await page.locator('#adminAuditRecord').selectOption('club:club_41-6c-70-68-61');assert.match(await page.locator('#adminAuditContent').innerText(),/club-profile-admin/);
+      await page.locator('#adminAuditRecord').selectOption('staff:one');assert.match(await page.locator('#adminAuditContent').innerText(),/staff-admin/);
+      await page.evaluate(()=>__mockAuthChange(null));await page.waitForSelector('#adminEmail');assert.equal(await page.evaluate(()=>MarketUI.auditMarkup({changeLog:{}})),'');
+      assert.equal(await page.evaluate(()=>JSON.stringify(__mockData)),original);
+    },{
+      admin:true,
+      players:{Alpha_Alice:{
+        name:'Alice',marketValue:22000000,
+        valueEvents:{one:{kind:'recorded',at:1,value:22000000,previousValue:20000000,source:'admin',season:'C.1'}},
+        changeLog:{one:{at:1,source:'profile-admin',changes:{name:{before:'Antigo',after:'Alice'}}}}
+      }},
+      settings:{
+        clubProfiles:{'club_41-6c-70-68-61':{leagueName:'Alpha',description:'História preservada',changeLog:{one:{at:1,source:'club-profile-admin',changes:{founded:{before:'',after:'C.1'}}}}}},
+        staff:{one:{id:'one',kind:'exclusive',name:'Manager',role:'Coach',teamKind:'league',teamName:'Alpha',status:'active',changeLog:{one:{at:1,source:'staff-admin',changes:{name:{before:'Antigo',after:'Manager'}}}}}}
+      }
     });
 
     console.log(`${passed} cenários de navegador passaram. Rede externa bloqueada; escritas restritas ao mock.`);

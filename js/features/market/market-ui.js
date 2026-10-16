@@ -22,7 +22,7 @@
     document.getElementById("marketHistoryChart").innerHTML = '<canvas id="valueChart"></canvas>';
     renderValueChart(rows);
     const target = document.getElementById("marketHistoryRows");
-    target.innerHTML = rows.length ? `<div class="table-wrap"><table><thead><tr><th>Período</th><th>Valor anterior</th><th>Valor registrado</th><th>Origem</th></tr></thead><tbody>${rows.map(e => `<tr><td>${escapeHTML(e.label)}</td><td>${e.previousValue != null ? formatUSD(e.previousValue, true) : "—"}</td><td>${formatUSD(e.value, true)}</td><td>${escapeHTML(source === "legacy" ? "Não verificada" : e.source)}</td></tr>`).join("")}</tbody></table></div>` : '<p class="empty-state">Nenhuma alteração registrada neste período. Os valores atuais continuam disponíveis acima.</p>';
+    target.innerHTML = rows.length ? `<div class="table-wrap"><table><thead><tr><th>Período</th><th>Valor de mercado</th></tr></thead><tbody>${rows.map(e => `<tr><td>${escapeHTML(e.label)}</td><td>${formatUSD(e.value, true)}</td></tr>`).join("")}</tbody></table></div>` : '<p class="empty-state">Nenhuma alteração registrada neste período. Os valores atuais continuam disponíveis acima.</p>';
   }
   function movementMarkup(player) {
     const v = Market.variation(player);
@@ -35,11 +35,12 @@
     return `<ol class="transfer-timeline">${transfers.map(t => `<li><div><time>${escapeHTML(t.date || "Data não registrada")}</time><span>${escapeHTML(t.season || "")}</span></div><strong>${escapeHTML(t.from)} <span aria-hidden="true">→</span> ${escapeHTML(t.to)}</strong><p>${formatUSD(t.fee)} · ${escapeHTML(t.type || "Tipo não registrado")}</p></li>`).join("")}</ol>`;
   }
   function auditMarkup(player) {
-    const entries = Object.values(player.changeLog || {}).filter(e => e && Number.isFinite(e.at)).sort((a, b) => b.at - a.at).slice(0, 20);
+    if (!window.isMarketAdmin?.()) return "";
+    const entries = Object.values(player.changeLog || {}).filter(e => e && Number.isFinite(e.at)).sort((a, b) => b.at - a.at);
     if (!entries.length) return "";
     const labels = { marketValue: "Valor", peakValue: "Pico", salary: "Salário", releaseClause: "Cláusula", contractUntil: "Contrato", team: "Equipe", name: "Nome", status: "Status", stats: "Estatísticas", titles: "Títulos" };
     const describe = (field, value) => escapeHTML(value == null ? "—" : ["marketValue", "peakValue", "salary", "releaseClause"].includes(field) ? formatUSD(value, true) : typeof value === "object" ? JSON.stringify(value) : value);
-    return `<section class="section"><h2 class="section-h">Últimas alterações registradas</h2><div class="table-wrap"><table><thead><tr><th>Data</th><th>Origem</th><th>Alterações</th></tr></thead><tbody>${entries.map(e => `<tr><td>${escapeHTML(new Date(e.at).toLocaleString("pt-BR"))}</td><td>${escapeHTML(e.source)}</td><td>${Object.entries(e.changes || {}).map(([field, change]) => `<div>${escapeHTML(labels[field] || field)}: ${describe(field, change.before)} → ${describe(field, change.after)}</div>`).join("")}</td></tr>`).join("")}</tbody></table></div></section>`;
+    return `<section class="section"><h2 class="section-h">Histórico de edições</h2><div class="table-wrap"><table><thead><tr><th>Data</th><th>Origem</th><th>Alterações</th></tr></thead><tbody>${entries.map(e => `<tr><td>${escapeHTML(new Date(e.at).toLocaleString("pt-BR"))}</td><td>${escapeHTML(e.source)}</td><td>${Object.entries(e.changes || {}).map(([field, change]) => `<div>${escapeHTML(labels[field] || field)}: ${describe(field, change.before)} → ${describe(field, change.after)}</div>`).join("")}</td></tr>`).join("")}</tbody></table></div></section>`;
   }
   window.MarketUI = { historyMarkup, renderHistory, movementMarkup, transferTimeline, auditMarkup };
 })();

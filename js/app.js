@@ -716,6 +716,7 @@ function openPlayerProfile(key) {
     </div>
 
     ${window.ProfileViews?.achievements(p) || ""}
+    ${window.StaffViews?.agent(p) || ""}
     <div class="section">
       <h2 class="section-h">Performance ${p.statsRound ? `(${escapeHTML(p.statsRound)})` : ""}</h2>
       <div class="kpi-row">
@@ -748,7 +749,7 @@ function openPlayerProfile(key) {
       })()}
     </div>
 
-    ${MarketUI.auditMarkup(p)}
+
     <div class="section">
       <h2 class="section-h">Informações</h2>
       <div class="kpi-row">
@@ -913,6 +914,7 @@ function openClubProfile(clubName) {
     </button>
 
     ${ClubLegacy.header(clubName,agents.length)}
+      ${window.StaffViews?.team(clubName) || ""}
       ${window.ProfileViews?.club(clubName) || ""}
       ${window.ProfileViews?.clubAchievements(clubName) || ""}
     <div class="section club-roster-section">
