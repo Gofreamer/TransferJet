@@ -161,13 +161,11 @@ function getAllPlayersFlat() {
     });
   }
 
-  // Fora do elenco: livres, aposentados e freeAgent no Market
+  // Cadastros salvos no Market continuam acessíveis mesmo após sair da Jet League.
   Object.entries(marketPlayers).forEach(([key, m]) => {
-    if (!m || seen.has(key)) return;
+    if (!m || typeof m!=='object' || !Object.keys(m).length || seen.has(key)) return;
     const status = (m.status || "").toLowerCase();
     const fx = typeof agentStatusEffects === "function" ? agentStatusEffects(status) : {};
-    const include = !!m.team || !!m.freeAgent || fx.offRosterVisible || status === "livre" || status === "aposentado";
-    if (!include) return;
 
     if (status === "aposentado" || fx.isRetired) {
       list.push(buildPlayerFromMarket(key, { ...m, status: "aposentado", freeAgent: false }, {
@@ -177,12 +175,14 @@ function getAllPlayersFlat() {
       }));
     } else if (m.team && !m.freeAgent && !fx.isFree) {
       list.push(buildPlayerFromMarket(key, m, { club: m.team }));
-    } else {
+    } else if(m.freeAgent || fx.isFree) {
       list.push(buildPlayerFromMarket(key, { ...m, status: status || "livre", freeAgent: true }, {
         club: "Livre",
         functionRole: m.functionRole || "Agente livre",
         status: "livre"
       }));
+    } else {
+      list.push({...buildPlayerFromMarket(key,m,{club:'Fora da Jet League'}),fantasyEligible:false,offLeague:true});
     }
     seen.add(key);
   });

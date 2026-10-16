@@ -151,6 +151,7 @@
       dialog().querySelector('[data-field="kind"] option[value="linked"]').textContent='Agente existente';
       dialog().querySelector('[data-pane="affiliation"] .pe-help').textContent='O vínculo profissional é independente do elenco da Jet League. Ao encerrar ou mudar equipe/cargo, a passagem anterior é preservada, sem inventar datas.';
       if(raw.id)['kind','playerKey'].forEach(name=>{dialog().querySelector(`[data-field="${name}"]`).disabled=true;});
+      if(raw.id)dialog().querySelector('[data-pane="identity"]').insertAdjacentHTML('beforeend',`<button type="button" class="btn-danger" data-action="remove-staff">Excluir da Comissão Técnica</button>`);
       staffIdentity();baseline();tab('identity');dialog().showModal();
     } catch(error){feedback(error.message);}
   }
@@ -247,12 +248,32 @@
     try { await ProfileData.syncExit(key); feedback("Saída sincronizada na Jet League."); }
     catch (error) { feedback("O Market continua salvo. Jet League não alterada: " + error.message); }
   }
+  async function removeStaff(id) {
+    try {
+      ProfileData.requireAdmin();
+      if(session?.busy)return;
+      const raw=ProfileData.clone(session?.type==='staff' && session.key===id ? session.raw : StaffData.all()[id]);
+      if(!raw)throw Error('Cadastro não encontrado.');
+      const linked=raw.kind==='linked';
+      if(!confirm(`Excluir ${StaffData.identity(raw).name} da Comissão Técnica?${session?.key===id && changed()?' O rascunho será descartado.':''}\n${linked?'O personagem e seus históricos serão preservados. A elegibilidade de combate voltará a seguir o status do agente.':'O perfil exclusivo sairá das listagens públicas.'}\nO registro será preservado na auditoria administrativa.`))return;
+      const current=session;
+      if(current)current.busy=true;
+      try {
+        AppState.market.settings=await StaffData.remove(id,raw);
+        if(current?.type==='staff' && current.key===id){dialog().close();session=null;}
+        window.StaffViews?.close();window.AppRouter?.refresh();
+        document.dispatchEvent(new CustomEvent('admin:record-saved'));
+        feedback('Cadastro removido da Comissão Técnica.');
+      } finally {if(session===current && current)current.busy=false;}
+    } catch(error) {if(session)notice(error.message,true);else feedback(error.message);}
+  }
   document.addEventListener("click", event => {
     if (!session || !event.target.closest("#profileEditorDialog")) return;
     const btn = event.target.closest("button");
     if (!btn || session.busy) return;
     if (btn.dataset.tab) return tab(btn.dataset.tab);
     const action = btn.dataset.action;
+    if(action==='remove-staff')return removeStaff(session.key);
     if(action==='integrate-staff') {
       const key=session.key,club=Object.hasOwn(AppState.jet.rosters || {},session.visible.club) ? session.visible.club : '';
       if(!changed()){dialog().close();session=null;}
@@ -287,5 +308,5 @@
     const row = event.target.closest(".pe-history-row");
     row.querySelector(".pe-team-name").innerHTML = teamInput(event.target.value, row.querySelector('[data-history-field="teamName"]').value);
   });
-  window.ProfileEditor = { openAgent, openClub, openStaff, syncExit, hasUnsavedChanges: () => !!session && !!changed() };
+  window.ProfileEditor = { openAgent, openClub, openStaff, removeStaff, syncExit, hasUnsavedChanges: () => !!session && !!changed() };
 })();

@@ -1094,6 +1094,41 @@ const root = path.resolve(__dirname, '..');
       assert.match(result,/administrador/);
     });
 
+    await scenario('Comissão: exclusão administrativa permite cancelar e preserva auditoria do manager exclusivo',async page=>{
+      await ready(page,'?club=Alpha');await page.locator('#adminBtn').click();await page.locator('.ac-nav [data-ac-tab="staff"]').click();
+      await page.locator('[data-ac-remove-staff="one"]').click();
+      assert.equal(await page.evaluate(()=>!!StaffData.all().one),true);
+      page.removeAllListeners('dialog');page.on('dialog',dialog=>dialog.accept());
+      await page.locator('[data-ac-remove-staff="one"]').click();
+      await page.waitForFunction(()=>!StaffData.all().one);
+      assert.equal(await page.locator('[data-ac-remove-staff="one"]').count(),0);
+      assert.equal(await page.evaluate(()=>AppState.market.settings.staffArchive.one.record.name),'Manager exclusivo');
+      await page.locator('.ac-nav [data-ac-tab="audit"]').click();await page.locator('#adminAuditRecord').selectOption('staff-archived:one');
+      assert.match(await page.locator('#adminAuditContent').innerText(),/staff-admin-delete/);
+    },{admin:true,expectedWrites:1,settings:{staff:{one:{id:'one',kind:'exclusive',name:'Manager exclusivo',role:'Manager',teamKind:'league',teamName:'Alpha',status:'active'}}}});
+
+    await scenario('Comissão: agente fora da Jet League permanece após salvar e excluir somente seu vínculo técnico',async page=>{
+      await ready(page,'?player=Alpha_Alice');
+      const original=await page.evaluate(()=>({fantasy:JSON.stringify(__mockData.market.fantasy),players:Object.keys(__mockData.market.players).length}));
+      await page.evaluate(()=>{__mockData.jet.liga.rosters.Alpha=__mockData.jet.liga.rosters.Alpha.filter(p=>p.n!=='Alice');__mockEmit();});
+      await page.waitForFunction(()=>getAllPlayersFlat().find(p=>p.key==='Alpha_Alice')?.club==='Fora da Jet League');
+      const jet=await page.evaluate(()=>JSON.stringify(__mockData.jet));
+      await page.evaluate(()=>ProfileEditor.openAgent('Alpha_Alice'));await page.locator('[data-field="bio"]').fill('Perfil preservado fora da liga');
+      await page.locator('#peReviewBtn').click();await page.locator('#peSaveBtn').click();await page.waitForFunction(()=>!document.getElementById('profileEditorDialog').open);
+      assert.match(await page.locator('#playerProfileContent').innerText(),/Perfil preservado fora da liga/);
+      await page.evaluate(()=>ProfileEditor.openStaff('one'));
+      page.removeAllListeners('dialog');page.on('dialog',dialog=>dialog.accept());await page.locator('[data-action="remove-staff"]').click();
+      await page.waitForFunction(()=>!document.getElementById('profileEditorDialog').open);
+      assert.equal(await page.evaluate(()=>!!StaffData.all().one),false);
+      assert.equal(await page.evaluate(()=>getAllPlayersFlat().find(p=>p.key==='Alpha_Alice').id),'legacy:Alpha_Alice');
+      assert.equal(await page.evaluate(()=>!!fantasyPlayerMap().Alpha_Alice),false);
+      assert.equal(await page.evaluate(()=>PremiumUI.search('Alice',getAllPlayersFlat(),[])[0].key),'Alpha_Alice');
+      assert.equal(await page.evaluate(()=>JSON.stringify(__mockData.market.fantasy)),original.fantasy);
+      assert.equal(await page.evaluate(()=>JSON.stringify(__mockData.jet)),jet);
+      assert.equal(await page.evaluate(()=>Object.keys(__mockData.market.players).length),original.players);
+      assert.equal(await page.evaluate(()=>__mockData.market.players.Alpha_Alice.marketValue),20000000);
+    },{admin:true,expectedWrites:2,settings:{staff:{one:{id:'one',kind:'linked',playerKey:'Alpha_Alice',playerId:'legacy:Alpha_Alice',role:'Coach',competitive:false,teamKind:'league',teamName:'Alpha',status:'active'}}}});
+
     await scenario('Comissão: atalho integra agente somente como coach e restaura combate sem duplicar',async page=>{
       await ready(page,'?player=Alpha_Alice');
       const before=await page.evaluate(()=>({players:JSON.stringify(__mockData.market.players),fantasy:JSON.stringify(__mockData.market.fantasy),jet:JSON.stringify(__mockData.jet),value:getClubMarketValue('Alpha'),count:getAllPlayersFlat().length}));

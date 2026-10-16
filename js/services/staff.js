@@ -97,5 +97,18 @@
     if(!result.committed)throw failure || Error('Não foi possível confirmar a gravação.');
     return result.snapshot.val()[id];
   }
-  window.StaffData={all,forPlayer,isCombatant,identity,prepare,createRecord,save,personal,contract,binding};
+  async function remove(id,expected) {
+    ProfileData.requireAdmin();
+    if(!ProfileData.safeKey(id) || !expected?.id || expected.id!==id)throw Error('Cadastro da comissão inválido.');
+    const ref=marketDb.ref('settings');let failure;
+    const deletedAt=Date.now(),actor=window.getMarketAdminId?.() || null;
+    const result=await ref.transaction(value=>{
+      if(!value?.staff?.[id] || !same(value.staff[id],expected)){failure=Error('O cadastro foi alterado em outra sessão. Reabra antes de excluir.');return;}
+      const staff={...value.staff};delete staff[id];
+      return {...value,staff,staffArchive:{...(value.staffArchive || {}),[id]:{record:value.staff[id],deletedAt,actor,source:'staff-admin-delete'}}};
+    },undefined,false);
+    if(!result.committed)throw failure || Error('Não foi possível confirmar a exclusão.');
+    return result.snapshot.val();
+  }
+  window.StaffData={all,forPlayer,isCombatant,identity,prepare,createRecord,save,remove,personal,contract,binding};
 })();

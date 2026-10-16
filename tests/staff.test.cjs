@@ -119,3 +119,37 @@ test('somente comissão impede novas contratações e snapshots competitivos sem
   assert.equal(c.fantasyPlayerMap()[player.key],undefined);
   assert.equal(c.getAllPlayersFlat().find(p=>p.key===player.key).status,'aposentado');
 });
+
+
+test('exclusão da comissão é autenticada, preserva auditoria e outros dados e recusa revisão desatualizada',async()=>{
+  const db=setup(),{c,writes}=db;
+  const first=await c.StaffData.save('one',exclusive,{});
+  const linked=await c.StaffData.save('linked',{kind:'linked',playerKey:'Alpha_Alice',role:'Coach',teamKind:'league',teamName:'Alpha',status:'active',competitive:false},{});
+  const players=JSON.stringify(c.AppState.market.players),jet=JSON.stringify(c.AppState.jet);
+  db.setStored({currency:'USD',staff:db.stored(),staffArchive:{older:{record:{id:'older',name:'Antigo'}}}});
+  c.AppState.market.settings=db.stored();
+  c.isMarketAdmin=()=>false;await assert.rejects(c.StaffData.remove('one',first),/administrador/);c.isMarketAdmin=()=>true;
+  const changed={...first,notes:'outra sessão'};db.setStored({...db.stored(),staff:{...db.stored().staff,one:changed}});
+  await assert.rejects(c.StaffData.remove('one',first),/outra sessão/);
+  const result=await c.StaffData.remove('one',changed);
+  assert.equal(result.staff.one,undefined);assert.equal(result.staff.linked.id,linked.id);assert.equal(result.currency,'USD');
+  assert.equal(result.staffArchive.one.record.notes,'outra sessão');assert.ok(result.staffArchive.one.record.changeLog);assert.equal(result.staffArchive.one.actor,'admin-1');assert.ok(result.staffArchive.older);
+  const removed=await c.StaffData.remove('linked',linked);c.AppState.market.settings=removed;
+  assert.equal(c.isCompetitivePlayer(c.getAllPlayersFlat()[0]),true);
+  assert.equal(JSON.stringify(c.AppState.market.players),players);assert.equal(JSON.stringify(c.AppState.jet),jet);
+  assert.equal(writes.at(-1).path,'settings');
+});
+
+test('cadastro Market sem team sobrevive à remoção da Jet League com identidade, contrato e histórico',()=>{
+  const {c}=setup();const key='Alpha_Alice';
+  c.AppState.market.players[key].photo='https://example.invalid/alice.png';
+  c.AppState.market.players[key].careerHistory={old:{teamKind:'external',teamName:'Internacional',fromCycle:'C.1'}};
+  c.AppState.market.settings.staff={linked:{id:'linked',kind:'linked',playerId:'alice-id',playerKey:key,role:'Coach',competitive:false}};
+  const before=JSON.stringify(c.AppState.market.players);
+  c.AppState.jet.rosters.Alpha=[];
+  const player=c.getAllPlayersFlat().find(p=>p.key===key);
+  assert.equal(player.id,'alice-id');assert.equal(player.name,'Alice');assert.equal(player.club,'Fora da Jet League');assert.equal(player.status,'ativo');
+  assert.equal(player.fantasyEligible,false);assert.equal(player.marketValue,20000000);assert.equal(player.contractUntil,'C.4');assert.equal(player.careerHistory.old.teamName,'Internacional');
+  assert.equal(c.StaffData.identity(c.StaffData.all().linked).photo,player.photo);
+  assert.equal(JSON.stringify(c.AppState.market.players),before);assert.equal(c.getAllPlayersFlat().length,1);
+});

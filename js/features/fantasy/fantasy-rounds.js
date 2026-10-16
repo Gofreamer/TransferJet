@@ -10,7 +10,7 @@ function buildFantasySnapshot(participants, players, settings, at = new Date().t
       fantasyPrice: value > 0 ? Math.max(Number(settings.minFantasyPrice), Math.round(value * Number(settings.priceScale) / 10000) * 10000) : 0 };
     if (isCompetitivePlayer(p)) teamValues[p.club] = (teamValues[p.club] || 0) + playerMap[p.key].marketValue;
     const effects = agentStatusEffects(p.status);
-    if (isCompetitivePlayer(p) && effects.fantasyEligible && !p.retired && !p.freeAgent && p.fantasyEligible !== false && value > 0 && p.club && p.club !== "Livre") eligible[p.key] = p;
+    if (isCompetitivePlayer(p) && effects.fantasyEligible && !p.offLeague && !p.retired && !p.freeAgent && p.fantasyEligible !== false && value > 0 && p.club && p.club !== "Livre") eligible[p.key] = p;
   });
   const official = {};
   Object.entries(participants || {}).forEach(([id, raw]) => {
