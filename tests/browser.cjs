@@ -866,7 +866,21 @@ const root = path.resolve(__dirname, '..');
       await noOverflow(page); await screenshot(page,'glory-profile');
       await page.locator('.agent-glory [data-premium-club="Beta"]').click();
       await page.waitForFunction(()=>AppState.ui.selectedClub==='Beta');
+      assert.equal(await page.locator('.club-agent-glory').evaluate(el=>el.open),false);
+      assert.equal(await page.locator('.club-agent-glory .glory-card').isVisible(),false);
+      assert.ok((await page.locator('.club-agent-glory').boundingBox()).height<110);
+      await noOverflow(page);await screenshot(page,'club-achievements-collapsed');
+      const clubHistory=await page.evaluate(()=>history.length);
+      await page.locator('.history-disclosure-summary').focus();await page.keyboard.press('Enter');
+      await page.waitForFunction(()=>document.querySelector('.club-agent-glory').open);
       assert.match(await page.locator('.club-agent-glory').innerText(),/Nacional histórico/);
+      await page.evaluate(()=>__mockEmit());
+      await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+      assert.equal(await page.locator('.club-agent-glory .glory-card').isVisible(),true);
+      await page.locator('.history-disclosure-summary').click();
+      assert.equal(await page.locator('.club-agent-glory .glory-card').isVisible(),false);
+      await page.locator('.history-disclosure-summary').click();
+      assert.equal(await page.evaluate(()=>history.length),clubHistory);
       assert.equal(await page.evaluate(()=>ProfileData.clubProfile('Beta').titles),undefined);
       await page.goBack(); await page.waitForSelector('#manageAchievements');
       original.history=await page.evaluate(()=>history.length);
@@ -1093,6 +1107,35 @@ const root = path.resolve(__dirname, '..');
       const result=await page.evaluate(()=>{try{AdminControl.openEditor('player','Alpha_Alice','identity');return '';}catch(error){return error.message;}});
       assert.match(result,/administrador/);
     });
+
+    await scenario('Exclusão definitiva: revisão, cancelamento e nome exato apagam cadastro completo sem afetar outro agente',async page=>{
+      await ready(page,'?player=Alpha_Alice');
+      await page.evaluate(()=>{__mockData.jet.liga.rosters.Alpha=__mockData.jet.liga.rosters.Alpha.filter(p=>p.n!=='Alice');__mockEmit();});
+      const original=await page.evaluate(()=>({jet:JSON.stringify(__mockData.jet),fantasy:JSON.stringify(__mockData.market.fantasy),bob:JSON.stringify(__mockData.market.players.Beta_Bob)}));
+      await page.evaluate(()=>ProfileEditor.openAgent('Alpha_Alice'));await page.locator('[data-tab="delete"]').click();
+      await page.locator('[data-action="review-delete-agent"]').click();await page.locator('#peDeleteName').waitFor();
+      await page.locator('#peBack').click();assert.equal(await page.evaluate(()=>__writes.length),0);
+      await page.locator('[data-action="review-delete-agent"]').click();await page.locator('#peDeleteName').fill('ALICE');await page.locator('#peSaveBtn').click();
+      await page.waitForFunction(()=>document.getElementById('peStatus').dataset.error==='true');assert.equal(await page.evaluate(()=>__writes.length),0);
+      await page.locator('#peDeleteName').fill('Alice');await page.locator('#peSaveBtn').click();
+      await page.waitForFunction(()=>!document.getElementById('profileEditorDialog').open);
+      await view(page,'players');
+      assert.equal(await page.evaluate(()=>!!__mockData.market.players.Alpha_Alice),false);
+      assert.equal(await page.evaluate(()=>!!__mockData.market.settings.staff?.one),false);
+      assert.equal(await page.evaluate(()=>!!__mockData.market.settings.staffArchive?.old),false);
+      assert.equal(await page.evaluate(()=>!!__mockData.market.transfers.mine),false);
+      assert.equal(await page.evaluate(()=>!!__mockData.market.rumors.mine),false);
+      assert.equal(await page.evaluate(()=>getAllPlayersFlat().some(p=>p.key==='Alpha_Alice')),false);
+      assert.deepEqual(await page.evaluate(()=>({jet:JSON.stringify(__mockData.jet),fantasy:JSON.stringify(__mockData.market.fantasy),bob:JSON.stringify(__mockData.market.players.Beta_Bob)})),original);
+    },{admin:true,expectedWrites:1,transfers:{mine:{playerKey:'Alpha_Alice',playerId:'legacy:Alpha_Alice',status:'oficial'}},rumors:{mine:{playerKey:'Alpha_Alice'}},settings:{staff:{one:{id:'one',kind:'linked',playerKey:'Alpha_Alice',playerId:'legacy:Alpha_Alice',role:'Coach',teamKind:'league',teamName:'Alpha',status:'active'}},staffArchive:{old:{record:{id:'old',kind:'linked',playerKey:'Alpha_Alice',playerId:'legacy:Alpha_Alice'}}}}});
+
+    await scenario('Exclusão definitiva: Jet League e Fantasy bloqueiam remoção sem escritas',async page=>{
+      await ready(page,'?player=Alpha_Alice');await page.evaluate(()=>ProfileEditor.openAgent('Alpha_Alice'));await page.locator('[data-tab="delete"]').click();
+      await page.locator('[data-action="review-delete-agent"]').click();await page.waitForFunction(()=>document.getElementById('peStatus').textContent.includes('Jet League'));
+      await page.evaluate(()=>{__mockData.jet.liga.rosters.Alpha=__mockData.jet.liga.rosters.Alpha.filter(p=>p.n!=='Alice');__mockData.market.fantasy.participants.human1.squad.starters=['Alpha_Alice'];__mockEmit();});
+      await page.locator('[data-action="review-delete-agent"]').click();await page.waitForFunction(()=>document.getElementById('peStatus').textContent.includes('Fantasy'));
+      assert.equal(await page.evaluate(()=>!!__mockData.market.players.Alpha_Alice),true);assert.equal(await page.locator('#peDeleteName').count(),0);
+    },{admin:true});
 
     await scenario('Comissão: exclusão administrativa permite cancelar e preserva auditoria do manager exclusivo',async page=>{
       await ready(page,'?club=Alpha');await page.locator('#adminBtn').click();await page.locator('.ac-nav [data-ac-tab="staff"]').click();
