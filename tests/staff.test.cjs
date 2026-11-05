@@ -33,14 +33,14 @@ test('principal único, identidade permanente e edições simultâneas são prot
   assert.equal(saved.notes,'outra sessão');assert.equal(saved.name,first.name);
   assert.throws(()=>c.StaffData.prepare('other',first,{notes:'x'}),/identidade permanente/);
 });
-test('saída e mudança de cargo preservam passagem profissional sem datas inventadas',async()=>{
+test('saída registra passagem; correção de cargo preserva datas e histórico sem criar passagem falsa',async()=>{
   const {c}=setup();const first=await c.StaffData.save('one',exclusive,{});
   const ended=await c.StaffData.save('one',{status:'ended',endCycle:'C.3'},first);
   const past=Object.values(ended.careerHistory)[0];assert.equal(past.fromCycle,'C.1');assert.equal(past.toCycle,'C.3');assert.equal(past.toDate,'');assert.equal(ended.principal,false);
   c.AppState.market.settings.staff={one:ended};assert.match(c.StaffViews.team('Alpha'),/Ex-managers/);
   const returned=await c.StaffData.save('one',{status:'active',teamName:'Beta',startCycle:'C.4'},ended);
   const changed=await c.StaffData.save('one',{role:'Coach'},returned);
-  assert.equal(changed.startCycle,'');assert.equal(Object.values(changed.careerHistory).length,2);
+  assert.equal(changed.role,'Coach');assert.equal(changed.startCycle,'C.4');assert.deepEqual(changed.careerHistory,returned.careerHistory);
   assert.equal(c.AppState.market.players.Alpha_Alice.contractUntil,'C.4');
 });
 test('histórico e conquistas da comissão são independentes e aceitam equipes externas e prêmios individuais',async()=>{
