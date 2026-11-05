@@ -49,3 +49,15 @@ test('legado escapa dados e não mostra auditoria administrativa ao visitante',(
   assert.match(c.ClubLegacy.body('KOF 12'),/&lt;script/);assert.doesNotMatch(c.ClubLegacy.body('KOF 12'),/club-profile-audit/);
   c.isMarketAdmin=()=>true;assert.doesNotMatch(c.ClubLegacy.body('KOF 12'),/club-profile-audit/);assert.equal(Object.keys(c.ProfileData.clubProfile('KOF 12').changeLog).length,1);
 });
+
+test('legado projeta passagens oficiais antigas, com entrada conhecida e sem duplicar registro manual',()=>{
+  const c=setup({formerMembers:{manual:{name:'Jenny',toDate:'2026-10-04',notes:'Registro manual'}}});
+  const movement=(from,to,date,season)=>({playerId:'jenny-1',playerKey:'KOF 12_Jenny',playerName:'Jenny',from,to,date,season,status:'oficial'});
+  c.AppState.market.transfers={first:movement('KOF 12','Other','2026-10-04','C.1'),arrival:movement('Other','KOF 12','2026-10-10','C.2'),exit:movement('KOF 12','Other','2026-10-17','C.3'),rumor:{...movement('KOF 12','Rumor','2026-10-18','C.4'),status:'negociando'}};
+  const before=JSON.stringify(c.AppState);
+  const html=c.ClubLegacy.body('KOF 12');
+  assert.equal((html.match(/legacy-former-person/g)||[]).length,2);
+  assert.match(html,/C\.2 · 2026-10-10 → C\.3 · 2026-10-17/);
+  assert.match(html,/Registro manual/);assert.doesNotMatch(html,/Rumor/);
+  assert.equal(JSON.stringify(c.AppState),before);
+});

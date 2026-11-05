@@ -191,12 +191,18 @@ const root = path.resolve(__dirname, '..');
     await scenario('transferência atualiza UI e mantém perfil e preço Fantasy usando a chave antiga', async page => {
       await ready(page, '?player=Alpha_Alice');
       const before = await page.evaluate(() => playerPrice('Alpha_Alice'));
+      await page.evaluate(()=>openClubProfile('Alpha'));
       await page.evaluate(() => recordTransfer({ playerKey: 'Alpha_Alice', playerName: 'Alice', from: 'Alpha', to: 'Beta', fee: 5, status: 'oficial', type: 'definitiva' }, getAllPlayersFlat().find(p => p.key === 'Alpha_Alice')));
       assert.equal(await page.evaluate(() => getAllPlayersFlat().filter(p => p.name === 'Alice').length), 1);
       assert.equal(await page.evaluate(() => getAllPlayersFlat().find(p => p.key === 'Alpha_Alice').club), 'Beta');
       assert.equal(await page.evaluate(() => playerPrice('Alpha_Alice')), before);
-      assert.match(await page.locator('#playerProfileContent .profile-meta').innerText(), /Beta/);
       assert.equal(await page.evaluate(() => __writes[0].updates['transfers/mock-transfer-1'].playerId), 'legacy:Alpha_Alice');
+      assert.match(await page.locator('.legacy-former').innerText(), /Alice[\s\S]*Beta · Transferência oficial/);
+      assert.equal(await page.locator('#clubProfileContent tbody .player-link',{hasText:'Alice'}).count(),0);
+      await page.evaluate(()=>openClubProfile('Beta'));
+      assert.equal(await page.locator('#clubProfileContent tbody .player-link',{hasText:'Alice'}).count(),1);
+      await page.evaluate(()=>openPlayerProfile('Alpha_Alice'));
+      assert.match(await page.locator('#playerProfileContent .profile-meta').innerText(), /Beta/);
     }, { expectedWrites: 1 });
 
     await scenario('banco vazio não executa seeds ao navegar nem ao abrir Fantasy', async page => {
