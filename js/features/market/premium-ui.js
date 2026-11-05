@@ -25,7 +25,11 @@
     const players = getAllPlayersFlat();
     const byValue = players.filter(isCompetitivePlayer).filter(p => Number(p.marketValue) > 0).sort((a,b) => b.marketValue - a.marketValue || a.name.localeCompare(b.name));
     const featured = byValue.find(p => !p.retired && !p.freeAgent && !["aposentado", "livre"].includes(p.status));
-    const transfers = Object.values(AppState.market.transfers || {}).filter(Boolean).sort((a,b) => String(b.date || "").localeCompare(String(a.date || "")));
+    // As chaves push do Firebase preservam a ordem de registro no mesmo dia.
+    const transfers = Object.entries(AppState.market.transfers || {}).filter(([, row]) => row)
+      .sort(([keyA, a], [keyB, b]) => String(b.date || "").localeCompare(String(a.date || ""))
+        || (keyA < keyB ? 1 : keyA > keyB ? -1 : 0))
+      .map(([, row]) => row);
     const rumors = Object.values(AppState.market.rumors || {}).filter(r => r && r.status !== "encerrada").sort((a,b) => String(b.date || "").localeCompare(String(a.date || "")));
     const header = (tag, title, action) => `<div class="panel-head"><div><span class="eyebrow">${tag}</span><h2>${title}</h2></div>${action || ""}</div>`;
     const link = (view, label) => `<button class="text-button" onclick="showView('${view}')">${label} <span aria-hidden="true">↗</span></button>`;
