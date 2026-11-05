@@ -55,7 +55,7 @@
     if('careerHistory' in input)changes.careerHistory=history(input.careerHistory,raw.careerHistory,id);
     if('achievements' in input)changes.achievements=awards(input.achievements,raw,id);
     const next={...raw,...changes};
-    if(raw.id && ['teamKind','teamName','role'].some(key=>key in changes))['startCycle','startDate','endCycle','endDate'].forEach(key=>{if(!(key in input)){changes[key]='';next[key]='';}});
+    if(raw.id && ['teamKind','teamName'].some(key=>key in changes))['startCycle','startDate','endCycle','endDate'].forEach(key=>{if(!(key in input)){changes[key]='';next[key]='';}});
     if(proposedKind==='exclusive' && !next.name?.trim())throw Error('Informe o nome do manager ou coach.');
     if(!['Manager','Coach'].includes(next.role))throw Error('Escolha Manager ou Coach.');
     if(!['active','ended'].includes(next.status))throw Error('Situação do vínculo inválida.');
@@ -79,7 +79,7 @@
     const next={...current,...changes,id};
     if(next.kind==='linked' && Object.entries(collection || {}).some(([key,row])=>key!==id && row.playerId===next.playerId))throw Error('Este combatente já possui cadastro na comissão. Edite o registro existente.');
     if(next.principal && Object.entries(collection || {}).some(([key,row])=>key!==id && row.status==='active' && row.principal && row.teamKind==='league' && row.teamName===next.teamName))throw Error('A equipe já tem um responsável principal. Encerre ou desmarque o vínculo anterior primeiro.');
-    const moved=current.id && current.status==='active' && current.teamName && (next.status==='ended' || current.teamName!==next.teamName || current.teamKind!==next.teamKind || current.role!==next.role);
+    const moved=current.id && current.status==='active' && current.teamName && (next.status==='ended' || current.teamName!==next.teamName || current.teamKind!==next.teamKind);
     if(moved)next.careerHistory={...(next.careerHistory || {}),[eventId+'-role']:{staffId:id,teamKind:current.teamKind,teamName:current.teamName,binding:current.role,fromCycle:current.startCycle || '',fromDate:current.startDate || '',toCycle:next.status==='ended' ? next.endCycle || '':current.endCycle || '',toDate:next.status==='ended' ? next.endDate || '':current.endDate || '',notes:(next.status==='ended'?next.notes:current.notes) || '',source:'staff-affiliation'}};
     const delta={};Object.keys(next).forEach(key=>{if(!['id','changeLog'].includes(key) && !same(next[key],current[key]))delta[key]={before:current[key] ?? null,after:next[key] ?? null};});
     if(!Object.keys(delta).length)return current;
