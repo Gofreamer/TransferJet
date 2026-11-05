@@ -71,11 +71,28 @@
       return `<article class="legacy-person">${portrait(row,person)}<div><span class="eyebrow">${type==="legends" ? "ÍDOLO" : "DESTAQUE"}</span>${personName(row,person)}${row.notes ? `<p>${e(row.notes)}</p>` : ""}</div></article>`;
     }).join("")}</div></section>`).join("");
   }
-  function formerMembers(p,players) {
+  function formerMembers(name,p,players) {
     const members=rows(p.formerMembers);
+    const official=Object.values(AppState.market.transfers || {}).filter(t=>t?.status==='oficial' && t.from && t.to && t.from!==t.to);
+    const identity=t=>t.playerId || players.find(player=>player.key===t.playerKey)?.id || (t.playerKey ? 'legacy:'+t.playerKey : '');
+    const manual=[...members];
+    official.filter(t=>t.from===name).sort((a,b)=>String(b.date || '').localeCompare(String(a.date || ''))).forEach(exit=>{
+      const id=identity(exit);
+      const person=id ? players.find(player=>player.id===id) : null;
+      const memberName=person?.name || exit.playerName;
+      if(!memberName)return;
+      const duplicate=manual.some(row=>{
+        const samePerson=row.playerId || row.playerKey ? (row.playerId ? row.playerId===id : row.playerKey===exit.playerKey) : Market.normalize(row.name)===Market.normalize(memberName) && players.filter(player=>Market.normalize(player.name)===Market.normalize(memberName)).length<=1;
+        return samePerson && (row.toDate && exit.date ? row.toDate===exit.date : row.toCycle && exit.season && Market.normalize(row.toCycle)===Market.normalize(exit.season));
+      });
+      if(duplicate)return;
+      const previous=id && exit.date ? official.filter(t=>identity(t)===id && t.date && t.date<exit.date).sort((a,b)=>String(b.date).localeCompare(String(a.date))) : [];
+      const arrival=previous[0]?.to===name && previous[0].date!==previous[1]?.date ? previous[0] : null;
+      members.push({name:memberName,playerId:id,fromCycle:arrival?.season,fromDate:arrival?.date,toCycle:exit.season,toDate:exit.date,binding:'Transferência oficial',teamName:exit.to,automatic:true});
+    });
     if (!members.length) return "";
     return `<section class="legacy-panel legacy-wide legacy-former"><div class="legacy-section-title"><span class="eyebrow">PARTE DO NOSSO CAMINHO</span><h2>Ex-integrantes</h2></div><div class="legacy-person-grid">${members.map(row=>{
-      const person=resolvePerson(row,players);
+      const person=row.automatic && !row.playerId ? null : resolvePerson(row,players);
       const start=[row.fromCycle,row.fromDate].filter(Boolean).join(" · ") || "Entrada não registrada";
       const end=[row.toCycle,row.toDate].filter(Boolean).join(" · ") || "Saída não registrada";
       return `<article class="legacy-person legacy-former-person">${portrait(row,person)}<div>${personName(row,person)}<p class="legacy-member-period">${e(start)} → ${e(end)}</p>${row.teamName || row.team || row.binding ? `<p>${e([row.teamName || row.team,row.binding].filter(Boolean).join(" · "))}</p>` : ""}${row.notes ? `<p>${e(row.notes)}</p>` : ""}</div></article>`;
@@ -85,7 +102,7 @@
     const p=ProfileData.clubProfile(name), players=getAllPlayersFlat();
     const campaigns=timeline(name,p), memory=identity(p)+people(p,players);
     const story=campaigns || memory ? `<div class="legacy-story-grid">${campaigns}${memory ? `<div class="legacy-memory-stack">${memory}</div>` : ""}</div>` : "";
-    const content=trophyGallery(p)+story+formerMembers(p,players);
+    const content=trophyGallery(p)+story+formerMembers(name,p,players);
     return `<div class="club-institution legacy-grid">${content}</div>`;
   }
   document.addEventListener("change",event=>{
