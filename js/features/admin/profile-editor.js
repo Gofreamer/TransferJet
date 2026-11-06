@@ -3,7 +3,7 @@
   const e = value => escapeHTML(value);
   let session = null;
   const labels = { name: "Nome", nationality: "Nacionalidade", age: "Idade", rank: "Rank", functionRole: "Função", photo: "Foto (URL)", status: "Status", contractMode: "Tipo de contrato", contractStart: "Ciclo / temporada inicial", contractStartDate: "Data inicial (opcional)", contractUntil: "Ciclo / temporada de vencimento", contractEndDate: "Data exata de vencimento (opcional)", salary: "Salário", releaseClause: "Cláusula de rescisão", bio: "Biografia", description: "Descrição adicional", notes: "Observações", titles: "Títulos", trophy: "Total de títulos", careerHistory: "Passagens manuais", team: "Equipe atual", freeAgent: "Agente livre", leagueExit: "Saída efetiva da liga" };
-  Object.assign(labels,{crest:"Brasão (URL)",cover:"Imagem de capa (URL)",founded:"Fundação (texto livre)",bestEra:"Melhor fase histórica",rivalries:"Rivalidades",legends:"Ídolos históricos",highlights:"Destaques históricos",placements:"Colocações",formerMembers:"Ex-membros e períodos"});
+  Object.assign(labels,{crestZoom:"Tamanho do brasão (%)",crest:"Brasão (URL)",cover:"Imagem de capa (URL)",founded:"Fundação (texto livre)",bestEra:"Melhor fase histórica",rivalries:"Rivalidades",legends:"Ídolos históricos",highlights:"Destaques históricos",placements:"Colocações",formerMembers:"Ex-membros e períodos"});
   function dialog() { return document.getElementById("profileEditorDialog"); }
   labels.achievements = "Hall da Glória · conquistas detalhadas";
   Object.assign(labels,{marketValue:"Valor de mercado (US$)",peakValue:"Maior valor registrado (US$)"});
@@ -166,6 +166,24 @@
         <section data-pane="institution"><p class="pe-help">Cadastro institucional no Market. O nome e o elenco atual seguem a Jet League.</p><div class="pe-grid">${["crest","cover","founded","description"].map(key=>field(key,raw[key] || "",key==="description" ? "textarea":"text")).join("")}</div></section>
         <section data-pane="achievements" hidden><p class="pe-help">Informe somente títulos e resultados conhecidos. Nenhuma competição será criada ou calculada automaticamente.</p><div class="pe-grid">${["nacional","lji","mundial","eventoEspecial"].map(key=>field("title_"+key,raw.titles?.[key] || 0,"number","Títulos · "+({nacional:"Nacional",lji:"L.J.I",mundial:"Mundial",eventoEspecial:"Evento Especial"})[key])).join("")}</div><h3>Colocações por ciclo / competição</h3><div id="peClubPlacements">${Object.entries(raw.placements || {}).map(([id,row])=>clubRow("placements",id,row)).join("")}</div><button type="button" class="btn-gray" data-action="add-club-row" data-group="placements">Adicionar colocação</button></section>
         <section data-pane="memory" hidden><div class="pe-grid">${["bestEra","rivalries","legends","highlights"].map(key=>field(key,raw[key] || "","textarea")).join("")}</div><h3>Ex-membros · registros manuais</h3><p class="pe-help">Use para complementar períodos sem registros automáticos. Não modifica o elenco atual nem cria agentes.</p><div id="peClubFormerMembers">${Object.entries(raw.formerMembers || {}).map(([id,row])=>clubRow("formerMembers",id,row)).join("")}</div><button type="button" class="btn-gray" data-action="add-club-row" data-group="formerMembers">Adicionar ex-membro</button></section>`;
+      const pane=dialog().querySelector('[data-pane="institution"]');
+      pane.insertAdjacentHTML('beforeend', `<div class="pe-crest-adjust"><div class="legacy-shield"><img alt="Prévia do brasão" hidden></div><label>Tamanho do brasão · <output></output><input type="range" data-field="crestZoom" min="50" max="200" value="${ClubLegacy.crestZoom(raw.crestZoom)}"></label><button type="button" class="btn-gray">Voltar a 100%</button></div>`);
+      const preview=pane.querySelector('.legacy-shield'), img=preview.querySelector('img');
+      const crest=pane.querySelector('[data-field="crest"]'), zoom=pane.querySelector('[data-field="crestZoom"]');
+      const updateZoom=()=>{
+        preview.style.setProperty('--crest-zoom',Number(zoom.value)/100);
+        pane.querySelector('output').textContent=zoom.value+'%';
+      };
+      const updateImage=()=>{
+        const url=crest.value.trim();
+        img.hidden=!/^https?:\/\//i.test(url);
+        if(img.hidden)img.removeAttribute('src');else img.src=url;
+      };
+      img.addEventListener('error',()=>{img.hidden=true;});
+      crest.addEventListener('input',updateImage);
+      zoom.addEventListener('input',updateZoom);
+      pane.querySelector('.pe-crest-adjust button').addEventListener('click',()=>{zoom.value=100;updateZoom();});
+      updateZoom();updateImage();
       baseline(); tab("institution"); dialog().showModal();
     } catch(error) { feedback(error.message); }
   }
