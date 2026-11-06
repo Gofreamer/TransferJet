@@ -32,10 +32,13 @@
   function crestZoom(value) {
     return Number.isInteger(value) && value >= 50 && value <= 200 ? value : 100;
   }
+  function crestOffset(value) {
+    return Number.isInteger(value) && Math.abs(value)<=50 ? value : 0;
+  }
   function header(name, agentCount) {
     const p = ProfileData.clubProfile(name), titles=totalTitles(p), campaigns=rows(p.placements);
     const champion = titles > 0;
-    return `<header class="legacy-hero ${champion ? "legacy-champion" : ""}">${validImage(p.cover) ? `<img class="legacy-cover" src="${e(p.cover)}" alt="Capa de ${e(name)}" onerror="this.hidden=true">` : ""}<div class="legacy-hero-content"><div class="legacy-brand"><div class="legacy-shield" style="--crest-zoom:${crestZoom(p.crestZoom)/100}"><span>${e(initials(name))}</span>${validImage(p.crest) ? `<img src="${e(p.crest)}" alt="Brasão de ${e(name)}" onerror="this.hidden=true">` : ""}</div><div class="legacy-brand-name"><span class="eyebrow">JET LEAGUE · ORGANIZAÇÃO</span><h1>${e(name)}</h1><div class="legacy-tags">${p.founded ? `<span>Fundação · ${e(p.founded)}</span>` : ""}${champion ? '<span class="legacy-champion-tag">🏆 Legado campeão</span>' : ""}</div></div>${window.isMarketAdmin?.() && Object.hasOwn(AppState.jet.rosters || {},name) ? `<button class="btn-primary btn-sm" id="editClubProfile" onclick="ProfileEditor.openClub('${escapeInlineJsSingle(name)}')">Editar equipe</button>` : ""}</div>${p.description ? `<p class="legacy-intro">${e(p.description)}</p>` : ""}<div class="legacy-metrics">${titles ? `<div><strong>${e(titles)}</strong><span>Títulos registrados</span></div>` : ""}${campaigns.length ? `<div><strong>${campaigns.length}</strong><span>Campanhas na história</span></div>` : ""}<div><strong>${agentCount}</strong><span>Agentes no elenco atual</span></div></div></div></header>`;
+    return `<header class="legacy-hero ${champion ? "legacy-champion" : ""}">${validImage(p.cover) ? `<img class="legacy-cover" src="${e(p.cover)}" alt="Capa de ${e(name)}" onerror="this.hidden=true">` : ""}<div class="legacy-hero-content"><div class="legacy-brand"><div class="legacy-shield" style="--crest-zoom:${crestZoom(p.crestZoom)/100};--crest-x:${crestOffset(p.crestX)}%;--crest-y:${crestOffset(p.crestY)}%"><span>${e(initials(name))}</span>${validImage(p.crest) ? `<img src="${e(p.crest)}" alt="Brasão de ${e(name)}" onerror="this.hidden=true">` : ""}</div><div class="legacy-brand-name"><span class="eyebrow">JET LEAGUE · ORGANIZAÇÃO</span><h1>${e(name)}</h1><div class="legacy-tags">${p.founded ? `<span>Fundação · ${e(p.founded)}</span>` : ""}${champion ? '<span class="legacy-champion-tag">🏆 Legado campeão</span>' : ""}</div></div>${window.isMarketAdmin?.() && Object.hasOwn(AppState.jet.rosters || {},name) ? `<button class="btn-primary btn-sm" id="editClubProfile" onclick="ProfileEditor.openClub('${escapeInlineJsSingle(name)}')">Editar equipe</button>` : ""}</div>${p.description ? `<p class="legacy-intro">${e(p.description)}</p>` : ""}<div class="legacy-metrics">${titles ? `<div><strong>${e(titles)}</strong><span>Títulos registrados</span></div>` : ""}${campaigns.length ? `<div><strong>${campaigns.length}</strong><span>Campanhas na história</span></div>` : ""}<div><strong>${agentCount}</strong><span>Agentes no elenco atual</span></div></div></div></header>`;
   }
   function trophyGallery(p) {
     const known = Object.entries(titleTypes).filter(([key])=>p.titles?.[key]!=null);
@@ -115,6 +118,6 @@
     orders.set(name,order);
     event.target.closest('.legacy-campaigns').querySelector('.legacy-timeline').innerHTML=campaignCards(ProfileData.clubProfile(name),order);
   });
-  window.ClubLegacy={crestZoom,header,body,medal,personEntries,resolvePerson,sortedCampaigns};
+  window.ClubLegacy={crestZoom,crestOffset,header,body,medal,personEntries,resolvePerson,sortedCampaigns};
   ProfileViews.club=body;
 })();

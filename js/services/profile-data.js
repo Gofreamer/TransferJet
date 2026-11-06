@@ -184,7 +184,7 @@
   function clubKey(name) { return "club_" + Array.from(name).map(c => c.codePointAt(0).toString(16)).join("-"); }
   function clubProfile(name) { return AppState.market.settings?.clubProfiles?.[clubKey(name)] || {}; }
   function prepareClub(raw, input) {
-    const allowed = ["crest", "crestZoom", "cover", "founded", "description", "bestEra", "rivalries", "legends", "highlights", "titles", "placements", "formerMembers"];
+    const allowed = ["crest", "crestZoom", "crestX", "crestY", "cover", "founded", "description", "bestEra", "rivalries", "legends", "highlights", "titles", "placements", "formerMembers"];
     const changes = {};
     Object.entries(input).forEach(([field,value]) => {
       if (!allowed.includes(field)) throw Error("Campo institucional protegido: " + field);
@@ -193,6 +193,9 @@
       else if (field === "crestZoom") {
         next = Number(value);
         if (!Number.isInteger(next) || next < 50 || next > 200) throw Error("O tamanho do brasão deve ficar entre 50% e 200%.");
+      } else if (field === "crestX" || field === "crestY") {
+        next = Number(value);
+        if (!Number.isInteger(next) || Math.abs(next) > 50) throw Error("A posição do brasão deve ficar entre -50% e 50%.");
       } else if (field === "titles") {
         next = { ...(raw.titles || {}) };
         Object.entries(value).forEach(([key,count]) => {
