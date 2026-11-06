@@ -3,7 +3,7 @@
   const e = value => escapeHTML(value);
   let session = null;
   const labels = { name: "Nome", nationality: "Nacionalidade", age: "Idade", rank: "Rank", functionRole: "Função", photo: "Foto (URL)", status: "Status", contractMode: "Tipo de contrato", contractStart: "Ciclo / temporada inicial", contractStartDate: "Data inicial (opcional)", contractUntil: "Ciclo / temporada de vencimento", contractEndDate: "Data exata de vencimento (opcional)", salary: "Salário", releaseClause: "Cláusula de rescisão", bio: "Biografia", description: "Descrição adicional", notes: "Observações", titles: "Títulos", trophy: "Total de títulos", careerHistory: "Passagens manuais", team: "Equipe atual", freeAgent: "Agente livre", leagueExit: "Saída efetiva da liga" };
-  Object.assign(labels,{crestZoom:"Tamanho do brasão (%)",crest:"Brasão (URL)",cover:"Imagem de capa (URL)",founded:"Fundação (texto livre)",bestEra:"Melhor fase histórica",rivalries:"Rivalidades",legends:"Ídolos históricos",highlights:"Destaques históricos",placements:"Colocações",formerMembers:"Ex-membros e períodos"});
+  Object.assign(labels,{crestZoom:"Tamanho do brasão (%)",crestX:"Posição horizontal do brasão (%)",crestY:"Posição vertical do brasão (%)",crest:"Brasão (URL)",cover:"Imagem de capa (URL)",founded:"Fundação (texto livre)",bestEra:"Melhor fase histórica",rivalries:"Rivalidades",legends:"Ídolos históricos",highlights:"Destaques históricos",placements:"Colocações",formerMembers:"Ex-membros e períodos"});
   function dialog() { return document.getElementById("profileEditorDialog"); }
   labels.achievements = "Hall da Glória · conquistas detalhadas";
   Object.assign(labels,{marketValue:"Valor de mercado (US$)",peakValue:"Maior valor registrado (US$)"});
@@ -167,13 +167,30 @@
         <section data-pane="achievements" hidden><p class="pe-help">Informe somente títulos e resultados conhecidos. Nenhuma competição será criada ou calculada automaticamente.</p><div class="pe-grid">${["nacional","lji","mundial","eventoEspecial"].map(key=>field("title_"+key,raw.titles?.[key] || 0,"number","Títulos · "+({nacional:"Nacional",lji:"L.J.I",mundial:"Mundial",eventoEspecial:"Evento Especial"})[key])).join("")}</div><h3>Colocações por ciclo / competição</h3><div id="peClubPlacements">${Object.entries(raw.placements || {}).map(([id,row])=>clubRow("placements",id,row)).join("")}</div><button type="button" class="btn-gray" data-action="add-club-row" data-group="placements">Adicionar colocação</button></section>
         <section data-pane="memory" hidden><div class="pe-grid">${["bestEra","rivalries","legends","highlights"].map(key=>field(key,raw[key] || "","textarea")).join("")}</div><h3>Ex-membros · registros manuais</h3><p class="pe-help">Use para complementar períodos sem registros automáticos. Não modifica o elenco atual nem cria agentes.</p><div id="peClubFormerMembers">${Object.entries(raw.formerMembers || {}).map(([id,row])=>clubRow("formerMembers",id,row)).join("")}</div><button type="button" class="btn-gray" data-action="add-club-row" data-group="formerMembers">Adicionar ex-membro</button></section>`;
       const pane=dialog().querySelector('[data-pane="institution"]');
-      pane.insertAdjacentHTML('beforeend', `<div class="pe-crest-adjust"><div class="legacy-shield"><img alt="Prévia do brasão" hidden></div><label>Tamanho do brasão · <output></output><input type="range" data-field="crestZoom" min="50" max="200" value="${ClubLegacy.crestZoom(raw.crestZoom)}"></label><button type="button" class="btn-gray">Voltar a 100%</button></div>`);
+      pane.insertAdjacentHTML('beforeend', `<div class="pe-crest-adjust"><div class="legacy-shield"><img alt="Prévia do brasão" draggable="false" hidden></div><div class="pe-crest-controls"><p class="pe-help">Arraste o brasão dentro do molde ou ajuste pelos controles.</p><label>Tamanho do brasão · <output></output><input type="range" data-field="crestZoom" min="50" max="200" value="${ClubLegacy.crestZoom(raw.crestZoom)}"></label><label>Posição horizontal · <output></output><input type="range" data-field="crestX" min="-50" max="50" value="${ClubLegacy.crestOffset(raw.crestX)}"></label><label>Posição vertical · <output></output><input type="range" data-field="crestY" min="-50" max="50" value="${ClubLegacy.crestOffset(raw.crestY)}"></label><button type="button" class="btn-gray">Restaurar enquadramento</button></div></div>`);
       const preview=pane.querySelector('.legacy-shield'), img=preview.querySelector('img');
-      const crest=pane.querySelector('[data-field="crest"]'), zoom=pane.querySelector('[data-field="crestZoom"]');
-      const updateZoom=()=>{
+      const crest=pane.querySelector('[data-field="crest"]');
+      const [zoom,x,y]=pane.querySelectorAll('.pe-crest-controls input');
+      const updateFraming=()=>{
         preview.style.setProperty('--crest-zoom',Number(zoom.value)/100);
-        pane.querySelector('output').textContent=zoom.value+'%';
+        preview.style.setProperty('--crest-x',x.value+'%');
+        preview.style.setProperty('--crest-y',y.value+'%');
+        for(const slider of [zoom,x,y])slider.parentElement.querySelector('output').textContent=slider.value+'%';
       };
+      let drag;
+      preview.addEventListener('pointerdown',event=>{
+        if(img.hidden || event.button!==0 || drag)return;
+        drag={id:event.pointerId,left:event.clientX,top:event.clientY,x:Number(x.value),y:Number(y.value),width:img.offsetWidth,height:img.offsetHeight};
+        preview.setPointerCapture(drag.id);
+      });
+      preview.addEventListener('pointermove',event=>{
+        if(!drag || drag.id!==event.pointerId)return;
+        const offset=value=>Math.max(-50,Math.min(50,Math.round(value)));
+        x.value=offset(drag.x+(event.clientX-drag.left)*100/drag.width);
+        y.value=offset(drag.y+(event.clientY-drag.top)*100/drag.height);
+        updateFraming();
+      });
+      preview.addEventListener('lostpointercapture',()=>{drag=null;});
       const updateImage=()=>{
         const url=crest.value.trim();
         img.hidden=!/^https?:\/\//i.test(url);
@@ -181,9 +198,9 @@
       };
       img.addEventListener('error',()=>{img.hidden=true;});
       crest.addEventListener('input',updateImage);
-      zoom.addEventListener('input',updateZoom);
-      pane.querySelector('.pe-crest-adjust button').addEventListener('click',()=>{zoom.value=100;updateZoom();});
-      updateZoom();updateImage();
+      for(const slider of [zoom,x,y])slider.addEventListener('input',updateFraming);
+      pane.querySelector('.pe-crest-adjust button').addEventListener('click',()=>{zoom.value=100;x.value=0;y.value=0;updateFraming();});
+      updateFraming();updateImage();
       baseline(); tab("institution"); dialog().showModal();
     } catch(error) { feedback(error.message); }
   }
