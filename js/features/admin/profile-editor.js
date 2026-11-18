@@ -7,6 +7,7 @@
   function dialog() { return document.getElementById("profileEditorDialog"); }
   labels.achievements = "Hall da Glória · conquistas detalhadas";
   Object.assign(labels,{marketValue:"Valor de mercado (US$)",peakValue:"Maior valor registrado (US$)"});
+  Object.assign(labels,{currentClubFromCycle:"Início na equipe · ciclo / temporada",currentClubFromDate:"Início na equipe · data",currentClubHistoryContext:"Equipe e passagem vinculadas ao início"});
   Object.assign(labels,{competitive:"Manter no elenco competitivo",kind:"Tipo de pessoa",playerKey:"Combatente vinculado",appearance:"Aparência",teamKind:"Tipo de organização",teamName:"Organização",role:"Cargo",principal:"Responsável principal",startCycle:"Ciclo de entrada",startDate:"Data de entrada",endCycle:"Ciclo de saída",endDate:"Data de saída",staffHistory:"Histórico profissional",staffAwards:"Conquistas da comissão"});
   function field(name, value, type = "text", label = labels[name] || name, options) {
     const content = options ? `<select data-field="${name}">${options.map(([key, text]) => `<option value="${e(key)}" ${String(value ?? "") === key ? "selected" : ""}>${e(text)}</option>`).join("")}</select>` : type === "textarea" ? `<textarea data-field="${name}" rows="3">${e(value)}</textarea>` : `<input data-field="${name}" type="${type}" value="${e(value)}" ${type === "number" ? 'min="0" step="any"' : ""}>`;
@@ -46,6 +47,9 @@
       if (el.dataset.field.startsWith("title_")) { input.titles ||= {}; input.titles[el.dataset.field.slice(6)] = el.value; }
       else input[el.dataset.field] = fieldValue(el);
     });
+    if (session.type === "agent" && ("currentClubFromCycle" in input || "currentClubFromDate" in input)) {
+      for (const key of ["currentClubFromCycle", "currentClubFromDate"]) input[key] = dialog().querySelector(`[data-field="${key}"]`).value;
+    }
     return input;
   }
   function readHistory() {
@@ -90,6 +94,16 @@
         <section data-pane="career" hidden><p class="pe-help">Passagens manuais são apenas históricas. Não transferem o agente, não alteram contratos ou valores e não escrevem na Jet League.</p><div id="peHistoryRows">${Object.entries(raw.careerHistory || {}).map(([id,row]) => historyRow(id,row)).join("")}</div><button type="button" class="btn-gray" data-action="add-history">Adicionar passagem</button></section>
         <section data-pane="exit" hidden><h3>Equipe atual: ${e(p.club)}</h3><p class="pe-help">A saída efetiva é uma ação separada. Ela atualiza o vínculo no Market e não cria transferência ou equipe na liga. O valor, a identidade e os históricos são preservados. Nenhum elenco da Jet League é alterado automaticamente.</p><div class="pe-grid"><label>Destino<select id="peExitKind"><option value="external">Equipe externa / internacional</option><option value="free">Agente livre</option></select></label><label>Nome da equipe externa<input id="peExitTeam"></label><label>Observação<textarea id="peExitNote"></textarea></label></div><button class="btn-danger" type="button" data-action="review-exit">Revisar saída efetiva da liga</button></section>`;
       const tabs = document.querySelector('#peForm .pe-tabs');
+      const start = ProfileData.currentClubStart(p, getCareerHistory(p.key, p.name, p.club));
+      tabs.querySelector('[data-tab="career"]').insertAdjacentHTML('beforebegin','<button role="tab" data-tab="club-start" type="button">Início na equipe</button>');
+      document.getElementById('peForm').insertAdjacentHTML('beforeend',`<section data-pane="club-start" hidden><h3>Início na equipe · ${e(p.club)}</h3><p class="pe-help">Preencha o início desta passagem para corrigir a linha “Equipe atual” em Histórico de clubes. Informe o ciclo, a data ou ambos.</p><div class="pe-grid">${field('currentClubFromCycle',start.cycle,'text','Ciclo / temporada de entrada (ex.: Ciclo 1)')}${field('currentClubFromDate',start.date,'date','Data de entrada (opcional)')}</div><p id="peClubStartPreview" class="pe-help" role="status"></p></section>`);
+      const updateClubStart = () => {
+        const cycle = dialog().querySelector('[data-field="currentClubFromCycle"]').value.trim();
+        const date = dialog().querySelector('[data-field="currentClubFromDate"]').value;
+        document.getElementById('peClubStartPreview').textContent = `No histórico: ${p.club} · ${[cycle,date].filter(Boolean).join(' · ') || 'Início automático / não informado'} → Atual`;
+      };
+      dialog().querySelector('[data-pane="club-start"]').addEventListener('input', updateClubStart);
+      updateClubStart();
       dialog().querySelector('[data-pane="identity"]').insertAdjacentHTML('beforeend','<button type="button" class="btn-gray" data-action="integrate-staff">Integrar à Comissão Técnica</button>');
       tabs.querySelector('[data-tab="contract"]').textContent="Contrato e valores";
       dialog().querySelector('[data-pane="contract"] .pe-grid').insertAdjacentHTML("beforeend",field("marketValue",value("marketValue"),"number")+field("peakValue",value("peakValue"),"number"));
@@ -99,6 +113,10 @@
     } catch (error) { feedback(error.message); }
   }
   function summarize(field, value) {
+    if (field === "currentClubHistoryContext") {
+      try { return JSON.parse(value)[0] || "Equipe não informada"; }
+      catch (_) { return "Sem correção de início vinculada"; }
+    }
     if(field==='competitive')return value===undefined ? 'Comportamento anterior (combatente)' : value===true || value==='true' ? 'Mantém no elenco competitivo' : 'Somente Comissão Técnica';
     if (field === "achievements") return Object.values(value || {}).map(row => `${ProfileData.achievementTypes[row.type]} · ${row.competitionName || "informação não registrada"} · ${row.result || "informação não registrada"} · ${row.teamName || "informação não registrada"} (${row.teamKind === "league" ? "equipe da liga" : "equipe externa / histórica"}) · ciclo: ${row.season || "informação não registrada"} · data: ${row.date || "informação não registrada"}${row.legacySlot ? " · título antigo #" + row.legacySlot : ""}${row.notes ? " · " + row.notes : ""}${row.officialId ? " · campeonato: " + row.officialId : ""}`).join("; ") || "Sem conquistas detalhadas";
     if (field === "careerHistory") return Object.values(value || {}).map(row => `${row.teamName}: ${row.fromCycle || row.fromDate || "início não informado"} → ${row.toCycle || row.toDate || "fim não informado"}`).join("; ") || "Sem passagens manuais";
