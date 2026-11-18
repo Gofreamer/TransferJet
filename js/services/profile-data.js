@@ -63,7 +63,7 @@
     const allowed = ["name", "nationality", "age", "rank", "functionRole", "photo", "status", "contractMode", "contractStart", "contractStartDate", "contractUntil", "contractEndDate", "salary", "releaseClause", "bio", "description", "notes", "titles", "achievements", "marketValue", "peakValue"];
     const changes = {};
     for (const [field, value] of Object.entries(input)) {
-      if (!allowed.includes(field)) throw Error("Campo protegido: " + field);
+      if (!allowed.includes(field) && !["currentClubFromCycle", "currentClubFromDate"].includes(field)) throw Error("Campo protegido: " + field);
       let next;
       if (field === "achievements") next = validateAchievements(value, raw, key, input.titles);
       else if (["age", "salary", "releaseClause", "marketValue", "peakValue"].includes(field)) next = number(value, field === "age");
@@ -82,6 +82,13 @@
       if (!same(next, raw[field])) changes[field] = next;
     }
     const proposed = { ...raw, ...changes };
+    if ("currentClubFromCycle" in input || "currentClubFromDate" in input) {
+      const player = getAllPlayersFlat().find(p => p.key === key);
+      if (!player) throw Error("Agente não encontrado. Reabra o cadastro.");
+      const automatic = getCareerHistory(key, player.name, player.club);
+      const context = currentClubContext(player, automatic);
+      if (context !== raw.currentClubHistoryContext) changes.currentClubHistoryContext = context;
+    }
     if ("titles" in changes && Object.values(proposed.achievements || {}).some(row => row.legacySlot && row.legacySlot > Number(changes.titles[row.type] || 0))) throw Error("Desassocie os detalhes dos títulos removidos antes de reduzir o contador.");
     if (("contractStartDate" in changes || "contractEndDate" in changes) && proposed.contractStartDate && proposed.contractEndDate && proposed.contractStartDate > proposed.contractEndDate) throw Error("O vencimento do contrato não pode preceder o início.");
     if ("status" in changes) changes.freeAgent = changes.status === "livre";
@@ -140,12 +147,40 @@
     if (!Object.keys(changes).length) return expected;
     return Market.savePlayer(key, changes, { expected, playerId: expected.id || "legacy:" + key, source: "profile-admin", actor: window.getMarketAdminId?.(), season: AppState.jet.currentSeason });
   }
+  function currentClubContext(player, automatic) {
+    const row = [...automatic].reverse().find(entry => entry.to === "Atual" && (entry.club || entry.teamName) === player.club);
+    const players = typeof getAllPlayersFlat === "function" ? getAllPlayersFlat() : [player];
+    const last = Object.entries(AppState.market.transfers || {}).filter(([,transfer]) => Market.transferMatches(transfer, player, players))
+      .sort(([,a],[,b]) => String(a.date || "").localeCompare(String(b.date || ""))).at(-1);
+    return JSON.stringify([player.club, row?.from || "", last?.[0] || "", last?.[1]?.date || ""]);
+  }
+  function currentClubStart(player, automatic) {
+    const raw = AppState.market.players[player.key] || player;
+    const valid = raw.currentClubHistoryContext === currentClubContext(player, automatic);
+    return { cycle: valid ? raw.currentClubFromCycle || "" : "", date: valid ? raw.currentClubFromDate || "" : "" };
+  }
   function careerRows(player, automatic) {
     const rows = automatic.map(row => ({ ...row, teamName: row.club, origins: [row.to === "Atual" && /não registrado|Sem início/.test(row.from) ? "current" : "official"] }));
+    const start = currentClubStart(player, automatic);
+    const current = [...rows].reverse().find(row => row.to === "Atual" && row.teamName === player.club);
+    if (current && (start.cycle || start.date)) {
+      current.from = start.cycle || start.date;
+      current.fromCycle = start.cycle;
+      current.fromDate = start.date;
+      current.origins = [...new Set([...current.origins, "manual"])];
+    }
     Object.entries(player.careerHistory || {}).forEach(([id, entry]) => {
       const manual = { ...entry, id, club: entry.teamName, from: entry.fromCycle || entry.fromDate || "Não informado", to: entry.toCycle || entry.toDate || "Não informado", origins: ["manual"] };
-      const equivalent = rows.find(row => historySignature(row) === historySignature(entry));
-      if (equivalent) { Object.assign(equivalent, { ...entry, id, origins: [...equivalent.origins, "manual"] }); }
+      const openCurrent = entry.teamName === player.club && !entry.toDate && (!entry.toCycle || /^atual$/i.test(entry.toCycle.trim()));
+      const equivalent = rows.find(row => historySignature(row) === historySignature(entry)) ||
+        (openCurrent && current && current.origins.includes("current") ? current : null);
+      if (equivalent === current && openCurrent) manual.to = "Atual";
+      let details = entry;
+      if (equivalent === current && (start.cycle || start.date)) {
+        details = { ...entry, fromCycle:start.cycle, fromDate:start.date };
+        manual.from = start.cycle || start.date;
+      }
+      if (equivalent) { Object.assign(equivalent, { ...details, id, from:manual.from, to:manual.to, origins: [...equivalent.origins, "manual"] }); }
       else rows.push(manual);
     });
     return rows;
@@ -244,5 +279,5 @@
     if (!result.committed) throw failure || Error("Não foi possível confirmar a gravação institucional.");
     return result.snapshot.val();
   }
-  window.ProfileData = { requireAdmin, text, date, image, number, safeKey, clone, validateHistory, historySignature, contractLabel, prepareAgent, saveAgent, careerRows, prepareExit, saveExit, syncExit, clubKey, clubProfile, prepareClub, saveClub, achievementTypes, officialCompetitions, validateAchievements };
+  window.ProfileData = { requireAdmin, text, date, image, number, safeKey, clone, validateHistory, historySignature, contractLabel, prepareAgent, saveAgent, currentClubStart, careerRows, prepareExit, saveExit, syncExit, clubKey, clubProfile, prepareClub, saveClub, achievementTypes, officialCompetitions, validateAchievements };
 })();
