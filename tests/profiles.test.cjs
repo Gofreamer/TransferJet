@@ -145,6 +145,48 @@ test('visualização reúne passagem equivalente e mantém origem oficial e manu
   assert.deepEqual(Array.from(rows[0].origins),['official','manual']);
 });
 
+test('início da equipe preenche a linha atual e preserva contrato, identidade e dados paralelos', async () => {
+  const db=setup(), {c,raw}=db;
+  c.jetDb={ref(){throw Error('Não alterar o elenco');}};
+  const saved=await c.ProfileData.saveAgent('Alpha_Alice',{currentClubFromCycle:'Ciclo 1',currentClubFromDate:'2026-01-15'},raw);
+  c.AppState.market.players.Alpha_Alice=saved;
+  const player=c.getAllPlayersFlat()[0];
+  const rows=c.ProfileData.careerRows(player,c.getCareerHistory(player.key,player.name,player.club));
+  assert.equal(rows.length,1);
+  assert.equal(rows[0].from,'Ciclo 1');
+  assert.equal(rows[0].fromDate,'2026-01-15');
+  assert.equal(rows[0].to,'Atual');
+  assert.equal(saved.team,raw.team);
+  assert.equal(saved.id,raw.id);
+  assert.equal(saved.contractUntil,raw.contractUntil);
+  assert.equal(saved.marketValue,raw.marketValue);
+  assert.deepEqual(saved.custom,raw.custom);
+});
+
+test('nova passagem oficial não herda a correção antiga, e a correção pode ser removida', async () => {
+  const db=setup(), {c,raw}=db;
+  const saved=await c.ProfileData.saveAgent('Alpha_Alice',{currentClubFromCycle:'Ciclo 1',currentClubFromDate:''},raw);
+  c.AppState.market.players.Alpha_Alice=saved;
+  const player=c.getAllPlayersFlat()[0];
+  const automatic=[{club:'Beta',from:'Início',to:'Ciclo 3'},{club:'Alpha',from:'Ciclo 3',to:'Atual',fee:12}];
+  const rows=c.ProfileData.careerRows(player,automatic);
+  assert.equal(rows[1].from,'Ciclo 3');
+  assert.equal(rows[1].fee,12);
+  db.setStored(saved);
+  const cleared=await c.ProfileData.saveAgent('Alpha_Alice',{currentClubFromCycle:'',currentClubFromDate:''},saved);
+  c.AppState.market.players.Alpha_Alice=cleared;
+  assert.equal(c.ProfileData.careerRows(player,c.getCareerHistory(player.key,player.name,player.club))[0].from,'Sem início registrado');
+});
+
+test('passagem manual aberta da equipe atual complementa o início sem duplicar a linha', () => {
+  const {c}=setup();
+  const player={key:'Alpha_Alice',club:'Alpha',careerHistory:{one:{teamName:'Alpha',fromCycle:'Ciclo 1',toCycle:'',toDate:''}}};
+  const rows=c.ProfileData.careerRows(player,[{club:'Alpha',from:'Sem início registrado',to:'Atual',fee:null}]);
+  assert.equal(rows.length,1);
+  assert.equal(rows[0].from,'Ciclo 1');
+  assert.equal(rows[0].to,'Atual');
+});
+
 test('saída efetiva altera só o vínculo Market e mantém chave, histórico e valor', async () => {
   const {c,raw,writes}=setup(); const player=c.getAllPlayersFlat()[0];
   c.jetDb={ref(){throw Error('Não sincronizar automaticamente');}};
