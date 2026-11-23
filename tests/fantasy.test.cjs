@@ -6,6 +6,7 @@ const dir = 'js/features/fantasy/';
 function setup() {
   const players = Array.from({ length: 9 }, (_, i) => ({ key: 'p' + i, id: 'id' + i, name: 'Agent ' + i, club: 'Team ' + Math.floor(i / 2), marketValue: 1000000, status: 'ativo', rank: 'A' }));
   const c = load(context({ getAllPlayersFlat: () => players }), 'js/core/state.js', 'js/utils/format.js', dir + 'fantasy-state.js', dir + 'fantasy-market.js', dir + 'fantasy-data.js', dir + 'fantasy-scoring.js', dir + 'fantasy-rounds.js', dir + 'fantasy-npcs.js');
+  c.JetMatches = { async readRound() { return (await c.jetDb.ref('liga/matches').once('value')).val(); } };
   c.ensureFantasyState();
   c.AppState.fantasy.settings = { ...c.FANTASY.DEFAULTS, currentRoundId: 'r1', seasonId: 'T2' };
   const participant = { displayName: 'Richard', type: 'human', budgetRemaining: 5000000, squad: { starters: ['p0', 'p1', 'p2', 'p3', 'p4'], bench: 'p5', captainKey: 'p0' } };

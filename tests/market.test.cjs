@@ -129,6 +129,18 @@ test('comparação destaca empates e ignora métricas ausentes; auditoria encont
   assert.equal(Market.auditPlayers({ a: { name: 'Alice', team: 'A' }, b: { name: 'Alice', team: 'B' } }).length, 0);
 });
 
+test('uma partida já registrada bloqueia o lote inteiro antes de gravar os agentes', async () => {
+  const c = setup();
+  let writes = 0;
+  c.marketDb = { ref: path => ({
+    once: async () => ({ val: () => path === 'settings/syncedMatches' ? { m1: { round: 3 } } : {} }),
+    push: () => ({ key: 'event1' }), update: async () => { writes++; }
+  }) };
+  await assert.rejects(c.Market.saveBatch([{ key: 'agent', changes: { stats: { P: 1 } } }], {},
+    { 'settings/syncedMatches/m1': { round: 3 } }), /já foi sincronizada/);
+  assert.equal(writes, 0);
+});
+
 test('restauração recusa registro existente e não executa update ou set', async () => {
   const c = setup();
   load(c, 'js/features/admin/admin-market.js');

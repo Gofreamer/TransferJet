@@ -19,7 +19,8 @@ test('start repetido não duplica listeners; stop remove todos', () => {
   const { c, subscriptions, off } = setup();
   c.startJetListeners(); c.startMarketListeners();
   const count = subscriptions.length;
-  assert.equal(count, 11);
+  assert.equal(count, 10);
+  assert.equal(subscriptions.some(s => s.path === 'liga/matches'), false);
   c.startJetListeners(); c.startMarketListeners();
   assert.equal(subscriptions.length, count);
   c.stopDataListeners();
@@ -60,14 +61,14 @@ test('Fantasy carrega sob demanda, não duplica e participa do desligamento glob
   const { c, subscriptions, off } = setup();
   load(c, 'js/features/fantasy/fantasy-state.js', 'js/features/fantasy/fantasy-data.js');
   c.startJetListeners(); c.startMarketListeners();
-  assert.equal(subscriptions.length, 11);
+  assert.equal(subscriptions.length, 10);
   c.startFantasyListeners(); c.startFantasyListeners();
-  assert.equal(subscriptions.length, 16);
+  assert.equal(subscriptions.length, 15);
   c.stopDataListeners();
-  assert.equal(off(), 16);
+  assert.equal(off(), 15);
   assert.equal(c.ensureFantasyState().ui.listenersStarted, false);
   c.startFantasyListeners();
-  assert.equal(subscriptions.length, 21);
+  assert.equal(subscriptions.length, 20);
 });
 
 test('Fantasy recupera somente a leitura cancelada e não esconde erros de outra coleção', () => {

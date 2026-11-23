@@ -128,76 +128,84 @@ function renderAdminPanel(tab = "home") {
 /* ========== IMPORT EXCEL ========== */
 function renderAdminImport() {
   const el = document.getElementById("adminTabContent");
-  const winOpen = !!(window.AppState.market.settings && window.AppState.market.settings.transferWindowOpen);
   el.innerHTML = `
-    <h3 class="admin-section-title">Importar performance (Excel / CSV)</h3>
-    <p class="admin-sub">
-      Formato esperado:<br>
-      <code>Equipe | Agente | Rank | Função | Troféu | P | V | D</code><br>
-      <span style="font-size:0.8rem;color:var(--text-muted)">Match por <strong>ID</strong> ou nome sem ambiguidade. A chave do agente é preservada ao mudar de equipe. Célula Troféu vazia <strong>não apaga</strong> títulos do perfil. Títulos detalhados (🥇🥈🏆🏅) se editam em Admin → Valores.</span><br>
-      <strong>Fórmula vigente: limite de US$ 12 milhões para sugestões.</strong> Valores existentes acima disso são mantidos no modo padrão. Recalcular exige selecionar o modo e revisar os valores.<br>
-      Hierarquia de rank: <strong>Especial &gt; S &gt; A &gt; B &gt; C &gt; D &gt; E</strong> · Reserva &gt; Emergência
-    </p>
-    <div class="admin-form-grid">
-      <div class="full">
-        <label>Arquivo .xlsx ou .csv</label>
-        <input type="file" id="importFile" accept=".xlsx,.xls,.csv">
-      </div>
-    </div>
-    <div class="import-options">
-      <label><input type="radio" name="importMode" value="full"> Atualizar stats + recalcular valor</label>
-      <label><input type="radio" name="importMode" value="statsOnly" checked> Só atualizar stats (manter valores)</label>
-    </div>
-    <div class="admin-actions" style="margin-top:14px;gap:10px;display:flex;flex-wrap:wrap">
-      <button class="btn-primary" onclick="processImportFile()">Importar e revisar</button>
+    <div class="sync-workspace">
+      <section class="sync-card sync-league" aria-labelledby="syncLeagueHeading" data-ac-lookup>
+        <div class="sync-card-head">
+          <h4 id="syncLeagueHeading">Sincronizar rodada da Jet League</h4>
+          <p>Some as lutas da rodada aos totais dos agentes. Partidas já sincronizadas são puladas.</p>
+        </div>
+        <form id="syncLookup">
+          <div class="admin-form-grid">
+            <div>
+              <label for="syncSeason">Temporada</label>
+              <input id="syncSeason" list="syncSeasons" required autocomplete="off">
+              <datalist id="syncSeasons"></datalist>
+            </div>
+            <div>
+              <label for="syncRound">Rodada</label>
+              <input id="syncRound" type="number" min="0" step="1" required placeholder="Ex.: 1">
+            </div>
+          </div>
+          <div class="admin-actions sync-actions">
+            <button type="submit" id="syncLoad" class="btn-primary">Carregar partidas</button>
+            <button type="button" id="syncDiscover" class="btn-gray">Buscar rodadas disponíveis</button>
+          </div>
+          <label class="sync-check"><input type="checkbox" id="syncShowArchived"> Mostrar rodadas já sincronizadas</label>
+          <div id="syncRoundChoices" class="sync-round-choices"></div>
+          <p id="syncCatalogStatus" class="sync-status" role="status"></p>
+        </form>
+        <fieldset class="sync-mode">
+          <legend>O que atualizar</legend>
+          <label><input type="radio" name="syncMode" value="statsOnly" checked> Estatísticas, mantendo os valores</label>
+          <label><input type="radio" name="syncMode" value="full"> Estatísticas e valores de mercado</label>
+          <label class="sync-check"><input type="checkbox" id="syncIgnoreAwards"> Ignorar MVP e Destaque nesta sincronização</label>
+        </fieldset>
+        <p id="syncStatus" class="sync-status" role="status"></p>
+        <div id="syncMatchList" class="sync-results"></div>
+      </section>
 
-    </div>
-    <p id="importStatus" style="margin-top:12px;font-size:0.85rem;color:var(--text-muted)"></p>
+      <section class="sync-card" aria-labelledby="syncImportHeading">
+        <div class="sync-card-head">
+          <h4 id="syncImportHeading">Importar planilha de desempenho</h4>
+          <p>Substitui os totais de participações, vitórias e derrotas pelos números da planilha.</p>
+        </div>
+        <label class="sync-upload" for="importFile">
+          <strong>Planilha Excel ou CSV</strong>
+          <input type="file" id="importFile" accept=".xlsx,.xls,.csv">
+        </label>
+        <details class="sync-help">
+          <summary>Ver colunas da planilha</summary>
+          <p>Equipe | Agente | Rank | Função | Troféu | P | V | D</p>
+          <p>Use a coluna opcional ID para identificar o agente com precisão. Uma célula Troféu vazia preserva os títulos do perfil.</p>
+        </details>
+        <fieldset class="sync-mode">
+          <legend>O que atualizar</legend>
+          <label><input type="radio" name="importMode" value="statsOnly" checked> Dados da planilha, mantendo os valores</label>
+          <label><input type="radio" name="importMode" value="full"> Dados da planilha e valores de mercado</label>
+        </fieldset>
+        <div class="admin-actions sync-actions">
+          <button type="button" class="btn-primary" onclick="processImportFile()">Importar e revisar</button>
+          <button type="button" class="btn-gray" onclick="exportMarketSnapshot()">Exportar dados atuais</button>
+        </div>
+        <p id="importStatus" class="sync-status" role="status"></p>
+      </section>
 
-    <h3 class="admin-section-title" style="margin-top:32px">Sincronizar stats da Jet League</h3>
-    <p class="admin-sub">
-      Lê as partidas oficiais (<code>liga/matches</code>), identifica quem lutou pelo <strong>nome</strong>, soma P / V / D e registra MVP da série / Destaque da Rodada.
-      Sempre passa por <strong>revisão</strong> antes de gravar. Partidas já sincronizadas aparecem marcadas (não somam de novo, salvo se forçar).
-    </p>
-    <div class="admin-form-grid">
-      <div>
-        <label>Temporada</label>
-        <select id="syncSeason" onchange="refreshSyncRoundOptions()"></select>
-      </div>
-      <div>
-        <label>Rodada</label>
-        <select id="syncRound"></select>
-      </div>
-    </div>
-    <div class="import-options" style="margin-top:10px">
-      <label><input type="radio" name="syncMode" value="full"> Atualizar stats + recalcular valor</label>
-      <label><input type="radio" name="syncMode" value="statsOnly" checked> Só atualizar stats (manter valores)</label>
-    </div>
-    <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:0.85rem;color:var(--text-muted)">
-      <input type="checkbox" id="syncForceResync"> Forçar reprocessar partidas já sincronizadas
-    </label>
-    <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:0.85rem;color:var(--text-muted)">
-      <input type="checkbox" id="syncIgnoreAwards"> Ignorar bônus de MVP / Destaque nesta sync
-    </label>
-    <div class="admin-actions" style="margin-top:14px;gap:10px;display:flex;flex-wrap:wrap">
-      <button class="btn-primary" onclick="previewJetLeagueSync()">Analisar rodada e revisar</button>
-      <button class="btn-gray" onclick="exportMarketSnapshot()">Exportar snapshot (planilha)</button>
-    </div>
-    <p id="syncStatus" style="margin-top:12px;font-size:0.85rem;color:var(--text-muted)"></p>
-    <div id="syncMatchList" style="margin-top:8px;font-size:0.8rem;color:var(--text-muted)"></div>
-
-    <h3 class="admin-section-title" style="margin-top:28px">Link Jet League</h3>
-    <div class="admin-form-grid">
-      <div class="full">
-        <label>URL do site Jet League</label>
-        <input type="text" id="jetLeagueUrlInput" value="${escapeHTML((window.AppState.market.settings && window.AppState.market.settings.jetLeagueUrl) || "https://teste-jet.pages.dev")}">
-      </div>
-    </div>
-    <div class="admin-actions" style="margin-top:10px">
-      <button class="btn-primary btn-sm" onclick="saveJetLeagueUrl()">Salvar URL</button>
+      <details class="sync-card sync-help">
+        <summary>Configurar link da Jet League</summary>
+        <div class="admin-form-grid">
+          <div class="full">
+            <label for="jetLeagueUrlInput">URL do site</label>
+            <input type="url" id="jetLeagueUrlInput" value="${escapeHTML(window.AppState.market.settings?.jetLeagueUrl || "https://teste-jet.pages.dev")}">
+          </div>
+        </div>
+        <div class="admin-actions sync-actions">
+          <button type="button" class="btn-gray" onclick="saveJetLeagueUrl()">Salvar URL</button>
+        </div>
+      </details>
     </div>
   `;
-  populateSyncSelectors();
+  AdminSync.init();
 }
 
 async function setTransferWindow(open) {
@@ -241,7 +249,6 @@ function forceReseedFromCode() {
 function processImportFile() {
   const fileInput = document.getElementById("importFile");
   const status = document.getElementById("importStatus");
-  const preview = document.getElementById("importPreview");
   if (!fileInput?.files?.length) {
     status.textContent = "Selecione um arquivo primeiro.";
     return;
@@ -270,6 +277,7 @@ function processImportFile() {
       status.textContent = "Erro ao ler arquivo: " + err.message;
     }
   };
+  reader.onerror = () => { status.textContent = "Não foi possível ler o arquivo. Selecione a planilha novamente."; };
   reader.readAsArrayBuffer(file);
 }
 
@@ -434,8 +442,8 @@ function showImportReviewModal(calculated, mode) {
             const flag = !r.matched ? "⚠" : (delta > 0 ? "▲" : delta < 0 ? "▼" : "·");
             return `<tr style="${!r.matched ? "opacity:0.75" : ""}">
               <td>${flag}</td>
-              <td>${r.name}</td>
-              <td>${r.team}</td>
+              <td>${escapeHTML(r.name)}</td>
+              <td>${escapeHTML(r.team)}</td>
               <td>${r.rank}</td>
               <td>${r.P}-${r.V}-${r.D}</td>
               <td style="color:var(--text-muted)">${r.oldValue ? formatUSD(r.oldValue, true) : "—"}</td>
@@ -1243,7 +1251,10 @@ function closeAIReviewModal() {
   const overlay = document.getElementById("aiReviewOverlay");
   overlay.classList.remove("open");
   const primaryAction = overlay.querySelector(".review-actions .btn-primary");
-  if (primaryAction) primaryAction.style.display = "";
+  if (primaryAction) {
+    primaryAction.style.display = "";
+    primaryAction.hidden = false;
+  }
   window._aiReviewData = null;
 }
 
@@ -1331,9 +1342,17 @@ function confirmAIReview() {
     const context = { ...window._aiReviewData, mode: window._aiReviewData.mode || "statsOnly", matchIds: window._aiReviewData.matchIdsToMark || [], season: window._aiReviewData.season || window.AppState.jet.currentSeason };
     const values = {};
     document.querySelectorAll(".sync-val").forEach(input => { values[Number(input.dataset.idx)] = Number(input.value); });
+    if (!context.matchIds.length) return;
+    const publish = document.querySelector("#aiReviewOverlay .review-actions .btn-primary");
+    if (publish?.disabled) return;
+    if (publish) publish.disabled = true;
     return MarketAdmin.applySync(data, context, values)
-      .then(() => { alert(`${data.length} agentes atualizados e partidas registradas na mesma operação.`); closeAIReviewModal(); if (isLogged) renderAdminImport(); })
-      .catch(err => alert("Erro: " + err.message));
+      .then(() => {
+        closeAIReviewModal();
+        AdminSync.onSaved(context, data.length);
+      })
+      .catch(err => alert("Erro: " + err.message))
+      .finally(() => { if (publish) publish.disabled = false; });
   }
 
   if (action === "team-targets") {
@@ -1352,85 +1371,6 @@ function normalizeAgentName(n) {
 
 function getSyncedMatchMap() {
   return (window.AppState.market.settings && window.AppState.market.settings.syncedMatches) || {};
-}
-
-function listMatchesGrouped() {
-  const matches = window.AppState.jet.matches || [];
-  const list = Array.isArray(matches) ? matches : Object.values(matches);
-  const bySeason = {};
-  list.forEach(m => {
-    if (!m || !m.timeA || !m.timeB) return;
-    const season = m.temporada || window.AppState.jet.currentSeason || "Temporada ?";
-    const round = Number(m.rodada) || 0;
-    if (!bySeason[season]) bySeason[season] = {};
-    if (!bySeason[season][round]) bySeason[season][round] = [];
-    bySeason[season][round].push(m);
-  });
-  return bySeason;
-}
-
-function populateSyncSelectors() {
-  const seasonEl = document.getElementById("syncSeason");
-  const roundEl = document.getElementById("syncRound");
-  if (!seasonEl || !roundEl) return;
-
-  const grouped = listMatchesGrouped();
-  const seasons = Object.keys(grouped).sort();
-  const current = window.AppState.jet.currentSeason || "";
-
-  seasonEl.innerHTML = seasons.length
-    ? seasons.map(s => `<option value="${s}" ${s === current ? "selected" : ""}>${s}</option>`).join("")
-    : `<option value="">Nenhuma partida no Firebase</option>`;
-
-  refreshSyncRoundOptions();
-}
-
-function refreshSyncRoundOptions() {
-  const seasonEl = document.getElementById("syncSeason");
-  const roundEl = document.getElementById("syncRound");
-  const listEl = document.getElementById("syncMatchList");
-  if (!seasonEl || !roundEl) return;
-
-  const grouped = listMatchesGrouped();
-  const season = seasonEl.value;
-  const rounds = Object.keys(grouped[season] || {}).map(Number).sort((a, b) => a - b);
-  const synced = getSyncedMatchMap();
-
-  // Guarda a seleção atual para não resetar ao reconstruir as opções
-  const prevValue = roundEl.value;
-
-  roundEl.innerHTML = rounds.length
-    ? rounds.map(r => {
-        const ms = grouped[season][r] || [];
-        const allSynced = ms.length && ms.every(m => m.id && synced[m.id]);
-        const label = r === 0 ? "Sem rodada (0)" : `Rodada ${r}`;
-        return `<option value="${r}">${label} · ${ms.length} partida(s)${allSynced ? " · já sync" : ""}</option>`;
-      }).join("")
-    : `<option value="">—</option>`;
-
-  // Restaura a seleção se ainda existir na lista
-  if (prevValue !== "" && rounds.includes(Number(prevValue))) {
-    roundEl.value = prevValue;
-  }
-
-  // Atualiza só a lista de partidas (sem reconstruir o select)
-  function updateMatchList() {
-    if (!listEl) return;
-    const r = Number(roundEl.value);
-    const ms = (grouped[season] && grouped[season][r]) || [];
-    listEl.innerHTML = ms.length
-      ? `<strong>Partidas nesta rodada:</strong><br>` + ms.map(m => {
-          const done = m.id && synced[m.id];
-          const fights = Array.isArray(m.fights) ? m.fights.length : 0;
-          return `• ${m.timeA} ${m.scoreA}×${m.scoreB} ${m.timeB} · ${fights} luta(s)${done ? " · <span style='color:var(--green)'>já sincronizada</span>" : ""}`;
-        }).join("<br>")
-      : "Nenhuma partida encontrada para esta combinação.";
-  }
-
-  updateMatchList();
-
-  // onchange da rodada só atualiza a lista, não reconstrói opções
-  roundEl.onchange = updateMatchList;
 }
 
 /** Extrai participantes de uma partida com resultado por luta (não pela série). */
@@ -1469,11 +1409,11 @@ function extractMatchParticipants(m) {
     agentsB.filter(Boolean).forEach(name => bump(name, "B", winner === "B"));
   });
 
-  return { participants, hasFights: fights.length > 0 };
+  return participants;
 }
 
 function buildNameIndex() {
-  const byName = {};
+  const byName = Object.create(null);
   getAllPlayersFlat().forEach(p => {
     const k = normalizeAgentName(p.name);
     if (!byName[k]) byName[k] = p;
@@ -1489,40 +1429,22 @@ function buildNameIndex() {
   return byName;
 }
 
-function previewJetLeagueSync() {
+function previewJetLeagueSync(matches, season, round) {
   const status = document.getElementById("syncStatus");
-  const season = document.getElementById("syncSeason")?.value;
-  const round = Number(document.getElementById("syncRound")?.value);
   const mode = document.querySelector('input[name="syncMode"]:checked')?.value || "statsOnly";
-  const force = !!document.getElementById("syncForceResync")?.checked;
   const ignoreAwards = !!document.getElementById("syncIgnoreAwards")?.checked;
-
-  if (!season && season !== "") {
-    if (status) status.textContent = "Selecione temporada e rodada.";
-    return;
-  }
-
-  const grouped = listMatchesGrouped();
-  const matches = (grouped[season] && grouped[season][round]) || [];
-  if (!matches.length) {
-    if (status) status.textContent = "Nenhuma partida nesta rodada.";
-    return;
-  }
-
   const synced = getSyncedMatchMap();
   const byName = buildNameIndex();
 
   // Agrega deltas por agente
-  const agentMap = {}; // key -> row
+  const agentMap = Object.create(null);
   const unmatched = [];
   const matchSummaries = [];
   const matchIdsToMark = [];
   let skippedSynced = 0;
-  let matchesWithoutFights = 0;
 
   matches.forEach(m => {
-    const already = m.id && synced[m.id];
-    if (already && !force) {
+    if (m.id && Object.hasOwn(synced, m.id)) {
       skippedSynced++;
       matchSummaries.push({
         id: m.id,
@@ -1533,15 +1455,21 @@ function previewJetLeagueSync() {
       return;
     }
 
-    const { participants, hasFights } = extractMatchParticipants(m);
-    if (!hasFights) {
-      matchesWithoutFights++;
+    if (!AdminSync.canSync(m)) {
       matchSummaries.push({
         id: m.id,
         label: `${m.timeA} ${m.scoreA}×${m.scoreB} ${m.timeB}`,
         status: "warn",
-        reason: "sem lutas (fights) — ignorada"
+        reason: "Sem ID estável ou lutas concluídas"
       });
+      return;
+    }
+
+    if (matchIdsToMark.includes(m.id)) return;
+    const participants = extractMatchParticipants(m);
+    if (![...participants.keys()].some(name => byName[name])) {
+      participants.forEach(info => unmatched.push({ name: info.name, team: info.team }));
+      matchSummaries.push({ label: `${m.timeA} ${m.scoreA}×${m.scoreB} ${m.timeB}`, status: "warn", reason: "Sem agentes correspondentes no mercado" });
       return;
     }
 
@@ -1559,9 +1487,8 @@ function previewJetLeagueSync() {
     matchSummaries.push({
       id: m.id,
       label: `${m.timeA} ${m.scoreA}×${m.scoreB} ${m.timeB}`,
-      status: already ? "resync" : "ok",
-      reason: `${participants.size} agente(s)${awardBits.length ? " · " + awardBits.join(" · ") : ""}`,
-      already
+      status: "ok",
+      reason: `${participants.size} agente(s)${awardBits.length ? " · " + awardBits.join(" · ") : ""}`
     });
 
     participants.forEach((info, nameKey) => {
@@ -1660,7 +1587,6 @@ function previewJetLeagueSync() {
     mode,
     season,
     round,
-    force,
     ignoreAwards
   });
 }
@@ -1672,6 +1598,8 @@ function showSyncReviewModal(payload) {
   const title = document.getElementById("aiReviewTitle");
   const statsOnly = mode === "statsOnly";
 
+  const primaryAction = overlay.querySelector(".review-actions .btn-primary");
+  if (primaryAction) primaryAction.hidden = !matchIdsToMark.length;
   window._aiReviewData = {
     action: "sync-jet-stats",
     data: rows,
@@ -1691,12 +1619,12 @@ function showSyncReviewModal(payload) {
     <div class="import-summary">
       <div class="kpi"><div class="kpi-label">Agentes</div><div class="kpi-value">${rows.length}</div></div>
       <div class="kpi"><div class="kpi-label">Partidas OK</div><div class="kpi-value" style="color:var(--green)">${matchIdsToMark.length}</div></div>
-      <div class="kpi"><div class="kpi-label">Sem luta / skip</div><div class="kpi-value" style="color:var(--orange)">${matchSummaries.filter(m => m.status !== "ok" && m.status !== "resync").length}</div></div>
+      <div class="kpi"><div class="kpi-label">Sem luta / skip</div><div class="kpi-value" style="color:var(--orange)">${matchSummaries.filter(m => m.status !== "ok").length}</div></div>
       <div class="kpi"><div class="kpi-label">Não achados</div><div class="kpi-value" style="color:var(--red)">${unmatched.length}</div></div>
     </div>
     <p style="font-size:0.85rem;color:var(--cyan);margin-bottom:10px">
       Modo: <strong>${statsOnly ? "somente stats" : "stats + recalcular valor"}</strong>.
-      P/V/D são <strong>somados</strong> ao que já está no perfil (não substituem a temporada inteira).
+      Participações, vitórias e derrotas são <strong>somadas</strong> aos totais dos perfis.
       ${ignoreAwards
         ? `<br><span style="color:var(--orange)">Bônus de MVP/Destaque <strong>ignorados</strong> nesta sync (contadores não sobem).</span>`
         : `<br>Prêmios detectados nesta rodada: <strong>⭐ ${mvpTotal} MVP</strong> · <strong>🌟 ${destTotal} Destaque</strong> (+4% / +7% no valor).`
@@ -1706,8 +1634,8 @@ function showSyncReviewModal(payload) {
       <strong>Partidas</strong>
       <div style="font-size:0.8rem;margin-top:6px;color:var(--text-muted)">
         ${matchSummaries.map(m => {
-          const color = m.status === "ok" ? "var(--green)" : m.status === "resync" ? "var(--cyan)" : "var(--orange)";
-          return `<div style="color:${color}">• ${m.label} — ${m.reason}</div>`;
+          const color = m.status === "ok" ? "var(--green)" : "var(--orange)";
+          return `<div style="color:${color}">• ${escapeHTML(m.label)} · ${escapeHTML(m.reason)}</div>`;
         }).join("") || "—"}
       </div>
     </div>
@@ -1715,7 +1643,7 @@ function showSyncReviewModal(payload) {
       <div class="rumor-card" style="border-color:var(--orange);margin-bottom:12px">
         <strong style="color:var(--orange)">⚠ Nomes nas lutas sem match no Market (${unmatched.length})</strong>
         <div style="font-size:0.8rem;margin-top:6px;color:var(--text-muted)">
-          ${unmatched.slice(0, 20).map(u => `${u.name} (${u.team})`).join(" · ")}
+          ${unmatched.slice(0, 20).map(u => `${escapeHTML(u.name)} (${escapeHTML(u.team)})`).join(" · ")}
           ${unmatched.length > 20 ? "…" : ""}
         </div>
         <p style="font-size:0.75rem;margin-top:6px">Confira ortografia no elenco / Market. Esses não serão atualizados.</p>
@@ -1736,8 +1664,8 @@ function showSyncReviewModal(payload) {
         <tbody>
           ${rows.map((r, i) => `
             <tr>
-              <td><strong>${r.name}</strong></td>
-              <td>${r.team}</td>
+              <td><strong>${escapeHTML(r.name)}</strong></td>
+              <td>${escapeHTML(r.team)}</td>
               <td style="color:var(--cyan)">+${r.addP}</td>
               <td style="color:var(--green)">+${r.addV}</td>
               <td style="color:var(--red)">+${r.addD}</td>
@@ -1817,8 +1745,6 @@ window.deleteRumor = deleteRumor;
 window.generateRumorWithAI = generateRumorWithAI;
 window.runAIGeneration = runAIGeneration;
 window.processImportFile = processImportFile;
-window.populateSyncSelectors = populateSyncSelectors;
-window.refreshSyncRoundOptions = refreshSyncRoundOptions;
 window.previewJetLeagueSync = previewJetLeagueSync;
 window.exportMarketSnapshot = exportMarketSnapshot;
 

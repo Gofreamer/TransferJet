@@ -111,9 +111,16 @@
       entry.changes.destaqueCount = context.ignoreAwards ? Number(old.destaqueCount) || 0 : row.destaqueCount ?? (Number(old.destaqueCount) || 0);
       return entry;
     });
-    const extra = {};
-    (context.matchIds || []).filter(Boolean).forEach(id => { extra["settings/syncedMatches/" + id] = { at: new Date().toISOString(), season: context.season, round: context.round, mode: context.mode }; });
-    await Market.saveBatch(rows, { season: context.season, round: context.round, source: "jet-sync" }, extra);
+    const ids = [...new Set(context.matchIds || [])];
+    if (!rows.length || !ids.length) throw Error("Nenhuma partida pendente para sincronizar.");
+    if (ids.some(id => typeof id !== "string" || !id.trim() || /[.#$\[\]/\u0000-\u001f\u007f]/.test(id))) throw Error("Identificador de partida inválido.");
+    const operation = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const at = new Date().toISOString();
+    await Market.saveBatch(rows, { season: context.season, round: context.round, source: "jet-sync" }, Object.fromEntries(
+      ids.map(id => ["settings/syncedMatches/" + id, {
+        at, season: context.season, round: context.round, mode: context.mode, operation
+      }])
+    ));
   }
 
   function renderBackup() {

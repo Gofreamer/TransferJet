@@ -16,7 +16,12 @@
     },
     "settings": {
       ".read": true,
-      ".write": "auth != null && auth.token.email != null"
+      ".write": "auth != null && auth.token.email != null",
+      "syncedMatches": {
+        "$matchId": {
+          ".validate": "!data.exists() || (newData.child('at').val() === data.child('at').val() && newData.child('season').val() === data.child('season').val() && newData.child('round').val() === data.child('round').val() && newData.child('mode').val() === data.child('mode').val() && newData.child('operation').val() === data.child('operation').val())"
+        }
+      }
     },
     "fantasy": {
       ".read": true,

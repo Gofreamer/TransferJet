@@ -4,6 +4,15 @@
 
 Plataforma oficial de mercado, scouting e valorização de agentes.
 
+## Importações e sincronizações
+
+O painel mostra primeiro as rodadas pendentes encontradas em **Buscar rodadas disponíveis**. **Mostrar rodadas já sincronizadas** usa as marcações existentes para oferecer acesso ao histórico. Também é possível informar diretamente a temporada e a rodada para consultar seus resultados. **Fechar rodada** limpa a visualização atual. Os totais dos perfis continuam no banco do Market.
+
+Para publicar esta revisão:
+
+1. No Realtime Database da Jet League (`teste-jet`), acrescente `".indexOn": ["rodada", "temporada"]` dentro de `rules.liga.matches`, preservando as permissões e os demais índices existentes. O site então pede resultados por número da rodada e filtra a temporada escolhida. Sem esse índice, a consulta continua disponível por uma leitura pontual do histórico. **Buscar rodadas disponíveis** consulta a temporada informada e mostra as rodadas com partidas pendentes.
+2. No Realtime Database do Jet Market (`transfermarkt-545f7`), publique a validação de `settings/syncedMatches/$matchId` de `database.rules.json`, preservando qualquer regra específica já publicada. A validação impede que duas confirmações concorrentes gravem a mesma partida. Os totais e as marcações são escritos juntos. Não é necessário migrar as marcações antigas.
+
 ## Stack
 
 - Cloudflare Pages + GitHub

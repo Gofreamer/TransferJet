@@ -23,7 +23,7 @@
   const opened=()=>document.getElementById('adminPanel')?.classList.contains('open');
   function requireAdmin() { ProfileData.requireAdmin(); }
   function readValue(input) { return /checkbox|radio/.test(input.type) ? input.checked : input.type==='file' ? input.files.length : input.value; }
-  function editable(input) { return !input.disabled && input.type!=='search' && !/^(acFilter|adminValue|adminPhoto(Search|Club|Filter)|marketRestoreChoice|adminAuditRecord)/.test(input.id); }
+  function editable(input) { return !input.disabled && !input.closest('[data-ac-lookup]') && input.type!=='search' && !/^(acFilter|adminValue|adminPhoto(Search|Club|Filter)|marketRestoreChoice|adminAuditRecord)/.test(input.id); }
   function capture() {
     content()?.querySelectorAll('input,textarea,select').forEach(input=>{if(!baseline.has(input))baseline.set(input,readValue(input));});
   }

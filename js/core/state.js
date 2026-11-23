@@ -5,7 +5,6 @@ window.AppState = {
     rosters: {},
     teams: [],
     currentSeason: "Temporada 1",
-    matches: [],
     hallOfFame: {},
     lastUpdated: null
   },

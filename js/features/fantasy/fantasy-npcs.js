@@ -255,14 +255,14 @@ function createNpcParticipant(seed) {
   };
 }
 
-function buildNpcAIContext() {
+async function buildNpcAIContext() {
   const settings = fantasySettings();
   const roundId = settings.currentRoundId;
   const round = (window.AppState.fantasy?.rounds || {})[roundId] || {};
   const season = round.seasonId || settings.seasonId || window.AppState.jet?.currentSeason || null;
   const roundNumber = Number(round.rodadaNumber || 0);
   const matches = (typeof getMatchesForRound === "function" && roundNumber)
-    ? getMatchesForRound(season, roundNumber)
+    ? getMatchesForRound(season, roundNumber, await JetMatches.readRound(season, roundNumber).catch(() => ({})))
     : [];
 
   const agents = Object.values(fantasyPlayerMap())
@@ -334,7 +334,7 @@ async function generateNpcSquadWithAI(seed, context, budget) {
 
   const budgetCap = Number(budget ?? fantasySettings().budgetInitial ?? 5000000);
   const maxPerTeam = Number(fantasySettings().maxPerTeam || 2);
-  const ctx = context || buildNpcAIContext();
+  const ctx = context || await buildNpcAIContext();
 
   try {
     const strategy = window.FANTASY.STRATEGIES?.[seed.strategy];
@@ -381,7 +381,7 @@ Responda APENAS JSON válido, sem markdown e sem texto fora do JSON, neste forma
 
 async function buildNpcSquadSmart(seed, budget, context) {
   const budgetCap = Number(budget ?? fantasySettings().budgetInitial ?? 5000000);
-  const aiBuilt = await generateNpcSquadWithAI(seed, context || buildNpcAIContext(), budgetCap);
+  const aiBuilt = await generateNpcSquadWithAI(seed, context, budgetCap);
   if (aiBuilt) return { ...aiBuilt, source: "gemini" };
   const fallback = buildNpcSquad(seed.strategy, seed.superfanTeam, budgetCap);
   return { ...fallback, comment: null, source: "deterministic" };

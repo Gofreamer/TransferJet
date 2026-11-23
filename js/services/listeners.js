@@ -36,9 +36,9 @@
   window.startJetListeners = function () {
     const state = window.AppState;
     connection("jet", window.jetDb);
-    for (const field of ["rosters", "teams", "currentSeason", "matches", "hallOfFame"]) {
+    for (const field of ["rosters", "teams", "currentSeason", "hallOfFame"]) {
       listen("jet", window.jetDb, window.JET_PATHS[field], value => {
-        state.jet[field] = value || (field === "currentSeason" ? "Temporada 1" : field === "teams" || field === "matches" ? [] : {});
+        state.jet[field] = value || (field === "currentSeason" ? "Temporada 1" : field === "teams" ? [] : {});
         if (field === "rosters") state.ui.jetLoaded = true;
         state.jet.lastUpdated = Date.now();
         document.dispatchEvent(new CustomEvent("jet:updated"));

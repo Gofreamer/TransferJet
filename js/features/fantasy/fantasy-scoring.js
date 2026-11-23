@@ -5,7 +5,7 @@ function normalizeNameFX(n) {
   return String(n || "").trim().toLowerCase().replace(/\s+/g, " ");
 }
 
-function getMatchesForRound(season, roundNumber, source = window.AppState.jet.matches || []) {
+function getMatchesForRound(season, roundNumber, source = []) {
   const list = Object.entries(source).map(([id, match]) => match ? { ...match, id: match.id || id } : null);
   return list.filter(m => {
     if (!m) return false;
@@ -210,9 +210,9 @@ function scoreParticipantRound(participant, matches, opts = {}) {
 function processFantasyRound(roundMeta, participants, opts = {}) {
   const snapshot = roundMeta.snapshot;
   if (!snapshot) throw new Error("Escalação oficial ausente. Feche o mercado antes de processar.");
-  const season = roundMeta.seasonId;
+  const season = roundMeta.seasonId || snapshot.settings?.seasonId || window.AppState.jet.currentSeason;
   const roundNumber = roundMeta.rodadaNumber;
-  const matches = getMatchesForRound(season, roundNumber, opts.matches || window.AppState.jet.matches || []);
+  const matches = getMatchesForRound(season, roundNumber, opts.matches || []);
   opts = { scoreMode: snapshot.settings.scoreMode, zebraThreshold: snapshot.settings.zebraThreshold,
     playerMap: snapshot.players, teamValues: snapshot.teamValues, scoring: snapshot.scoring };
   const jetMatchIds = matches.map(m => m.id);

@@ -88,6 +88,14 @@
   }
 
   async function saveBatch(rows, meta = {}, extraUpdates = {}) {
+    const markerPrefix = "settings/syncedMatches/";
+    const ids = Object.keys(extraUpdates).filter(path => path.startsWith(markerPrefix)).map(path => path.slice(markerPrefix.length));
+    async function alreadySynced() {
+      const snapshot = await window.marketDb.ref("settings/syncedMatches").once("value");
+      const markers = snapshot.val() || {};
+      return ids.some(id => Object.hasOwn(markers, id));
+    }
+    const duplicateError = () => Error("Uma partida já foi sincronizada. Carregue a rodada novamente antes de confirmar.");
     const snap = await window.marketDb.ref("players").once("value");
     const players = snap.val() || {};
     const updates = { ...extraUpdates };
@@ -104,7 +112,14 @@
         else updates[`players/${row.key}/${field}`] = value;
       }
     });
-    if (Object.keys(updates).length) await window.marketDb.ref().update(updates);
+    if (!Object.keys(updates).length) return;
+    if (ids.length && await alreadySynced()) throw duplicateError();
+    try {
+      await window.marketDb.ref().update(updates);
+    } catch (error) {
+      if (ids.length && await alreadySynced().catch(() => false)) throw duplicateError();
+      throw error;
+    }
   }
 
   function resolveImportPlayer(players, { id, name, team }) {

@@ -500,7 +500,7 @@ async function fxAdminRebuildNpcs() {
   const updates = {};
   const activeNpcs = Object.entries(parts).filter(([, p]) => p && p.type === "npc" && p.active !== false);
   const budget = fantasySettings().budgetInitial || 5000000;
-  const context = typeof buildNpcAIContext === "function" ? buildNpcAIContext() : null;
+  const context = typeof buildNpcAIContext === "function" ? await buildNpcAIContext() : null;
   let aiCount = 0;
   let fallbackCount = 0;
 

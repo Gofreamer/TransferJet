@@ -67,7 +67,8 @@ async function prepareFantasyRound(id) {
   if (round.status === "PROCESSING") throw new Error("Esta rodada está em processamento.");
   if (round.status === "PROCESSED") return { round, result: null, alreadyProcessed: true };
   if (round.status !== "LOCKED") throw new Error("A rodada precisa estar fechada.");
-  const matches = (await window.jetDb.ref(window.JET_PATHS?.matches || "liga/matches").once("value")).val() || {};
+  const season = round.seasonId || round.snapshot.settings?.seasonId || window.AppState.jet.currentSeason;
+  const matches = await JetMatches.readRound(season, Number(round.rodadaNumber));
   const result = processFantasyRound(round, null, { matches });
   if (!result.matchesCount) throw new Error("Nenhuma série concluída com confrontos nesta rodada.");
   return { round, result };

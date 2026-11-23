@@ -41,6 +41,14 @@ const root = path.resolve(__dirname, '..');
       await context.route('**/*', async route => {
         const url = route.request().url();
         if (url.startsWith(origin + '/')) return route.continue();
+        if (url.startsWith('https://teste-jet-default-rtdb.firebaseio.com/liga/matches.json?')) {
+          const query = new URL(url).searchParams;
+          const field = JSON.parse(query.get('orderBy'));
+          const wanted = JSON.parse(query.get('equalTo'));
+          const matches = await page.evaluate(() => window.__mockData.jet.liga.matches);
+          const result = Object.fromEntries(Object.entries(matches).filter(([, match]) => (match[field] ?? null) === wanted));
+          return route.fulfill({ json: result, headers: { 'Access-Control-Allow-Origin': '*' } });
+        }
         if (url.includes('firebase-app-compat')) return route.fulfill({ contentType: 'text/javascript', body: `(${firebaseMock.toString()})();` });
         if (config.aiMode && url.endsWith('/12.16.0/firebase-app.js')) return route.fulfill({
           contentType: 'text/javascript', headers: { 'Access-Control-Allow-Origin': '*' },
@@ -87,10 +95,10 @@ const root = path.resolve(__dirname, '..');
       assert.equal(await page.locator('.profile-meta .tag.titular, .profile-meta .tag.reserva, .profile-meta .tag.emergencia').count(),0);
       assert.equal(await page.evaluate(()=>__mockData.market.players.Alpha_Alice.status),'aposentado');
     }, {players:{Alpha_Alice:{name:'Alice',status:'aposentado',marketValue:20000000}}});
-    async function screenshot(page, name) {
+    async function screenshot(page, name, fullPage = true) {
       if (!process.env.SCREENSHOT_DIRECTORY) return;
       await fs.mkdir(process.env.SCREENSHOT_DIRECTORY, { recursive: true });
-      await page.screenshot({ path: path.join(process.env.SCREENSHOT_DIRECTORY, name + '.png'), fullPage: true, animations: 'disabled' });
+      await page.screenshot({ path: path.join(process.env.SCREENSHOT_DIRECTORY, name + '.png'), fullPage, animations: 'disabled' });
     }
     async function noOverflow(page) {
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true, 'A página não deve transbordar horizontalmente');
@@ -416,6 +424,44 @@ const root = path.resolve(__dirname, '..');
       assert.equal(await page.evaluate(() => Market.events(AppState.market.players.Alpha_Alice)[0].source), 'import');
     }, { admin:true, expectedWrites: 2 });
 
+    await scenario('Sincronização carrega a rodada sob demanda, arquiva a concluída e bloqueia repetição', async page => {
+      await ready(page, '?player=Alpha_Alice');
+      assert.equal(await page.evaluate(() => __mockSubscriptions.some(item => item.path === 'liga/matches')), false);
+      await page.evaluate(() => {
+        __mockData.jet.liga.matches = {
+          previous: { id: 'previous', temporada: 'T2', rodada: 1, timeA: 'Alpha', timeB: 'Beta', scoreA: 1, scoreB: 0, fights: [{ teamA: ['Alice'], teamB: ['Bob'], winner: 'A' }] },
+          pending: { id: 'pending', temporada: 'T2', rodada: 2, timeA: 'Alpha', timeB: 'Beta', scoreA: 1, scoreB: 0, fights: [{ teamA: ['Alice'], teamB: ['Bob'], winner: 'A' }] }
+        };
+        openAdmin();
+        renderAdminPanel('import');
+      });
+      await page.locator('#syncDiscover').click();
+      const choices = page.locator('#syncRoundChoices');
+      await choices.getByRole('button', { name: 'Rodada 2 · pendente' }).click();
+      await page.getByRole('button', { name: 'Revisar alterações' }).click();
+      assert.equal(await page.locator('#aiReviewBody tbody tr').count(), 2);
+      await page.locator('#aiReviewOverlay .review-actions .btn-primary').click();
+      await page.waitForFunction(() => __mockData.market.settings.syncedMatches.pending?.round === 2);
+      assert.equal(await page.evaluate(() => __mockData.market.players.Alpha_Alice.stats.V), 9);
+      assert.equal(await page.evaluate(() => __mockData.market.players.Alpha_Alice.marketValue), 20000000);
+      assert.equal(await choices.getByRole('button').count(), 0);
+      await page.locator('#syncMatchList').getByText('Já sincronizada', { exact: false }).waitFor();
+      await page.getByRole('button', { name: 'Fechar rodada' }).click();
+      assert.equal(await page.locator('#syncMatchList li').count(), 0);
+      await page.locator('#syncShowArchived').check();
+      assert.equal(await page.locator('#adminPending').isHidden(), true);
+      await choices.getByRole('button', { name: 'Rodada 2 · já sincronizada' }).click();
+      await page.locator('#syncMatchList').getByText('Já sincronizada', { exact: false }).waitFor();
+      assert.equal(await page.getByRole('button', { name: 'Revisar alterações' }).count(), 0);
+      await noOverflow(page);
+      await page.locator('#adminBox').evaluate(el => { el.scrollTop = 0; });
+      await screenshot(page, 'sincronizacao-rodada-arquivada', false);
+      await page.setViewportSize({ width: 390, height: 820 });
+      await page.locator('#syncLeagueHeading').scrollIntoViewIfNeeded();
+      await noOverflow(page);
+      await screenshot(page, 'sincronizacao-mobile', false);
+    }, { admin: true, expectedWrites: 1, settings: { syncedMatches: { previous: { season: 'T2', round: 1 } } } });
+
     await scenario('carreira considera somente transferências oficiais identificadas', async page => {
       await ready(page, '?player=Alpha_Alice');
       assert.equal(await page.locator('.transfer-timeline li').count(), 1);
@@ -550,7 +596,7 @@ const root = path.resolve(__dirname, '..');
 
     await scenario('Otimização: Fantasy sob demanda, atualizações agrupadas e nick preservado durante digitação', async page => {
       await ready(page);
-      assert.equal(await page.evaluate(() => __mockSubscriptions.length), 11, 'Fantasy não lê ao abrir mercado');
+      assert.equal(await page.evaluate(() => __mockSubscriptions.length), 10, 'Fantasy não lê ao abrir mercado');
       await page.evaluate(() => {
         window.__paints = 0; const refresh = AppRouter.refresh;
         AppRouter.refresh = (...args) => { window.__paints++; return refresh(...args); };
@@ -572,7 +618,7 @@ const root = path.resolve(__dirname, '..');
       await page.locator('#fxContent').getByRole('button', { name: 'Entrar', exact: true }).click();
       assert.equal(await page.evaluate(() => getMyFantasyParticipant().displayName), 'Richard');
       await page.evaluate(() => { showFantasyView('market'); showFantasyView('squad'); });
-      assert.equal(await page.evaluate(() => __mockSubscriptions.length), 16);
+      assert.equal(await page.evaluate(() => __mockSubscriptions.length), 15);
       await page.evaluate(() => stopDataListeners());
       assert.equal(await page.evaluate(() => __mockSubscriptions.length), 0);
     });
@@ -581,7 +627,7 @@ const root = path.resolve(__dirname, '..');
       await ready(page);
       await page.evaluate(() => { openAdmin(); renderAdminPanel('fantasy'); });
       await page.waitForSelector('#fxBudget');
-      assert.equal(await page.evaluate(() => __mockSubscriptions.length), 16);
+      assert.equal(await page.evaluate(() => __mockSubscriptions.length), 15);
       await page.locator('#fxBudget').fill('3500000');
       await page.evaluate(() => __mockEmit());
       await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
@@ -593,11 +639,11 @@ const root = path.resolve(__dirname, '..');
       await ready(page, '?fantasy=hub');
       await page.waitForSelector('#fxContent .fx-state-card');
       assert.match(await page.locator('#fxContent').innerText(), /Não foi possível carregar/);
-      assert.equal(await page.evaluate(() => __mockSubscriptions.length), 15);
+      assert.equal(await page.evaluate(() => __mockSubscriptions.length), 14);
       await page.evaluate(() => { __testConfig.fantasyDenied = false; });
       await page.locator('#fxContent').getByRole('button', { name: 'Tentar novamente' }).click();
       await page.waitForSelector('.fx-hub');
-      assert.equal(await page.evaluate(() => __mockSubscriptions.length), 16);
+      assert.equal(await page.evaluate(() => __mockSubscriptions.length), 15);
       await noOverflow(page);
     }, { fantasyDenied: true }, { width: 320, height: 740 });
 
