@@ -429,7 +429,7 @@ const root = path.resolve(__dirname, '..');
       assert.equal(await page.evaluate(() => __mockSubscriptions.some(item => item.path === 'liga/matches')), false);
       await page.evaluate(() => {
         __mockData.jet.liga.matches = {
-          previous: { id: 'previous', temporada: 'T2', rodada: 1, timeA: 'Alpha', timeB: 'Beta', scoreA: 1, scoreB: 0, fights: [{ teamA: ['Alice'], teamB: ['Bob'], winner: 'A' }] },
+          previous: { id: 'previous', temporada: 'T1', rodada: 1, timeA: 'Alpha', timeB: 'Beta', scoreA: 1, scoreB: 0, fights: [{ teamA: ['Alice'], teamB: ['Bob'], winner: 'A' }] },
           pending: { id: 'pending', temporada: 'T2', rodada: 2, timeA: 'Alpha', timeB: 'Beta', scoreA: 1, scoreB: 0, fights: [{ teamA: ['Alice'], teamB: ['Bob'], winner: 'A' }] }
         };
         openAdmin();
@@ -450,7 +450,11 @@ const root = path.resolve(__dirname, '..');
       assert.equal(await page.locator('#syncMatchList li').count(), 0);
       await page.locator('#syncShowArchived').check();
       assert.equal(await page.locator('#adminPending').isHidden(), true);
-      await choices.getByRole('button', { name: 'Rodada 2 · já sincronizada' }).click();
+      const oldSeason = choices.getByRole('group', { name: 'T1' });
+      await oldSeason.getByRole('button', { name: 'Rodada 1 · já sincronizada' }).click();
+      assert.equal(await page.locator('#syncSeason').inputValue(), 'T1');
+      await page.locator('#syncMatchList').getByText('Já sincronizada', { exact: false }).waitFor();
+      await choices.getByRole('group', { name: 'T2' }).getByRole('button', { name: 'Rodada 2 · já sincronizada' }).click();
       await page.locator('#syncMatchList').getByText('Já sincronizada', { exact: false }).waitFor();
       assert.equal(await page.getByRole('button', { name: 'Revisar alterações' }).count(), 0);
       await noOverflow(page);
@@ -460,7 +464,7 @@ const root = path.resolve(__dirname, '..');
       await page.locator('#syncLeagueHeading').scrollIntoViewIfNeeded();
       await noOverflow(page);
       await screenshot(page, 'sincronizacao-mobile', false);
-    }, { admin: true, expectedWrites: 1, settings: { syncedMatches: { previous: { season: 'T2', round: 1 } } } });
+    }, { admin: true, expectedWrites: 1, settings: { syncedMatches: { previous: { season: 'T1', round: 1 } } } });
 
     await scenario('carreira considera somente transferências oficiais identificadas', async page => {
       await ready(page, '?player=Alpha_Alice');

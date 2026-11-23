@@ -10,48 +10,84 @@
     if (!seasonInput.dataset.edited) seasonInput.value = current || "";
 
     const markers = getSyncedMatchMap();
-    const entries = Object.entries(markers).filter(([, marker]) => marker?.season);
-    const seasons = new Set([current, ...entries.map(([, marker]) => marker.season)]);
+    const archived = new Map();
+    const addArchived = (name, value) => {
+      if (!name || value == null || value === "") return;
+      const round = Number(value);
+      if (!Number.isSafeInteger(round) || round < 0) return;
+      if (!archived.has(name)) archived.set(name, new Set());
+      archived.get(name).add(round);
+    };
+    const seasons = new Set([current]);
+    for (const marker of Object.values(markers)) {
+      if (!marker?.season) continue;
+      seasons.add(marker.season);
+      addArchived(marker.season, marker.round);
+    }
+
     const season = seasonInput.value.trim();
-    const rounds = new Set();
-    const pending = new Set();
-
-    for (const [, marker] of entries) {
-      if (marker.season === season && marker.round != null) rounds.add(Number(marker.round));
-    }
     const catalog = form.catalog.get(season);
-    for (const match of catalog || []) {
-      if (match.syncable && !Object.hasOwn(markers, match.id)) pending.add(match.round);
-      else if (Object.hasOwn(markers, match.id)) rounds.add(match.round);
+    const pending = new Set();
+    for (const [name, matches] of form.catalog) {
+      seasons.add(name);
+      for (const match of matches) {
+        if (Object.hasOwn(markers, match.id)) addArchived(name, match.round);
+        else if (name === season && match.syncable) pending.add(match.round);
+      }
     }
 
-    for (const name of form.catalog.keys()) seasons.add(name);
+    const compareSeasons = (a, b) => b.localeCompare(a, "pt-BR", { numeric: true });
     const seasonList = locate("syncSeasons");
-    seasonList.replaceChildren(...[...seasons].filter(Boolean).sort((a, b) => b.localeCompare(a, "pt-BR", { numeric: true }))
-      .map(name => new Option(name, name)));
+    seasonList.replaceChildren(...[...seasons].filter(Boolean).sort(compareSeasons).map(name => new Option(name, name)));
 
     const list = locate("syncRoundChoices");
-    list.replaceChildren();
-    const showArchived = locate("syncShowArchived").checked;
-    const visible = new Set([...pending, ...(showArchived ? rounds : [])]);
-    [...visible].sort((a, b) => b - a).forEach(round => {
-      if (!Number.isSafeInteger(round) || round < 0) return;
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "btn-gray btn-sm";
-      button.textContent = roundLabel(round) + (pending.has(round) ? " · pendente" : " · já sincronizada");
-      button.addEventListener("click", () => {
-        locate("syncRound").value = round;
-        void lookup();
-      });
-      list.append(button);
-    });
-    if (showArchived && !visible.size) list.textContent = "Nenhuma rodada sincronizada nesta temporada.";
+    list.replaceChildren(...[...pending].sort((a, b) => b - a)
+      .map(round => roundButton(season, round, "pendente")));
+
+    if (locate("syncShowArchived").checked) {
+      for (const name of [...archived.keys()].sort(compareSeasons)) {
+        const rounds = [...archived.get(name)].filter(round => name !== season || !pending.has(round)).sort((a, b) => b - a);
+        if (!rounds.length) continue;
+        const group = document.createElement("fieldset");
+        group.className = "sync-mode sync-archive-group";
+        const label = document.createElement("legend");
+        label.textContent = name;
+        const choices = document.createElement("div");
+        choices.className = "sync-round-choices";
+        choices.append(...rounds.map(round => roundButton(name, round, "já sincronizada")));
+        group.append(label, choices);
+        list.append(group);
+      }
+      if (!list.querySelector("fieldset")) {
+        const empty = document.createElement("p");
+        empty.textContent = "Nenhuma rodada arquivada.";
+        list.append(empty);
+      }
+    }
     if (catalog) {
       locate("syncCatalogStatus").textContent = pending.size
         ? `${pending.size} rodada(s) com partidas pendentes nesta temporada.`
         : "Nenhuma rodada pendente nesta temporada.";
     }
+  }
+
+  function roundButton(season, round, status) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "btn-gray btn-sm";
+    button.textContent = roundLabel(round) + " · " + status;
+    button.addEventListener("click", () => {
+      if (locate("syncLoad").disabled) return;
+      const seasonInput = locate("syncSeason");
+      if (seasonInput.value.trim() !== season) {
+        seasonInput.dataset.edited = "true";
+        seasonInput.value = season;
+        locate("syncCatalogStatus").textContent = "";
+      }
+      locate("syncRound").value = round;
+      void lookup();
+    });
+    return button;
   }
 
   function roundLabel(round) {
@@ -107,6 +143,7 @@
         return;
       }
       form.selection = { matches, season, round };
+      updateOptions();
       renderMatches(form.selection);
     } catch (error) {
       status.textContent = "Falha ao carregar partidas. " + error.message;
@@ -121,7 +158,8 @@
     const pending = matches.filter(match => canSync(match) && !isSynced(match.id));
     const list = locate("syncMatchList");
     const status = locate("syncStatus");
-    list.replaceChildren();    status.textContent = `${season} · ${roundLabel(round)} · ${pending.length} de ${matches.length} partida(s) pendente(s).`;
+    list.replaceChildren();
+    status.textContent = `${season} · ${roundLabel(round)} · ${pending.length} de ${matches.length} partida(s) pendente(s).`;
     const items = document.createElement("ul");
     for (const match of matches) {
       const item = document.createElement("li");

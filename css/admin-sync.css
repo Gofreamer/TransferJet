@@ -74,6 +74,8 @@
   color: var(--text-muted);
   font-size: 12px;
 }
+.sync-archive-group { flex-basis: 100%; margin: 6px 0 0; }
+.sync-archive-group .sync-round-choices { margin-top: 0; }
 .sync-status { margin-top: 10px; }
 .sync-status:empty,
 .sync-round-choices:empty { display: none; }
